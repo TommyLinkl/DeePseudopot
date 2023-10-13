@@ -313,3 +313,27 @@ class Net_relu_xavier_BN_dropout_decay(nn.Module):
         mathematical_function_output = self.mathematical_function(x[x > 10].view(-1, 1))
         output = torch.cat((neural_network_output, mathematical_function_output), dim=0)
         return output
+    
+
+# this model accepts a vector for the layers, i.e. [inp, hidden1, hidden2,...hiddenM,out]
+# with Relu activation / Xavier intialization
+class Net_relu_xavier(nn.Module):
+    # Constructor
+    def __init__(self, Layers):
+        super(Net_relu_xavier, self).__init__()
+        self.hidden_l = nn.ModuleList()
+
+        for input_size, output_size in zip(Layers, Layers[1:]):
+            linear = nn.Linear(input_size, output_size)
+            torch.nn.init.xavier_normal_(linear.weight)
+            self.hidden_l.append(linear)
+    # Prediction
+    def forward(self, x):
+        L = len(self.hidden_l)
+        for (l, linear_transform) in zip(range(L), self.hidden_l):
+            if l < L - 1:
+                x = torch.relu(linear_transform(x))
+            else:
+                x = linear_transform(x)
+        return x
+    
