@@ -337,3 +337,27 @@ class Net_relu_xavier(nn.Module):
                 x = linear_transform(x)
         return x
     
+class Net_relu_xavier_decay1(nn.Module):
+    def __init__(self, Layers, decay_rate, decay_center):
+        super(Net_relu_xavier_decay1, self).__init__()
+        self.neural_network = Net_relu_xavier(Layers)
+        self.decay_rate = nn.Parameter(torch.tensor(decay_rate, dtype=torch.float64))
+        self.decay_center = nn.Parameter(torch.tensor(decay_center, dtype=torch.float64))
+    
+    def decay_function(self, x):
+        return 1 - 1 / (1 + torch.exp(-self.decay_rate * (x - self.decay_center)))
+    
+    def forward(self, x):
+        decay = self.decay_function(x)
+        output = self.neural_network(x) * decay
+        return output
+    
+class Net_relu_xavier_decay2(nn.Module):
+    def __init__(self, Layers):
+        super(Net_relu_xavier_decay2, self).__init__()
+        self.neural_network = Net_relu_xavier(Layers)
+    
+    def forward(self, x):
+        decay = 1 - 1 / (1 + torch.exp(-1.5 * (x - 6)))
+        output = self.neural_network(x) * decay
+        return output
