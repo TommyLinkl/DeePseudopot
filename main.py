@@ -11,7 +11,7 @@ from torch.optim.lr_scheduler import ExponentialLR
 
 from constants.constants import *
 from utils.nn_models import Net_relu_xavier, Net_relu_xavier_decay1, Net_relu_xavier_decay2
-from data.read import bulkSystem
+from utils.read import bulkSystem
 from utils.pp_func import pot_func, realSpacePot, plotBandStruct, plotPP, plot_training_validation_cost, FT_converge_and_write_pp
 from utils.bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
 from utils.init_NN_train import init_Zunger_data, init_Zunger_weighted_mse, init_Zunger_train_GPU
@@ -59,9 +59,8 @@ print(atomPPOrder)
 
 
 # Set up NN accordingly
-# PPmodel = nn_models.Net_relu_xavier_BN_dropout_decay([1, 20, 20, 20, 2])
-# PPmodel = nn_models.Net_relu_xavier([1, 20, 20, 20, 2])
-# PPmodel = nn_models.Net_relu_xavier_decay1([1, 20, 20, 20, 2], 1.5, 6)
+# PPmodel = Net_relu_xavier([1, 20, 20, 20, 2])
+# PPmodel = Net_relu_xavier_decay1([1, 20, 20, 20, 2], 1.5, 6)
 PPmodel = Net_relu_xavier_decay2([1, 20, 20, 20, nPseudopot])
 
 # Set up datasets accordingly
@@ -79,7 +78,7 @@ for atomType in atomPPOrder:
 print(totalParams)
 
 
-############# Initialize the NN ############# 
+############# Initialize the NN #############
 print("\n############################################\nInitializing the NN by fitting to the latest function form of pseudopotentials. ")
 train_dataset = init_Zunger_data(atomPPOrder, totalParams, True)
 val_dataset = init_Zunger_data(atomPPOrder, totalParams, False)
@@ -87,7 +86,7 @@ val_dataset = init_Zunger_data(atomPPOrder, totalParams, False)
 # TODO
 '''
 fig, axs = plt.subplots(1,1, figsize=(5,5))
-Cd_rSpacePot_data = np.loadtxt("../all_Sept13/potCd.par")
+Cd_rSpacePot_data = np.loadtxt("all_Sept13/potCd.par")
 axs.plot(Cd_rSpacePot_data[:,0], Cd_rSpacePot_data[:,1], "kx", label="Data from earlier PP, 0<q<5")
 cmap = plt.get_cmap('rainbow')
 qmax = np.array([1.0, 2.0, 5.0, 10.0, 20.0, 30.0])
