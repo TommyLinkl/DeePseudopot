@@ -66,11 +66,11 @@ def BandStruct_train_GPU(model, device, bulkSystem_list, atomPPOrder, totalParam
             print(f'Epoch [{epoch+1}/{max_epochs}], Loss: {loss.item():.4f}')
                         
             model.cpu()
-            fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, model(val_dataset.q), "ZungerForm", f"NN_{epoch+1}", ["-", ":", "-", ":"], True, SHOWPLOTS);
+            fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, model(val_dataset.q), "ZungerForm", f"NN_{epoch+1}", ["-",":" ]*len(atomPPOrder), True, SHOWPLOTS);
             fig.savefig('results/epoch_%d_plotPP.png' % epoch)
             model.to(device)
             
-            fig = plotBandStruct(len(bulkSystem_list), plot_bandStruct_list, ["bo", "r-"], ["Reference zbCdSe", "NN_"+str(epoch)], SHOWPLOTS)
+            fig = plotBandStruct([x.systemName for x in bulkSystem_list], plot_bandStruct_list, SHOWPLOTS)
             fig.savefig('results/epoch_%d_plotBS.png' % epoch)
             torch.save(model.state_dict(), 'results/epoch_%d_PPmodel.pth' % epoch)
             

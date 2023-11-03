@@ -22,11 +22,13 @@ This directory includes classes and functions called by ``main.py``.
     - ``init_NN_train.py``: initialized the neural network by fitting to the latest function form of the pseudopotentials. 
     - ``NN_train.py``: trains the neural network by minimizing the loss with respect to the reference band structures. 
 
-- ``data/``  
+- ``inputs/``  
 This directory contains sample input data for running the code, including semiconductor system configurations, expected band structures, k-point inputs, latest parameters for the pseudopotential function form, etc.   
 
+I have done testing on two calculations: 1. ZB_CdSe and 2. InAs, InP, GaAs, GaP systems. Please move the inputs from each folder into the parent ``input/`` directory before running the code for testing. 
+
 - ``results/``  
-This directory contains results from the code by running with the sample input data.   
+This directory contains results from the code by running with the sample input data. For reference, results for the two sample runs are collected in separate folders. 
 
 - ``zbCdSe_fitting_numpy.ipynb``
 A testing Jupyter notebook script that calculates the zinc-blende CdSe band structure from the Zunger pseudopotential form via numpy. 
@@ -37,3 +39,9 @@ A testing Jupyter notebook script that uses a neural network to fit the band str
 ## Theory background
 
 xxx
+
+## TODO
+
+- Add NN hyperparameter optimization (Maybe through RayTune)
+
+- Parallelize across multiple (x4 for Perlmutter) GPUs / multiple GPU cores

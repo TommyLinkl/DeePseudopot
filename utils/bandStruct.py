@@ -33,6 +33,7 @@ def calcHamiltonianMatrix_GPU(NN_boolean, model, basisStates, atomPos, atomTypes
         thisAtomIndex = thisAtomIndex[0]
         
         if NN_boolean: 
+            # print(torch.norm(gDiff, dim=2).view(-1, 1).shape)
             atomFF = model(torch.norm(gDiff, dim=2).view(-1, 1))
             atomFF = atomFF[:, thisAtomIndex].view(n, n)
         else: 

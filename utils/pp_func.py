@@ -35,43 +35,70 @@ def realSpacePot(vq, qSpacePot, nRGrid, rmax=25):
 
     return (vr.view(-1,1), rSpacePot.view(-1,1))
 
-def plotBandStruct(nSystem, bandStruct_array, marker_array, label_array, SHOWPLOTS): 
-    # The inputs bandStruct_array, marker_array, label_array are arrays of tensors. They should be ordered as: 
+def plotBandStruct(systemNames, bandStruct_list, SHOWPLOTS): 
+    # The input bandStruct_list is a list of tensors. They should be ordered as: 
     # ref_system1, predict_system1, ref_system2, predict_system2, ..., ref_systemN, predict_systemN
+    nSystem = len(systemNames)
+    if (len(bandStruct_list)!=2*nSystem): 
+        raise ValueError("The lengths of bandStruct_list do not match the expected values.")
+
     if nSystem == 1:
         fig, axs = plt.subplots(1, 2, figsize=(9, 4))
-        for bandStructIndex in range(2): 
-            numBands = len(bandStruct_array[bandStructIndex][0])
-            numKpts = len(bandStruct_array[bandStructIndex])
+        for iSystem in range(nSystem): 
+            # plot ref
+            numBands = len(bandStruct_list[iSystem][0])
+            numKpts = len(bandStruct_list[iSystem])
             for i in range(numBands): 
                 if i==0: 
-                    axs[0].plot(np.arange(numKpts), bandStruct_array[bandStructIndex][:, i].detach().numpy(), marker_array[bandStructIndex], label=label_array[bandStructIndex])
-                    axs[1].plot(np.arange(numKpts), bandStruct_array[bandStructIndex][:, i].detach().numpy(), marker_array[bandStructIndex], label=label_array[bandStructIndex])
+                    axs[0].plot(np.arange(numKpts), bandStruct_list[iSystem][:, i].detach().numpy(), "bo", label="Reference")
+                    axs[1].plot(np.arange(numKpts), bandStruct_list[iSystem][:, i].detach().numpy(), "bo", label="Reference")
                 else: 
-                    axs[0].plot(np.arange(numKpts), bandStruct_array[bandStructIndex][:, i].detach().numpy(), marker_array[bandStructIndex])
-                    axs[1].plot(np.arange(numKpts), bandStruct_array[bandStructIndex][:, i].detach().numpy(), marker_array[bandStructIndex])
-        axs[0].legend(frameon=False)
-        axs[1].set(ylim=(-8, -2))
-        axs[0].get_xaxis().set_ticks([0, 20, 40, 45, 60])
-        axs[0].get_xaxis().set_ticklabels(["L", r"$\Gamma$", "X", "K", r"$\Gamma$"])
-        axs[1].get_xaxis().set_ticks([0, 20, 40, 45, 60])
-        axs[1].get_xaxis().set_ticklabels(["L", r"$\Gamma$", "X", "K", r"$\Gamma$"])
+                    axs[0].plot(np.arange(numKpts), bandStruct_list[iSystem][:, i].detach().numpy(), "bo")
+                    axs[1].plot(np.arange(numKpts), bandStruct_list[iSystem][:, i].detach().numpy(), "bo")
+                    
+            # plot prediction
+            numBands = len(bandStruct_list[iSystem+1][0])
+            numKpts = len(bandStruct_list[iSystem+1])
+            for i in range(numBands): 
+                if i==0: 
+                    axs[0].plot(np.arange(numKpts), bandStruct_list[iSystem+1][:, i].detach().numpy(), "r-", label="NN prediction")
+                    axs[1].plot(np.arange(numKpts), bandStruct_list[iSystem+1][:, i].detach().numpy(), "r-", label="NN prediction")
+                else: 
+                    axs[0].plot(np.arange(numKpts), bandStruct_list[iSystem+1][:, i].detach().numpy(), "r-")
+                    axs[1].plot(np.arange(numKpts), bandStruct_list[iSystem+1][:, i].detach().numpy(), "r-")
+            axs[0].legend(frameon=False)
+            axs[1].set(ylim=(-8, -2), title=systemNames[iSystem])
+            axs[0].get_xaxis().set_ticks([0, 20, 40, 45, 60])
+            axs[0].get_xaxis().set_ticklabels(["L", r"$\Gamma$", "X", "K", r"$\Gamma$"])
+            axs[1].get_xaxis().set_ticks([0, 20, 40, 45, 60])
+            axs[1].get_xaxis().set_ticklabels(["L", r"$\Gamma$", "X", "K", r"$\Gamma$"])
         
     else:
         fig, axs = plt.subplots(nSystem, 2, figsize=(9, 4 * nSystem))
         for iSystem in range(nSystem): 
-            for bandStructIndex in range(iSystem, iSystem+2): 
-                numBands = len(bandStruct_array[bandStructIndex][0])
-                numKpts = len(bandStruct_array[bandStructIndex])
-                for i in range(numBands): 
-                    if i==0: 
-                        axs[iSystem, 0].plot(np.arange(numKpts), bandStruct_array[bandStructIndex][:, i].detach().numpy(), marker_array[bandStructIndex], label=label_array[bandStructIndex])
-                        axs[iSystem, 1].plot(np.arange(numKpts), bandStruct_array[bandStructIndex][:, i].detach().numpy(), marker_array[bandStructIndex], label=label_array[bandStructIndex])
-                    else: 
-                        axs[iSystem, 0].plot(np.arange(numKpts), bandStruct_array[bandStructIndex][:, i].detach().numpy(), marker_array[bandStructIndex])
-                        axs[iSystem, 1].plot(np.arange(numKpts), bandStruct_array[bandStructIndex][:, i].detach().numpy(), marker_array[bandStructIndex])
+            # plot ref
+            numBands = len(bandStruct_list[iSystem][0])
+            numKpts = len(bandStruct_list[iSystem])
+            for i in range(numBands): 
+                if i==0: 
+                    axs[iSystem, 0].plot(np.arange(numKpts), bandStruct_list[iSystem][:, i].detach().numpy(), "bo", label="Reference")
+                    axs[iSystem, 1].plot(np.arange(numKpts), bandStruct_list[iSystem][:, i].detach().numpy(), "bo", label="Reference")
+                else: 
+                    axs[iSystem, 0].plot(np.arange(numKpts), bandStruct_list[iSystem][:, i].detach().numpy(), "bo")
+                    axs[iSystem, 1].plot(np.arange(numKpts), bandStruct_list[iSystem][:, i].detach().numpy(), "bo")
+                    
+            # plot prediction
+            numBands = len(bandStruct_list[iSystem+1][0])
+            numKpts = len(bandStruct_list[iSystem+1])
+            for i in range(numBands): 
+                if i==0: 
+                    axs[iSystem, 0].plot(np.arange(numKpts), bandStruct_list[iSystem+1][:, i].detach().numpy(), "r-", label="NN prediction")
+                    axs[iSystem, 1].plot(np.arange(numKpts), bandStruct_list[iSystem+1][:, i].detach().numpy(), "r-", label="NN prediction")
+                else: 
+                    axs[iSystem, 0].plot(np.arange(numKpts), bandStruct_list[iSystem+1][:, i].detach().numpy(), "r-")
+                    axs[iSystem, 1].plot(np.arange(numKpts), bandStruct_list[iSystem+1][:, i].detach().numpy(), "r-")
             axs[iSystem, 0].legend(frameon=False)
-            axs[iSystem, 1].set(ylim=(-8, -2))
+            axs[iSystem, 1].set(ylim=(-8, -2), title=systemNames[iSystem])
             axs[iSystem, 0].get_xaxis().set_ticks([0, 20, 40, 45, 60])
             axs[iSystem, 0].get_xaxis().set_ticklabels(["L", r"$\Gamma$", "X", "K", r"$\Gamma$"])
             axs[iSystem, 1].get_xaxis().set_ticks([0, 20, 40, 45, 60])
@@ -188,7 +215,7 @@ def FT_converge_and_write_pp(atomPPOrder, qmax_array, nQGrid_array, nRGrid_array
     
     choiceQGrid = torch.linspace(0.0, choiceQMax, choiceNQGrid).view(-1, 1)
     NN = model(choiceQGrid)
-    fig = plotPP(atomPPOrder, val_dataset.q, choiceQGrid, val_dataset.vq_atoms, NN, "ZungerForm", "NN", ["-", ":", "-", ":"], False, SHOWPLOTS);
+    fig = plotPP(atomPPOrder, val_dataset.q, choiceQGrid, val_dataset.vq_atoms, NN, "ZungerForm", "NN", ["-",":" ]*len(atomPPOrder), False, SHOWPLOTS);
     fig.savefig(ppPlotFilePrefix+".png") 
     for iAtom in range(len(atomPPOrder)):
         (vr, rSpacePot) = realSpacePot(choiceQGrid.view(-1), NN[:, iAtom].view(-1), choiceNRGrid)

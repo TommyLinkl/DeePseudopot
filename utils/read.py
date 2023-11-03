@@ -6,6 +6,26 @@ from constants.constants import *
 torch.set_default_dtype(torch.float32)
 torch.manual_seed(24)
 
+def read_NNConfigFile(filename):
+    config = {}
+    with open(filename, 'r') as file:
+        for line in file:
+            if '=' in line:
+                key, value = line.strip().split('=')
+                key = key.strip()
+                value = value.strip()
+                if key == 'SHOWPLOTS':
+                    config[key] = bool(int(value))
+                elif key in ['nSystem', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience']:
+                    config[key] = int(value)
+                elif key in ['init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma']:
+                    config[key] = float(value)
+                elif key in ['hiddenLayers']: 
+                    config[key] = [int(x) for x in value.split()]
+                else:
+                    config[key] = value
+    return config
+
 class bulkSystem:
     def __init__(self, scale=1.0, unitCellVectors_unscaled=None, atomTypes=None, atomPos_unscaled=None, kpts_recipLatVec=None, expBandStruct=None, nBands=16, maxKE=5):
         if unitCellVectors_unscaled is None:
@@ -88,6 +108,7 @@ class bulkSystem:
         self.unitCellVectors = scale * torch.tensor(cell)
         self.atomTypes = np.array(atomTypes).flatten()
         self.atomPos = torch.tensor(atomCoords) @ self.unitCellVectors
+        self.systemName = ''.join(self.atomTypes)
     
     def setKPoints(self, kPointsFilename):
         try:

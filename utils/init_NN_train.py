@@ -80,7 +80,7 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
                 plot_vq_atoms = vq_atoms.cpu()
                 plot_pred_outputs = pred_outputs.cpu()
                 print(f'Epoch [{epoch+1}/{epochs}], Validation Loss: {loss.item():.4f}')
-                plotPP(atomPPOrder, plot_q, plot_q, plot_vq_atoms, plot_pred_outputs, "ZungerForm", f"NN_{epoch+1}", ["-", ":", "-", ":"], True, SHOWPLOTS)
+                plotPP(atomPPOrder, plot_q, plot_q, plot_vq_atoms, plot_pred_outputs, "ZungerForm", f"NN_{epoch+1}", ["-",":" ]*len(atomPPOrder), True, SHOWPLOTS)
                 
         validation_cost.append(val_cost)
     plot_training_validation_cost(training_cost, validation_cost, True, SHOWPLOTS)
