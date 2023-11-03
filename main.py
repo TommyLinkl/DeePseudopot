@@ -36,10 +36,10 @@ print("############################################\nReading and setting up the 
 atomPPOrder = []
 systems = [bulkSystem() for _ in range(nSystem)]
 for iSys in range(nSystem): 
-    systems[iSys].setSystem("data/system_%d.par" % iSys)
-    systems[iSys].setInputs("data/input_%d.par" % iSys)
-    systems[iSys].setKPoints("data/kpoints_%d.par" % iSys)
-    systems[iSys].setExpBS("data/expBandStruct_%d.par" % iSys)
+    systems[iSys].setSystem("inputs/system_%d.par" % iSys)
+    systems[iSys].setInputs("inputs/input_%d.par" % iSys)
+    systems[iSys].setKPoints("inputs/kpoints_%d.par" % iSys)
+    systems[iSys].setExpBS("inputs/expBandStruct_%d.par" % iSys)
     
     bandWeights=torch.ones(systems[iSys].nBands)
     bandWeights[4:8] = 5.0
@@ -66,7 +66,7 @@ PPmodel = Net_relu_xavier_decay2([1, 20, 20, 20, nPseudopot])
 # Set up datasets accordingly
 totalParams = torch.empty(0, 5)
 for atomType in atomPPOrder: 
-    file_path = 'data/init_'+atomType+'Params.par'
+    file_path = 'inputs/init_'+atomType+'Params.par'
     if os.path.isfile(file_path):
         print(atomType + " is being initialized to the function form as stored in " + file_path)
         with open(file_path, 'r') as file:
@@ -82,27 +82,6 @@ print(totalParams)
 print("\n############################################\nInitializing the NN by fitting to the latest function form of pseudopotentials. ")
 train_dataset = init_Zunger_data(atomPPOrder, totalParams, True)
 val_dataset = init_Zunger_data(atomPPOrder, totalParams, False)
-
-# TODO
-'''
-fig, axs = plt.subplots(1,1, figsize=(5,5))
-Cd_rSpacePot_data = np.loadtxt("all_Sept13/potCd.par")
-axs.plot(Cd_rSpacePot_data[:,0], Cd_rSpacePot_data[:,1], "kx", label="Data from earlier PP, 0<q<5")
-cmap = plt.get_cmap('rainbow')
-qmax = np.array([1.0, 2.0, 5.0, 10.0, 20.0, 30.0])
-for i, color in enumerate(cmap(np.linspace(0, 1, len(qmax)))):
-    q = torch.linspace(0.0, qmax[i], NQGRID)
-    (val_vr_Cd, val_rSpacePot_Cd) = realSpacePot(q, pot_func(q, CdParams))
-    (val_vr_Se, val_rSpacePot_Se) = realSpacePot(q, pot_func(q, SeParams))
-    if qmax[i]==10: 
-        axs.plot(val_vr_Cd, val_rSpacePot_Cd, "-", color=color, label="My FT, 0<q<%d" % qmax[i])
-    else:
-        axs.plot(val_vr_Cd, val_rSpacePot_Cd, "-", color=color, label="0<q<%d" % qmax[i])
-axs.set(xlim=(0,12), title="Cd PP", xlabel=r"$r$ (Bohr radius)", ylabel=r"$v(r)$")
-axs.legend()
-fig.tight_layout()
-plt.show()
-'''
 
 PPmodel.eval()
 NN_init = PPmodel(val_dataset.q)
@@ -128,13 +107,11 @@ torch.save(PPmodel.state_dict(), 'results/initZunger_PPmodel.pth')
 print("\nDone with NN initialization to the latest function form. \nPlotting and write pseudopotentials in the real and reciprocal space.")
 PPmodel.eval()
 PPmodel.cpu()
-qmax = np.array([3.0, 5.0, 8.0, 10.0, 20.0, 30.0, 40.0])
-# TODO
-'''
-FT_converge_and_write_pp(qmax, PPmodel, 0.0, 8.0, -2.0, 0.5, 30.0, 1024, 
-                         'zbCdSe_results/initZunger_plotPP.png', 'zbCdSe_results/initZunger_potCd.dat', 
-                         'zbCdSe_results/initZunger_potSe.dat')
-'''
+
+qmax = np.array([10.0, 20.0, 30.0])
+nQGrid = np.array([2048, 4096])
+nRGrid = np.array([2048, 4096])
+FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, val_dataset, 0.0, 8.0, -2.0, 0.5, 20.0, 2048, 2048, 'results/initZunger_plotPP', 'results/initZunger_pot', SHOWPLOTS)
 
 print("\nEvaluating band structures using the initialized pseudopotentials. ")
 plot_bandStruct_list = []
@@ -173,27 +150,14 @@ elapsed_time = end_time - start_time
 print("GPU training: elapsed time: %.2f seconds" % elapsed_time)
 
 
-
-
-
-
-
-
-
-
-
-# TODO
-# Write the PP! 
-
-PPmodel = Net_relu_xavier_decay2([1, 20, 20, 20, 2])
-PPmodel.load_state_dict(torch.load('zbCdSe_results/epoch_199_PPmodel.pth')) # , map_location=torch.device('cpu')))
-
+############# Writing the trained NN PP ############# 
+print("\n############################################\nWriting the NN pseudopotentials")
+# PPmodel = Net_relu_xavier_decay2([1, 20, 20, 20, 2])
+# PPmodel.load_state_dict(torch.load('results/epoch_199_PPmodel.pth')) # , map_location=torch.device('cpu')))
 PPmodel.eval()
 PPmodel.cpu()
 
-qmax = np.array([5.0, 8.0, 10.0, 20.0, 30.0, 40.0])
-'''
-FT_converge_and_write_pp(qmax, PPmodel, 0.0, 8.0, -2.0, 1.0, 30.0, 1024, 
-                         'zbCdSe_results/final_plotPP.png', 'zbCdSe_results/final_potCd.dat', 
-                         'zbCdSe_results/final_potSe.dat')
-'''
+qmax = np.array([10.0, 20.0, 30.0])
+nQGrid = np.array([2048, 4096])
+nRGrid = np.array([2048, 4096])
+FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, val_dataset, 0.0, 8.0, -2.0, 0.5, 20.0, 2048, 2048, 'results/final_plotPP', 'results/final_pot', SHOWPLOTS)

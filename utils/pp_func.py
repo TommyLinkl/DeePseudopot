@@ -1,4 +1,5 @@
 import numpy as np
+from itertools import product
 import matplotlib as mpl
 import matplotlib.pyplot as plt 
 mpl.rcParams['lines.markersize'] = 3
@@ -13,17 +14,18 @@ def pot_func(x, params):
     pot = (params[0]*(x*x - params[1]) / (params[2] * torch.exp(params[3]*x*x) - 1.0))
     return pot
 
-# TODO: Add dr, vr as variables
-def realSpacePot(vq, qSpacePot): 
-    # each input is a 1D tensor of torch.Size([nGrid]). vq is also assumed to be equally spaced. 
+def realSpacePot(vq, qSpacePot, nRGrid, rmax=25): 
+    # vq and qSpacePot are both 1D tensor of torch.Size([nQGrid]). vq is also assumed to be equally spaced. 
+    # rmax and nRGrid are both scalars
     dq = vq[1] - vq[0]
-    nGrid = vq.shape[0]
+    nQGrid = vq.shape[0]
     
-    dr = 0.02*2*np.pi / (nGrid * dq)
-    vr = torch.linspace(0, (nGrid - 1) * dr, nGrid)
-    rSpacePot = torch.zeros(nGrid)
+    # dr = 0.02*2*np.pi / (nGrid * dq)
+    # vr = torch.linspace(0, (nGrid - 1) * dr, nGrid)
+    vr = torch.linspace(0, rmax, nRGrid)
+    rSpacePot = torch.zeros(nRGrid)
     
-    for ir in range(nGrid): 
+    for ir in range(nRGrid): 
         if ir==0: 
             prefactor = 4*np.pi*dq / (8*np.pi**3)
             rSpacePot[ir] = torch.sum(prefactor * vq**2 * qSpacePot)
@@ -32,7 +34,6 @@ def realSpacePot(vq, qSpacePot):
             rSpacePot[ir] = torch.sum(prefactor * vq * torch.sin(vq * vr[ir]) * qSpacePot)
 
     return (vr.view(-1,1), rSpacePot.view(-1,1))
-
 
 def plotBandStruct(nSystem, bandStruct_array, marker_array, label_array, SHOWPLOTS): 
     # The inputs bandStruct_array, marker_array, label_array are arrays of tensors. They should be ordered as: 
@@ -98,8 +99,8 @@ def plotPP(atomPPOrder, ref_q, pred_q, ref_vq_atoms, pred_vq_atoms, ref_labelNam
             axs[0].plot(ref_q, ref_vq, lineshape_array[iAtom*2], label=atomPPOrder[iAtom]+" "+ref_labelName)
             axs[0].plot(pred_q, pred_vq, lineshape_array[iAtom*2+1], label=atomPPOrder[iAtom]+" "+pred_labelName)
             axs[1].plot(ref_q, pred_vq - ref_vq, lineshape_array[iAtom*2], label=atomPPOrder[iAtom]+" diff (pred - ref)")
-            (ref_vr, ref_rSpacePot) = realSpacePot(torch.tensor(ref_q), torch.tensor(ref_vq))
-            (pred_vr, pred_rSpacePot) = realSpacePot(torch.tensor(pred_q), torch.tensor(pred_vq))
+            (ref_vr, ref_rSpacePot) = realSpacePot(torch.tensor(ref_q), torch.tensor(ref_vq), 3000)
+            (pred_vr, pred_rSpacePot) = realSpacePot(torch.tensor(pred_q), torch.tensor(pred_vq), 3000)
             axs[2].plot(ref_vr.view(-1).detach().numpy(), ref_rSpacePot.view(-1).detach().numpy(), lineshape_array[iAtom*2], label=atomPPOrder[iAtom]+" "+ref_labelName)
             axs[2].plot(pred_vr.view(-1).detach().numpy(), pred_rSpacePot.view(-1).detach().numpy(), lineshape_array[iAtom*2+1], label=atomPPOrder[iAtom]+" "+pred_labelName)
         axs[0].set(xlabel=r"$q$", ylabel=r"$v(q)$")
@@ -119,8 +120,8 @@ def plotPP(atomPPOrder, ref_q, pred_q, ref_vq_atoms, pred_vq_atoms, ref_labelNam
             pred_vq = pred_vq_atoms[:, iAtom].view(-1).detach().numpy()
             axs[0].plot(ref_q, ref_vq, lineshape_array[iAtom*2], label=atomPPOrder[iAtom]+" "+ref_labelName)
             axs[0].plot(pred_q, pred_vq, lineshape_array[iAtom*2+1], label=atomPPOrder[iAtom]+" "+pred_labelName)
-            (ref_vr, ref_rSpacePot) = realSpacePot(torch.tensor(ref_q), torch.tensor(ref_vq))
-            (pred_vr, pred_rSpacePot) = realSpacePot(torch.tensor(pred_q), torch.tensor(pred_vq))
+            (ref_vr, ref_rSpacePot) = realSpacePot(torch.tensor(ref_q), torch.tensor(ref_vq), 3000)
+            (pred_vr, pred_rSpacePot) = realSpacePot(torch.tensor(pred_q), torch.tensor(pred_vq), 3000)
             axs[1].plot(ref_vr.view(-1).detach().numpy(), ref_rSpacePot.view(-1).detach().numpy(), lineshape_array[iAtom*2], label=atomPPOrder[iAtom]+" "+ref_labelName)
             axs[1].plot(pred_vr.view(-1).detach().numpy(), pred_rSpacePot.view(-1).detach().numpy(), lineshape_array[iAtom*2+1], label=atomPPOrder[iAtom]+" "+pred_labelName)
         axs[0].set(xlabel=r"$q$", ylabel=r"$v(q)$")
@@ -158,36 +159,41 @@ def plot_training_validation_cost(training_cost, validation_cost, ylogBoolean, S
         plt.show()
     return fig
 
-# TODO: change
-def FT_converge_and_write_pp(qmax_array, model, xmin, xmax, ymin, ymax, choiceQMax, choiceNQGrid, ppPlotFile, potCdFile, potSeFile):
+def FT_converge_and_write_pp(atomPPOrder, qmax_array, nQGrid_array, nRGrid_array, model, val_dataset, xmin, xmax, ymin, ymax, choiceQMax, choiceNQGrid, choiceNRGrid, ppPlotFilePrefix, potRAtomFilePrefix, SHOWPLOTS):
     cmap = plt.get_cmap('rainbow')
-    figtot, axstot = plt.subplots(1,2, figsize=(9,4))
-    for i, color in enumerate(cmap(np.linspace(0, 1, len(qmax_array)))):
-        plotqGrid = torch.linspace(0.0, qmax_array[i], NQGRID).view(-1, 1)
-        NN = model(plotqGrid)
-        (vr_Cd, rSpacePot_Cd) = realSpacePot(plotqGrid.view(-1), NN[:, 0].view(-1))
-        (vr_Se, rSpacePot_Se) = realSpacePot(plotqGrid.view(-1), NN[:, 1].view(-1))
-        if qmax_array[i]==30: 
-            axstot[0].plot(vr_Cd.detach().numpy(), rSpacePot_Cd.detach().numpy(), "-", color=color, label="My FT, 0<q<%d" % qmax_array[i])
-            axstot[1].plot(vr_Se.detach().numpy(), rSpacePot_Se.detach().numpy(), "-", color=color, label="My FT, 0<q<%d" % qmax_array[i])
-        else:
-            axstot[0].plot(vr_Cd.detach().numpy(), rSpacePot_Cd.detach().numpy(), "-", color=color, label="0<q<%d" % qmax_array[i])
-            axstot[1].plot(vr_Se.detach().numpy(), rSpacePot_Se.detach().numpy(), "-", color=color, label="0<q<%d" % qmax_array[i])
+    figtot, axstot = plt.subplots(1, len(atomPPOrder), figsize=(9,4))
     
-    axstot[0].set(xlim=(xmin, xmax), ylim=(ymin, ymax), title="Cd PP", xlabel=r"$r$ (Bohr radius)", ylabel=r"$v(r)$")
-    axstot[1].set(xlim=(xmin, xmax), ylim=(ymin, ymax), title="Se PP", xlabel=r"$r$ (Bohr radius)", ylabel=r"$v(r)$")
-    axstot[0].legend()
+    combinations = list(product(qmax_array, nQGrid_array, nRGrid_array))
+    cmap = plt.get_cmap('rainbow')
+    colors = cmap(np.linspace(0, 1, len(combinations)))
+    for i, combo in enumerate(combinations):
+        qmax, nQGrid, nRGrid = combo
+
+        qGrid = torch.linspace(0.0, qmax, nQGrid).view(-1, 1)
+        NN = model(qGrid)
+        for iAtom in range(len(atomPPOrder)):
+            (vr, rSpacePot) = realSpacePot(qGrid.view(-1), NN[:, iAtom].view(-1), nRGrid)
+            if (qmax==choiceQMax) and (nQGrid==choiceNQGrid) and (nRGrid==choiceNRGrid): 
+                axstot[iAtom].plot(vr.detach().numpy(), rSpacePot.detach().numpy(), "-", color=colors[i], label="My FT, 0<q<%d, nQGrid=%d, nRGrid=%d" % (qmax,nQGrid,nRGrid))
+            else:
+                axstot[iAtom].plot(vr.detach().numpy(), rSpacePot.detach().numpy(), "-", color=colors[i], label="0<q<%d, nQGrid=%d, nRGrid=%d" % (qmax,nQGrid,nRGrid))
+    
+    for iAtom in range(len(atomPPOrder)):
+        axstot[iAtom].set(xlim=(xmin, xmax), ylim=(ymin, ymax), title=atomPPOrder[iAtom]+" PP", xlabel=r"$r$ (Bohr radius)", ylabel=r"$v(r)$")
+    axstot[0].legend(frameon=False, fontsize=7)
     figtot.tight_layout()
-    plt.show()
+    figtot.savefig(ppPlotFilePrefix+"converge.png") 
+    if SHOWPLOTS: 
+        plt.show()
     
     choiceQGrid = torch.linspace(0.0, choiceQMax, choiceNQGrid).view(-1, 1)
     NN = model(choiceQGrid)
-    fig = plotPP([val_dataset.q, choiceQGrid], [val_dataset.vq_Cd, NN[:, 0]], [val_dataset.vq_Se, NN[:, 1]], ["ZungerForm", f"NN_init_Zunger"], ["-", ":"], False);
-    fig.savefig(ppPlotFile)
-    (vr_Cd, rSpacePot_Cd) = realSpacePot(choiceQGrid.view(-1), NN[:, 0].view(-1))
-    (vr_Se, rSpacePot_Se) = realSpacePot(choiceQGrid.view(-1), NN[:, 1].view(-1))
-    potCd = torch.cat((vr_Cd, rSpacePot_Cd), dim=1).detach().numpy()
-    potSe = torch.cat((vr_Se, rSpacePot_Se), dim=1).detach().numpy()
-    np.savetxt(potCdFile, potCd, delimiter='    ', fmt='%e')
-    np.savetxt(potSeFile, potCd, delimiter='    ', fmt='%e')
+    fig = plotPP(atomPPOrder, val_dataset.q, choiceQGrid, val_dataset.vq_atoms, NN, "ZungerForm", "NN", ["-", ":", "-", ":"], False, SHOWPLOTS);
+    fig.savefig(ppPlotFilePrefix+".png") 
+    for iAtom in range(len(atomPPOrder)):
+        (vr, rSpacePot) = realSpacePot(choiceQGrid.view(-1), NN[:, iAtom].view(-1), choiceNRGrid)
+        pot = torch.cat((vr, rSpacePot), dim=1).detach().numpy()
+        np.savetxt(potRAtomFilePrefix+"_"+atomPPOrder[iAtom]+".dat", pot, delimiter='    ', fmt='%e')
+    if SHOWPLOTS: 
+        plt.show()
     return
