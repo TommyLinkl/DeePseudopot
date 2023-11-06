@@ -44,4 +44,4 @@ xxx
 
 - Add NN hyperparameter optimization (Maybe through RayTune)
 
-- Parallelize across multiple (x4 for Perlmutter) GPUs / multiple GPU cores
+- Parallelize across multiple (x4 for Perlmutter) GPUs / multiple GPU cores. Look into data parallelism, Horovod, Model Parallelism for large models. 

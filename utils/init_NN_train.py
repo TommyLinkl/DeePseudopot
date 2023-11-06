@@ -83,5 +83,6 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
                 plotPP(atomPPOrder, plot_q, plot_q, plot_vq_atoms, plot_pred_outputs, "ZungerForm", f"NN_{epoch+1}", ["-",":" ]*len(atomPPOrder), True, SHOWPLOTS)
                 
         validation_cost.append(val_cost)
-    plot_training_validation_cost(training_cost, validation_cost, True, SHOWPLOTS)
+    fig_cost = plot_training_validation_cost(training_cost, validation_cost, True, SHOWPLOTS)
+    fig_cost.savefig('results/init_train_cost.png')
     return (training_cost, validation_cost)

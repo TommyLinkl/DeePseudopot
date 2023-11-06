@@ -1,0 +1,16 @@
+#!/bin/bash
+#SBATCH -A m2206_g
+#SBATCH -C gpu
+#SBATCH -q shared
+#SBATCH -t 3:00:00
+#SBATCH -n 1
+#SBATCH -c 32
+#SBATCH --gpus-per-task=1
+#SBATCH -J NN_pseudo_fit_InGaAsP
+#SBATCH -o InGaAsP_fit.log
+#SBATCH --mail-user=tommy_lin@berkeley.edu
+#SBATCH --mail-type=ALL
+
+export SLURM_CPU_BIND="cores"
+export CUDA_VISIBLE_DEVICES=0
+srun --constraint=gpu --ntasks=1 python main.py

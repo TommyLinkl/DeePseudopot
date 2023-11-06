@@ -94,30 +94,38 @@ print(totalParams)
 
 
 ############# Initialize the NN #############
-print("\n############################################\nInitializing the NN by fitting to the latest function form of pseudopotentials. ")
 train_dataset = init_Zunger_data(atomPPOrder, totalParams, True)
 val_dataset = init_Zunger_data(atomPPOrder, totalParams, False)
 
-PPmodel.eval()
-NN_init = PPmodel(val_dataset.q)
-plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, NN_init, "ZungerForm", "NN_init", ["-",":" ]*nPseudopot, False, SHOWPLOTS)
+if os.path.exists('inputs/init_PPmodel.pth'):
+    print("\n############################################\nInitializing the NN with file inputs/init_PPmodel.pth.")
+    PPmodel.load_state_dict(torch.load('inputs/init_PPmodel.pth'))
+    print("\nDone with NN initialization to the file inputs/init_PPmodel.pth.")
+else:
+    print("\n############################################\nInitializing the NN by fitting to the latest function form of pseudopotentials. ")
 
-init_Zunger_criterion = init_Zunger_weighted_mse
-init_Zunger_optimizer = torch.optim.Adam(PPmodel.parameters(), lr=init_Zunger_optimizer_lr)
-init_Zunger_scheduler = ExponentialLR(init_Zunger_optimizer, gamma=init_Zunger_scheduler_gamma)
-trainloader = DataLoader(dataset = train_dataset, batch_size = int(train_dataset.len/4),shuffle=True)
-validationloader = DataLoader(dataset = val_dataset, batch_size =val_dataset.len, shuffle=False)
+    PPmodel.eval()
+    NN_init = PPmodel(val_dataset.q)
+    plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, NN_init, "ZungerForm", "NN_init", ["-",":" ]*nPseudopot, False, SHOWPLOTS)
+    
+    init_Zunger_criterion = init_Zunger_weighted_mse
+    init_Zunger_optimizer = torch.optim.Adam(PPmodel.parameters(), lr=init_Zunger_optimizer_lr)
+    init_Zunger_scheduler = ExponentialLR(init_Zunger_optimizer, gamma=init_Zunger_scheduler_gamma)
+    trainloader = DataLoader(dataset = train_dataset, batch_size = int(train_dataset.len/4),shuffle=True)
+    validationloader = DataLoader(dataset = val_dataset, batch_size =val_dataset.len, shuffle=False)
+    
+    start_time = time.time()
+    init_Zunger_train_GPU(PPmodel, device, trainloader, validationloader, init_Zunger_criterion, init_Zunger_optimizer, init_Zunger_scheduler, 20, init_Zunger_num_epochs, init_Zunger_plotEvery, atomPPOrder, SHOWPLOTS)
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print("GPU initialization: elapsed time: %.2f seconds" % elapsed_time)
+    
+    os.makedirs('results', exist_ok=True)
+    torch.save(PPmodel.state_dict(), 'results/initZunger_PPmodel.pth')
 
-start_time = time.time()
-init_Zunger_train_GPU(PPmodel, device, trainloader, validationloader, init_Zunger_criterion, init_Zunger_optimizer, init_Zunger_scheduler, 20, init_Zunger_num_epochs, init_Zunger_plotEvery, atomPPOrder, SHOWPLOTS)
-end_time = time.time()
-elapsed_time = end_time - start_time
-print("GPU initialization: elapsed time: %.2f seconds" % elapsed_time)
+    print("\nDone with NN initialization to the latest function form.")
 
-os.makedirs('results', exist_ok=True)
-torch.save(PPmodel.state_dict(), 'results/initZunger_PPmodel.pth')
-
-print("\nDone with NN initialization to the latest function form. \nPlotting and write pseudopotentials in the real and reciprocal space.")
+print("\nPlotting and write pseudopotentials in the real and reciprocal space.")
 PPmodel.eval()
 PPmodel.cpu()
 
@@ -139,7 +147,7 @@ fig = plotBandStruct(allSystemNames, plot_bandStruct_list, SHOWPLOTS)
 print("After fitting the NN to the latest function forms, we can reproduce satisfactory band structures. ")
 print("The total bandStruct MSE = %e " % init_totalMSE)
 fig.savefig('results/initZunger_plotBS.png')
-
+plt.close('all')
 
 ############# Fit NN to band structures ############# 
 print("\n############################################\nStart training of the NN to fit to band structures. ")

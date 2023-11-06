@@ -84,5 +84,11 @@ def BandStruct_train_GPU(model, device, bulkSystem_list, atomPPOrder, totalParam
         if no_improvement_count >= patience_epochs:
             print("Early stopping at Epoch %d due to lack of improvement." % epoch)
             break
-    plot_training_validation_cost(LOSS, LOSS, True, SHOWPLOTS)
+        plt.close('all')
+    fig_cost = plot_training_validation_cost(LOSS, LOSS, True, SHOWPLOTS)
+    fig_cost.savefig('results/final_train_cost.png')
+    
+    with open('results/final_train_cost.dat', "w") as file:
+        for index, loss in enumerate(LOSS):
+            file.write(f"{index}  {loss}\n")
     return LOSS
