@@ -168,26 +168,25 @@ def plotPP(atomPPOrder, ref_q, pred_q, ref_vq_atoms, pred_vq_atoms, ref_labelNam
 
 
 def plot_training_validation_cost(training_cost, validation_cost, ylogBoolean, SHOWPLOTS): 
-    if len(training_cost) != len(validation_cost): 
-        return
-    else:
-        epochs = range(1, len(training_cost) + 1)
+    epochs = range(0, len(training_cost))
+    evaluation_frequency = len(training_cost) // len(validation_cost)
+    evaluation_epochs = list(range(evaluation_frequency-1, len(training_cost), evaluation_frequency))
     
     # Plot training and validation costs
-    fig, axs = plt.subplots(1,1, figsize=(6,4))
-    
+    fig, axs = plt.subplots(1, 1, figsize=(6, 4))
+
     axs.plot(epochs, training_cost, "b-", label='Training Cost')
-    axs.plot(epochs, validation_cost, "r:", label='Validation Cost')
-    
+    axs.plot(evaluation_epochs, validation_cost, "r:", label='Validation Cost')
+
     if ylogBoolean:
         axs.set_yscale('log')
-    else: 
+    else:
         axs.set_yscale('linear')
     axs.set(xlabel="Epochs", ylabel="Cost", title="Training and Validation Costs")
     axs.legend(frameon=False)
     axs.grid(True)
     fig.tight_layout()
-    if SHOWPLOTS: 
+    if SHOWPLOTS:
         plt.show()
     return fig
 

@@ -160,7 +160,7 @@ optimizer = torch.optim.Adam(PPmodel.parameters(), lr=optimizer_lr)
 scheduler = ExponentialLR(optimizer, gamma=scheduler_gamma)
 
 start_time = time.time()
-LOSS = BandStruct_train_GPU(PPmodel, device, systems, atomPPOrder, totalParams, criterion, optimizer, scheduler, schedulerStep, max_num_epochs, plotEvery, patience, val_dataset, SHOWPLOTS)
+(training_cost, validation_cost) = BandStruct_train_GPU(PPmodel, device, systems, atomPPOrder, totalParams, criterion, optimizer, scheduler, schedulerStep, max_num_epochs, plotEvery, patience, val_dataset, SHOWPLOTS)
 end_time = time.time()
 elapsed_time = end_time - start_time
 print("GPU training: elapsed time: %.2f seconds" % elapsed_time)

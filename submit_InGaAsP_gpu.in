@@ -1,13 +1,15 @@
 #!/bin/bash
-#SBATCH -A m2206_g
-#SBATCH -C gpu
-#SBATCH -q shared
-#SBATCH -t 3:00:00
-#SBATCH -n 1
-#SBATCH -c 32
-#SBATCH --gpus-per-task=1
+#SBATCH -A m2206
 #SBATCH -J NN_pseudo_fit_InGaAsP
 #SBATCH -o InGaAsP_fit.log
+#SBATCH -C gpu
+#SBATCH --qos=shared
+#SBATCH -t 3:00:00
+#SBATCH -N 1
+#SBATCH -c 32
+#SBATCH --gpus-per-node=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpu-bind=none
 #SBATCH --mail-user=tommy_lin@berkeley.edu
 #SBATCH --mail-type=ALL
 
