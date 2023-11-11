@@ -55,8 +55,6 @@ def plotBandStruct(systemNames, bandStruct_list, SHOWPLOTS):
                 else: 
                     axs[0].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo")
                     axs[1].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo")
-            print("Ref " + systemNames[iSystem])
-            print(2*iSystem)
                     
             # plot prediction
             numBands = len(bandStruct_list[iSystem+1][0])
@@ -68,9 +66,6 @@ def plotBandStruct(systemNames, bandStruct_list, SHOWPLOTS):
                 else: 
                     axs[0].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-")
                     axs[1].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-")
-                    
-            print("Prediction " + systemNames[iSystem])
-            print(2*iSystem+1)
             axs[0].legend(frameon=False)
             axs[1].set(ylim=(-8, -2), title=systemNames[iSystem])
             axs[0].get_xaxis().set_ticks([0, 20, 40, 45, 60])

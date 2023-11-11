@@ -84,6 +84,17 @@ for atomType in atomPPOrder:
         # BUT WE NEED TO KEEP GRADIENT
 print(totalParams)
 
+oldFunc_plot_bandStruct_list = []
+oldFunc_totalMSE = 0
+for iSystem in range(nSystem): 
+    oldFunc_bandStruct = calcBandStruct_GPU(False, PPmodel, systems[iSystem], atomPPOrder, totalParams, device)
+    oldFunc_plot_bandStruct_list.append(systems[iSystem].expBandStruct)
+    oldFunc_plot_bandStruct_list.append(oldFunc_bandStruct)
+    oldFunc_totalMSE += weighted_mse_bandStruct(oldFunc_bandStruct, systems[iSystem])
+fig = plotBandStruct(allSystemNames, oldFunc_plot_bandStruct_list, SHOWPLOTS)
+fig.suptitle("The total bandStruct MSE = %e " % oldFunc_totalMSE)
+fig.savefig('results/oldFunc_plotBS.png')
+plt.close('all')
 
 ############# Initialize the NN #############
 train_dataset = init_Zunger_data(atomPPOrder, totalParams, True)
@@ -95,6 +106,7 @@ if os.path.exists('inputs/init_PPmodel.pth'):
     print("\nDone with NN initialization to the file inputs/init_PPmodel.pth.")
 else:
     print("\n############################################\nInitializing the NN by fitting to the latest function form of pseudopotentials. ")
+    PPmodel.cpu()
     PPmodel.eval()
     NN_init = PPmodel(val_dataset.q)
     plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, NN_init, "ZungerForm", "NN_init", ["-",":" ]*nPseudopot, False, SHOWPLOTS)
@@ -133,10 +145,10 @@ for iSystem in range(nSystem):
     plot_bandStruct_list.append(systems[iSystem].expBandStruct)
     plot_bandStruct_list.append(init_bandStruct)
     init_totalMSE += weighted_mse_bandStruct(init_bandStruct, systems[iSystem])
-    
 fig = plotBandStruct(allSystemNames, plot_bandStruct_list, SHOWPLOTS)
 print("After fitting the NN to the latest function forms, we can reproduce satisfactory band structures. ")
 print("The total bandStruct MSE = %e " % init_totalMSE)
+fig.suptitle("The total bandStruct MSE = %e " % init_totalMSE)
 fig.savefig('results/initZunger_plotBS.png')
 plt.close('all')
 
