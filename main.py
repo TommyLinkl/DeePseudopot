@@ -52,17 +52,9 @@ systems = [bulkSystem() for _ in range(nSystem)]
 for iSys in range(nSystem): 
     systems[iSys].setSystem("inputs/system_%d.par" % iSys)
     systems[iSys].setInputs("inputs/input_%d.par" % iSys)
-    systems[iSys].setKPoints("inputs/kpoints_%d.par" % iSys)
+    systems[iSys].setKPointsAndWeights("inputs/kpoints_%d.par" % iSys)
     systems[iSys].setExpBS("inputs/expBandStruct_%d.par" % iSys)
-    
-    bandWeights=torch.ones(systems[iSys].nBands)
-    bandWeights[4:8] = 5.0
-    systems[iSys].setBandWeights(bandWeights)
-    
-    kptWeights=torch.ones(systems[iSys].getNKpts())
-    kptWeights[[0, 20, 40]] = 5.0
-    systems[iSys].setKptWeights(kptWeights)
-    
+    systems[iSys].setBandWeights("inputs/bandWeights_%d.par" % iSys)
     atomPPOrder.append(systems[iSys].atomTypes)
     
 # Count how many atomTypes there are
@@ -103,7 +95,6 @@ if os.path.exists('inputs/init_PPmodel.pth'):
     print("\nDone with NN initialization to the file inputs/init_PPmodel.pth.")
 else:
     print("\n############################################\nInitializing the NN by fitting to the latest function form of pseudopotentials. ")
-
     PPmodel.eval()
     NN_init = PPmodel(val_dataset.q)
     plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, NN_init, "ZungerForm", "NN_init", ["-",":" ]*nPseudopot, False, SHOWPLOTS)

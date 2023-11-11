@@ -110,12 +110,16 @@ class bulkSystem:
         self.atomPos = torch.tensor(atomCoords) @ self.unitCellVectors
         self.systemName = ''.join(self.atomTypes)
     
-    def setKPoints(self, kPointsFilename):
+    def setKPointsAndWeights(self, kPointsFilename):
         try:
             with open(kPointsFilename, 'r') as file:
-                kpts = np.loadtxt(file)
+                data = np.loadtxt(file)
+                kpts = data[:, :3]
+                kptWeights = data[:, 3]
                 gVectors = self.getGVectors()
+                
                 self.kpts = torch.tensor(kpts, dtype=torch.float32) @ gVectors
+                self.kptWeights = torch.tensor(kptWeights, dtype=torch.float32)
         except FileNotFoundError:
             print(f"File not found: {kPointsFilename}")
         except Exception as e:
@@ -130,17 +134,17 @@ class bulkSystem:
         except Exception as e:
             print(f"An error occurred while processing the file: {e}")
             
-    def setBandWeights(self, bandWeights_tensor): 
-        if (len(bandWeights_tensor)!=self.nBands): 
-            raise ValueError("bandWeights_tensor length is wrong. ")
-        else: 
-            self.bandWeights = bandWeights_tensor
-            
-    def setKptWeights(self, kptWeights_tensor): 
-        if (len(kptWeights_tensor)!=self.getNKpts()): 
-            raise ValueError("kptWeights_tensor length is wrong. ")
-        else: 
-            self.kptWeights = kptWeights_tensor
+    def setBandWeights(self, bandWeightsFilename): 
+        try:
+            with open(bandWeightsFilename, 'r') as file:
+                bandWeights = np.loadtxt(file)
+                self.bandWeights = torch.tensor(bandWeights, dtype=torch.float32)
+                if len(bandWeights) != self.nBands:
+                    raise ValueError(f"Invalid number of bands in {bandWeightsFilename}, not equal to nBands input: {self.nBands}")
+        except FileNotFoundError:
+            print(f"File not found: {kPointsFilename}")
+        except Exception as e:
+            print(f"An error occurred while processing the file: {e}")
 
     def getCellVolume(self): 
         return torch.dot(self.unitCellVectors[0], torch.cross(self.unitCellVectors[1], self.unitCellVectors[2]))

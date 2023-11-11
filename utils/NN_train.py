@@ -48,6 +48,7 @@ def BandStruct_train_GPU(model, device, bulkSystem_list, atomPPOrder, totalParam
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        file_trainCost.write(f"{epoch+1}  {loss.item()}\n")
         
         if epoch > 0 and epoch % scheduler_step == 0:
             scheduler.step()
@@ -67,7 +68,6 @@ def BandStruct_train_GPU(model, device, bulkSystem_list, atomPPOrder, totalParam
                 plot_bandStruct_list.append(NN_bandStruct)
             validation_COST.append(val_loss.item())
             print(f'Epoch [{epoch+1}/{max_epochs}], training cost: {loss.item():.4f}, validation cost: {val_loss.item():.4f}')
-            file_trainCost.write(f"{epoch+1}  {loss.item()}\n")
             file_valCost.write(f"{epoch+1}  {val_loss.item()}\n")
             
             model.cpu()
