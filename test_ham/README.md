@@ -3,4 +3,4 @@ using the command:
 
 python -m test_ham.test_X
 
-(note no .py at the end)
+(note 1) the '.' rather than '/', 2) no .py at the end)

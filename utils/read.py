@@ -26,6 +26,8 @@ def read_NNConfigFile(filename):
                     config[key] = value
     return config
 
+# Note: the python convention is capitalize the first letter of classes,
+# so this should be BulkSystem
 class bulkSystem:
     def __init__(self, scale=1.0, unitCellVectors_unscaled=None, atomTypes=None, atomPos_unscaled=None, kpts_recipLatVec=None, expBandStruct=None, nBands=16, maxKE=5):
         if unitCellVectors_unscaled is None:
@@ -106,8 +108,11 @@ class bulkSystem:
             
         self.scale = scale
         self.unitCellVectors = scale * torch.tensor(cell)
+        # 1% expansion, matching the DFT literature
+        self.unitCellVectorsDef = self.unitCellVectors * 1.01
         self.atomTypes = np.array(atomTypes).flatten()
         self.atomPos = torch.tensor(atomCoords) @ self.unitCellVectors
+        self.atomPosDef = torch.tensor(atomCoords) @ self.unitCellVectorsDef
         self.systemName = ''.join(self.atomTypes)
     
     def setKPoints(self, kPointsFilename):
@@ -145,8 +150,19 @@ class bulkSystem:
     def getCellVolume(self): 
         return torch.dot(self.unitCellVectors[0], torch.cross(self.unitCellVectors[1], self.unitCellVectors[2]))
     
+    def getCellVolumeDef(self):
+        return torch.dot(self.unitCellVectorsDef[0], torch.cross(self.unitCellVectorsDef[1], self.unitCellVectorsDef[2]))
+
     def getNAtoms(self):
         return len(self.atomTypes)
+    
+    def getNAtomTypes(self):
+        # this could be generalized if we want the same element in different
+        # chemical environments to have different potentials. This should
+        # return the number of different potentials we have. This 
+        # generalization could also be accomplished by using different labels
+        # in the input files, e.g. "Cd1, Cd2".
+        return len(np.unique(self.atomTypes))
     
     def getGVectors(self):
         cellVolume = self.getCellVolume()
