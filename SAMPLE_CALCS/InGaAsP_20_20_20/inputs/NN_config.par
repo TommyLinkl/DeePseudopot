@@ -10,4 +10,4 @@ scheduler_gamma = 0.90
 max_num_epochs = 600
 plotEvery = 100
 schedulerStep = 80
-patience = 500
+patience = 600

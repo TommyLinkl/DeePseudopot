@@ -9,5 +9,5 @@ optimizer_lr = 0.005
 scheduler_gamma = 0.90
 max_num_epochs = 500
 plotEvery = 100
-schedulerStep = 100
-patience = 1000
+schedulerStep = 80
+patience = 500
