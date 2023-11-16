@@ -55,21 +55,16 @@ class bulkSystem:
         # nBands can be redundant
         maxKE = None
         nBands = None
-        try:
-            with open(inputFilename, 'r') as file:
-                for line in file:
-                    parts = line.strip().split('=')
-                    if len(parts) == 2:
-                        variable_name = parts[0].strip()
-                        value = parts[1].strip()
-                        if variable_name == 'maxKE':
-                            maxKE = int(value)
-                        elif variable_name == 'nBands':
-                            nBands = int(value)
-        except FileNotFoundError:
-            print(f"File not found: {inputFilename}")
-        except Exception as e:
-            print(f"An error occurred while processing the file: {e}")
+        with open(inputFilename, 'r') as file:
+            for line in file:
+                parts = line.strip().split('=')
+                if len(parts) == 2:
+                    variable_name = parts[0].strip()
+                    value = parts[1].strip()
+                    if variable_name == 'maxKE':
+                        maxKE = float(value)
+                    elif variable_name == 'nBands':
+                        nBands = int(float(value))
         self.maxKE = maxKE
         self.nBands = nBands
         
@@ -79,32 +74,27 @@ class bulkSystem:
         cell = None
         atomTypes = []
         atomCoords = []
-        try:
-            with open(systemFilename, 'r') as file:
-                section = None
-                for line in file:
-                    parts = line.strip().split()
-                    if not parts:
-                        continue  # Skip empty lines
-                    if parts[0] == 'scale':
-                        scale = float(parts[2])
-                    elif parts[0] == 'cell':
-                        section = 'cell'
-                        cell = []
-                        for _ in range(3):
-                            cell_line = next(file).strip()
-                            cell.append([float(x) for x in cell_line.split()])
-                    elif parts[0] == 'atoms':
-                        section = 'atoms'
-                        atomTypes = [] 
-                        atomCoords = []
-                    elif section == 'atoms':
-                        atomTypes.append([parts[0]])
-                        atomCoords.append([float(parts[1]), float(parts[2]), float(parts[3])])
-        except FileNotFoundError:
-            print(f"File not found: {systemFilename}")
-        except Exception as e:
-            print(f"An error occurred while processing the file: {e}")
+        with open(systemFilename, 'r') as file:
+            section = None
+            for line in file:
+                parts = line.strip().split()
+                if not parts:
+                    continue  # Skip empty lines
+                if parts[0] == 'scale':
+                    scale = float(parts[2])
+                elif parts[0] == 'cell':
+                    section = 'cell'
+                    cell = []
+                    for _ in range(3):
+                        cell_line = next(file).strip()
+                        cell.append([float(x) for x in cell_line.split()])
+                elif parts[0] == 'atoms':
+                    section = 'atoms'
+                    atomTypes = [] 
+                    atomCoords = []
+                elif section == 'atoms':
+                    atomTypes.append([parts[0]])
+                    atomCoords.append([float(parts[1]), float(parts[2]), float(parts[3])])
             
         self.scale = scale
         self.unitCellVectors = scale * torch.tensor(cell)
@@ -116,24 +106,14 @@ class bulkSystem:
         self.systemName = ''.join(self.atomTypes)
     
     def setKPoints(self, kPointsFilename):
-        try:
-            with open(kPointsFilename, 'r') as file:
-                kpts = np.loadtxt(file)
-                gVectors = self.getGVectors()
-                self.kpts = torch.tensor(kpts, dtype=torch.float32) @ gVectors
-        except FileNotFoundError:
-            print(f"File not found: {kPointsFilename}")
-        except Exception as e:
-            print(f"An error occurred while processing the file: {e}")
+        with open(kPointsFilename, 'r') as file:
+            kpts = np.loadtxt(file)
+            gVectors = self.getGVectors()
+            self.kpts = torch.tensor(kpts, dtype=torch.float32) @ gVectors
 
     def setExpBS(self, expBSFilename):
-        try:
-            with open(expBSFilename, 'r') as file:
-                self.expBandStruct = torch.tensor(np.loadtxt(file)[:, 1:], dtype=torch.float32)
-        except FileNotFoundError:
-            print(f"File not found: {expBSFilename}")
-        except Exception as e:
-            print(f"An error occurred while processing the file: {e}")
+        with open(expBSFilename, 'r') as file:
+            self.expBandStruct = torch.tensor(np.loadtxt(file)[:, 1:], dtype=torch.float32)
             
     def setBandWeights(self, bandWeights_tensor): 
         if (len(bandWeights_tensor)!=self.nBands): 
