@@ -46,7 +46,7 @@ class bulkSystem:
         self.atomTypes = atomTypes
         self.atomPos = atomPos_unscaled @ self.unitCellVectors
         
-        self.kpts = kpts_recipLatVec @ self.getGVectors()
+        #self.kpts = kpts_recipLatVec @ self.getGVectors()
         self.expBandStruct = expBandStruct
         self.nBands = nBands
         self.maxKE = maxKE
@@ -128,10 +128,10 @@ class bulkSystem:
             self.kptWeights = kptWeights_tensor
 
     def getCellVolume(self): 
-        return torch.dot(self.unitCellVectors[0], torch.cross(self.unitCellVectors[1], self.unitCellVectors[2]))
+        return float(torch.dot(self.unitCellVectors[0], torch.cross(self.unitCellVectors[1], self.unitCellVectors[2])))
     
     def getCellVolumeDef(self):
-        return torch.dot(self.unitCellVectorsDef[0], torch.cross(self.unitCellVectorsDef[1], self.unitCellVectorsDef[2]))
+        return float(torch.dot(self.unitCellVectorsDef[0], torch.cross(self.unitCellVectorsDef[1], self.unitCellVectorsDef[2])))
 
     def getNAtoms(self):
         return len(self.atomTypes)
