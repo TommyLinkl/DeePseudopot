@@ -1,4 +1,4 @@
-CUDA is not available. Using CPU.
+CUDA is available.
 
 ############################################
 Reading and setting up the bulkSystems. 
@@ -22,16 +22,16 @@ Plotting and write pseudopotentials in the real and reciprocal space.
 
 Evaluating band structures using the initialized pseudopotentials. 
 After fitting the NN to the latest function forms, we can reproduce satisfactory band structures. 
-The total bandStruct MSE = 2.582289e+02 
+The total bandStruct MSE = 2.513151e+02 
 
 ############################################
 Start training of the NN to fit to band structures. 
-Epoch [100/500], training cost: 298.3280, validation cost: 298.3708
-Epoch [200/500], training cost: 257.6001, validation cost: 257.5349
-Epoch [300/500], training cost: 253.9026, validation cost: 253.8792
-Epoch [400/500], training cost: 252.3768, validation cost: 252.3649
-Epoch [500/500], training cost: 251.3234, validation cost: 251.3150
-GPU training: elapsed time: 4822.93 seconds
+Epoch [100/500], training cost: 247.7893, validation cost: 247.9595
+Epoch [200/500], training cost: 246.4279, validation cost: 246.4182
+Epoch [300/500], training cost: 245.1584, validation cost: 245.1463
+Epoch [400/500], training cost: 243.8996, validation cost: 243.8860
+Epoch [500/500], training cost: 242.7227, validation cost: 242.7087
+GPU training: elapsed time: 2800.53 seconds
 
 ############################################
 Writing the NN pseudopotentials

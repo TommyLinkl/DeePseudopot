@@ -58,7 +58,7 @@ for iSys in range(nSystem):
     atomPPOrder.append(systems[iSys].atomTypes)
     
 # Count how many atomTypes there are
-atomPPOrder = np.unique(atomPPOrder)
+atomPPOrder = np.unique(np.concatenate(atomPPOrder))
 nPseudopot = len(atomPPOrder)
 print("There are %d atomic pseudopotentials. They are in the order of: " % nPseudopot)
 print(atomPPOrder)
@@ -129,6 +129,7 @@ else:
     print("\nDone with NN initialization to the latest function form.")
 
 print("\nPlotting and write pseudopotentials in the real and reciprocal space.")
+torch.cuda.empty_cache()
 PPmodel.eval()
 PPmodel.cpu()
 
@@ -151,6 +152,7 @@ print("The total bandStruct MSE = %e " % init_totalMSE)
 fig.suptitle("The total bandStruct MSE = %e " % init_totalMSE)
 fig.savefig('results/initZunger_plotBS.png')
 plt.close('all')
+torch.cuda.empty_cache()
 
 ############# Fit NN to band structures ############# 
 print("\n############################################\nStart training of the NN to fit to band structures. ")
@@ -167,7 +169,7 @@ start_time = time.time()
 end_time = time.time()
 elapsed_time = end_time - start_time
 print("GPU training: elapsed time: %.2f seconds" % elapsed_time)
-
+torch.cuda.empty_cache()
 
 ############# Writing the trained NN PP ############# 
 print("\n############################################\nWriting the NN pseudopotentials")

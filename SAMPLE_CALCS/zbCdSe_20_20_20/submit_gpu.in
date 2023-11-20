@@ -13,6 +13,6 @@
 #SBATCH --mail-user=tommy_lin@berkeley.edu
 #SBATCH --mail-type=ALL
 
+module load python     # Use the nersc-python conda environment instead
 export SLURM_CPU_BIND="cores"
-export CUDA_VISIBLE_DEVICES=0
-srun --ntasks=1 python main.py
+srun python main.py

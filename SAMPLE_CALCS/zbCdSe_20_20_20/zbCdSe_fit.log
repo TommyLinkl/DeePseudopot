@@ -1,4 +1,4 @@
-CUDA is not available. Using CPU.
+CUDA is available.
 
 ############################################
 Reading and setting up the bulkSystems. 
@@ -13,7 +13,7 @@ tensor([[-31.4518,   1.3890,  -0.0502,   1.6603,   0.0586],
 Initializing the NN by fitting to the latest function form of pseudopotentials. 
 Epoch [500/1000], Validation Loss: 0.0338
 Epoch [1000/1000], Validation Loss: 0.0203
-GPU initialization: elapsed time: 41.17 seconds
+GPU initialization: elapsed time: 41.98 seconds
 
 Done with NN initialization to the latest function form.
 
@@ -21,15 +21,15 @@ Plotting and write pseudopotentials in the real and reciprocal space.
 
 Evaluating band structures using the initialized pseudopotentials. 
 After fitting the NN to the latest function forms, we can reproduce satisfactory band structures. 
-The total bandStruct MSE = 2.725352e+01 
+The total bandStruct MSE = 2.726032e+01 
 
 ############################################
 Start training of the NN to fit to band structures. 
-Epoch [50/200], training cost: 11.1735, validation cost: 18.1803
-Epoch [100/200], training cost: 0.5376, validation cost: 0.4987
-Epoch [150/200], training cost: 0.3109, validation cost: 0.3090
+Epoch [50/200], training cost: 11.1765, validation cost: 18.1793
+Epoch [100/200], training cost: 0.5376, validation cost: 0.4986
+Epoch [150/200], training cost: 0.3108, validation cost: 0.3090
 Epoch [200/200], training cost: 0.2502, validation cost: 0.2493
-GPU training: elapsed time: 1707.49 seconds
+GPU training: elapsed time: 603.14 seconds
 
 ############################################
 Writing the NN pseudopotentials

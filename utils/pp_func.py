@@ -46,8 +46,8 @@ def plotBandStruct(systemNames, bandStruct_list, SHOWPLOTS):
         fig, axs = plt.subplots(1, 2, figsize=(9, 4))
         for iSystem in range(nSystem): 
             # plot ref
-            numBands = len(bandStruct_list[iSystem][0])
-            numKpts = len(bandStruct_list[iSystem])
+            numBands = len(bandStruct_list[2*iSystem][0])
+            numKpts = len(bandStruct_list[2*iSystem])
             for i in range(numBands): 
                 if i==0: 
                     axs[0].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", label="Reference")
@@ -57,8 +57,8 @@ def plotBandStruct(systemNames, bandStruct_list, SHOWPLOTS):
                     axs[1].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo")
                     
             # plot prediction
-            numBands = len(bandStruct_list[iSystem+1][0])
-            numKpts = len(bandStruct_list[iSystem+1])
+            numBands = len(bandStruct_list[2*iSystem+1][0])
+            numKpts = len(bandStruct_list[2*iSystem+1])
             for i in range(numBands): 
                 if i==0: 
                     axs[0].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-", label="NN prediction")
@@ -77,8 +77,8 @@ def plotBandStruct(systemNames, bandStruct_list, SHOWPLOTS):
         fig, axs = plt.subplots(nSystem, 2, figsize=(9, 4 * nSystem))
         for iSystem in range(nSystem): 
             # plot ref
-            numBands = len(bandStruct_list[iSystem][0])
-            numKpts = len(bandStruct_list[iSystem])
+            numBands = len(bandStruct_list[2*iSystem][0])
+            numKpts = len(bandStruct_list[2*iSystem])
             for i in range(numBands): 
                 if i==0: 
                     axs[iSystem, 0].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", label="Reference")
@@ -88,8 +88,8 @@ def plotBandStruct(systemNames, bandStruct_list, SHOWPLOTS):
                     axs[iSystem, 1].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo")
                     
             # plot prediction
-            numBands = len(bandStruct_list[iSystem+1][0])
-            numKpts = len(bandStruct_list[iSystem+1])
+            numBands = len(bandStruct_list[2*iSystem+1][0])
+            numKpts = len(bandStruct_list[2*iSystem+1])
             for i in range(numBands): 
                 if i==0: 
                     axs[iSystem, 0].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-", label="NN prediction")
