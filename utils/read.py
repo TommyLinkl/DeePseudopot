@@ -26,6 +26,8 @@ def read_NNConfigFile(filename):
                     config[key] = value
     return config
 
+# Note: the python convention is capitalize the first letter of classes,
+# so this should be BulkSystem
 class bulkSystem:
     def __init__(self, scale=1.0, unitCellVectors_unscaled=None, atomTypes=None, atomPos_unscaled=None, kpts_recipLatVec=None, expBandStruct=None, nBands=16, maxKE=5):
         if unitCellVectors_unscaled is None:
@@ -44,7 +46,7 @@ class bulkSystem:
         self.atomTypes = atomTypes
         self.atomPos = atomPos_unscaled @ self.unitCellVectors
         
-        self.kpts = kpts_recipLatVec @ self.getGVectors()
+        #self.kpts = kpts_recipLatVec @ self.getGVectors()
         self.expBandStruct = expBandStruct
         self.nBands = nBands
         self.maxKE = maxKE
@@ -53,21 +55,16 @@ class bulkSystem:
         # nBands can be redundant
         maxKE = None
         nBands = None
-        try:
-            with open(inputFilename, 'r') as file:
-                for line in file:
-                    parts = line.strip().split('=')
-                    if len(parts) == 2:
-                        variable_name = parts[0].strip()
-                        value = parts[1].strip()
-                        if variable_name == 'maxKE':
-                            maxKE = int(value)
-                        elif variable_name == 'nBands':
-                            nBands = int(value)
-        except FileNotFoundError:
-            print(f"File not found: {inputFilename}")
-        except Exception as e:
-            print(f"An error occurred while processing the file: {e}")
+        with open(inputFilename, 'r') as file:
+            for line in file:
+                parts = line.strip().split('=')
+                if len(parts) == 2:
+                    variable_name = parts[0].strip()
+                    value = parts[1].strip()
+                    if variable_name == 'maxKE':
+                        maxKE = float(value)
+                    elif variable_name == 'nBands':
+                        nBands = int(float(value))
         self.maxKE = maxKE
         self.nBands = nBands
         
@@ -77,37 +74,35 @@ class bulkSystem:
         cell = None
         atomTypes = []
         atomCoords = []
-        try:
-            with open(systemFilename, 'r') as file:
-                section = None
-                for line in file:
-                    parts = line.strip().split()
-                    if not parts:
-                        continue  # Skip empty lines
-                    if parts[0] == 'scale':
-                        scale = float(parts[2])
-                    elif parts[0] == 'cell':
-                        section = 'cell'
-                        cell = []
-                        for _ in range(3):
-                            cell_line = next(file).strip()
-                            cell.append([float(x) for x in cell_line.split()])
-                    elif parts[0] == 'atoms':
-                        section = 'atoms'
-                        atomTypes = [] 
-                        atomCoords = []
-                    elif section == 'atoms':
-                        atomTypes.append([parts[0]])
-                        atomCoords.append([float(parts[1]), float(parts[2]), float(parts[3])])
-        except FileNotFoundError:
-            print(f"File not found: {systemFilename}")
-        except Exception as e:
-            print(f"An error occurred while processing the file: {e}")
+        with open(systemFilename, 'r') as file:
+            section = None
+            for line in file:
+                parts = line.strip().split()
+                if not parts:
+                    continue  # Skip empty lines
+                if parts[0] == 'scale':
+                    scale = float(parts[2])
+                elif parts[0] == 'cell':
+                    section = 'cell'
+                    cell = []
+                    for _ in range(3):
+                        cell_line = next(file).strip()
+                        cell.append([float(x) for x in cell_line.split()])
+                elif parts[0] == 'atoms':
+                    section = 'atoms'
+                    atomTypes = [] 
+                    atomCoords = []
+                elif section == 'atoms':
+                    atomTypes.append([parts[0]])
+                    atomCoords.append([float(parts[1]), float(parts[2]), float(parts[3])])
             
         self.scale = scale
         self.unitCellVectors = scale * torch.tensor(cell)
+        # 1% expansion, matching the DFT literature
+        self.unitCellVectorsDef = self.unitCellVectors * 1.01
         self.atomTypes = np.array(atomTypes).flatten()
         self.atomPos = torch.tensor(atomCoords) @ self.unitCellVectors
+        self.atomPosDef = torch.tensor(atomCoords) @ self.unitCellVectorsDef
         self.systemName = ''.join(self.atomTypes)
     
     def setKPointsAndWeights(self, kPointsFilename):
@@ -126,13 +121,8 @@ class bulkSystem:
             print(f"An error occurred while processing the file: {e}")
 
     def setExpBS(self, expBSFilename):
-        try:
-            with open(expBSFilename, 'r') as file:
-                self.expBandStruct = torch.tensor(np.loadtxt(file)[:, 1:], dtype=torch.float32)
-        except FileNotFoundError:
-            print(f"File not found: {expBSFilename}")
-        except Exception as e:
-            print(f"An error occurred while processing the file: {e}")
+        with open(expBSFilename, 'r') as file:
+            self.expBandStruct = torch.tensor(np.loadtxt(file)[:, 1:], dtype=torch.float32)
             
     def setBandWeights(self, bandWeightsFilename): 
         try:
@@ -147,10 +137,21 @@ class bulkSystem:
             print(f"An error occurred while processing the file: {e}")
 
     def getCellVolume(self): 
-        return torch.dot(self.unitCellVectors[0], torch.cross(self.unitCellVectors[1], self.unitCellVectors[2]))
+        return float(torch.dot(self.unitCellVectors[0], torch.cross(self.unitCellVectors[1], self.unitCellVectors[2])))
     
+    def getCellVolumeDef(self):
+        return float(torch.dot(self.unitCellVectorsDef[0], torch.cross(self.unitCellVectorsDef[1], self.unitCellVectorsDef[2])))
+
     def getNAtoms(self):
         return len(self.atomTypes)
+    
+    def getNAtomTypes(self):
+        # this could be generalized if we want the same element in different
+        # chemical environments to have different potentials. This should
+        # return the number of different potentials we have. This 
+        # generalization could also be accomplished by using different labels
+        # in the input files, e.g. "Cd1, Cd2".
+        return len(np.unique(self.atomTypes))
     
     def getGVectors(self):
         cellVolume = self.getCellVolume()
