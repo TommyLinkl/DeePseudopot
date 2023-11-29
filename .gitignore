@@ -1,3 +1,6 @@
 trash*
 __pycache__/
 .ipynb_checkpoints/
+CALCS/
+CALCS/*
+test*

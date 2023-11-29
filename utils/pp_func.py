@@ -46,26 +46,26 @@ def plotBandStruct(systemNames, bandStruct_list, SHOWPLOTS):
         fig, axs = plt.subplots(1, 2, figsize=(9, 4))
         for iSystem in range(nSystem): 
             # plot ref
-            numBands = len(bandStruct_list[iSystem][0])
-            numKpts = len(bandStruct_list[iSystem])
+            numBands = len(bandStruct_list[2*iSystem][0])
+            numKpts = len(bandStruct_list[2*iSystem])
             for i in range(numBands): 
                 if i==0: 
-                    axs[0].plot(np.arange(numKpts), bandStruct_list[iSystem][:, i].detach().numpy(), "bo", label="Reference")
-                    axs[1].plot(np.arange(numKpts), bandStruct_list[iSystem][:, i].detach().numpy(), "bo", label="Reference")
+                    axs[0].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", label="Reference")
+                    axs[1].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", label="Reference")
                 else: 
-                    axs[0].plot(np.arange(numKpts), bandStruct_list[iSystem][:, i].detach().numpy(), "bo")
-                    axs[1].plot(np.arange(numKpts), bandStruct_list[iSystem][:, i].detach().numpy(), "bo")
+                    axs[0].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo")
+                    axs[1].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo")
                     
             # plot prediction
-            numBands = len(bandStruct_list[iSystem+1][0])
-            numKpts = len(bandStruct_list[iSystem+1])
+            numBands = len(bandStruct_list[2*iSystem+1][0])
+            numKpts = len(bandStruct_list[2*iSystem+1])
             for i in range(numBands): 
                 if i==0: 
-                    axs[0].plot(np.arange(numKpts), bandStruct_list[iSystem+1][:, i].detach().numpy(), "r-", label="NN prediction")
-                    axs[1].plot(np.arange(numKpts), bandStruct_list[iSystem+1][:, i].detach().numpy(), "r-", label="NN prediction")
+                    axs[0].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-", label="NN prediction")
+                    axs[1].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-", label="NN prediction")
                 else: 
-                    axs[0].plot(np.arange(numKpts), bandStruct_list[iSystem+1][:, i].detach().numpy(), "r-")
-                    axs[1].plot(np.arange(numKpts), bandStruct_list[iSystem+1][:, i].detach().numpy(), "r-")
+                    axs[0].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-")
+                    axs[1].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-")
             axs[0].legend(frameon=False)
             axs[1].set(ylim=(-8, -2), title=systemNames[iSystem])
             axs[0].get_xaxis().set_ticks([0, 20, 40, 45, 60])
@@ -77,26 +77,26 @@ def plotBandStruct(systemNames, bandStruct_list, SHOWPLOTS):
         fig, axs = plt.subplots(nSystem, 2, figsize=(9, 4 * nSystem))
         for iSystem in range(nSystem): 
             # plot ref
-            numBands = len(bandStruct_list[iSystem][0])
-            numKpts = len(bandStruct_list[iSystem])
+            numBands = len(bandStruct_list[2*iSystem][0])
+            numKpts = len(bandStruct_list[2*iSystem])
             for i in range(numBands): 
                 if i==0: 
-                    axs[iSystem, 0].plot(np.arange(numKpts), bandStruct_list[iSystem][:, i].detach().numpy(), "bo", label="Reference")
-                    axs[iSystem, 1].plot(np.arange(numKpts), bandStruct_list[iSystem][:, i].detach().numpy(), "bo", label="Reference")
+                    axs[iSystem, 0].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", label="Reference")
+                    axs[iSystem, 1].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", label="Reference")
                 else: 
-                    axs[iSystem, 0].plot(np.arange(numKpts), bandStruct_list[iSystem][:, i].detach().numpy(), "bo")
-                    axs[iSystem, 1].plot(np.arange(numKpts), bandStruct_list[iSystem][:, i].detach().numpy(), "bo")
+                    axs[iSystem, 0].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo")
+                    axs[iSystem, 1].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo")
                     
             # plot prediction
-            numBands = len(bandStruct_list[iSystem+1][0])
-            numKpts = len(bandStruct_list[iSystem+1])
+            numBands = len(bandStruct_list[2*iSystem+1][0])
+            numKpts = len(bandStruct_list[2*iSystem+1])
             for i in range(numBands): 
                 if i==0: 
-                    axs[iSystem, 0].plot(np.arange(numKpts), bandStruct_list[iSystem+1][:, i].detach().numpy(), "r-", label="NN prediction")
-                    axs[iSystem, 1].plot(np.arange(numKpts), bandStruct_list[iSystem+1][:, i].detach().numpy(), "r-", label="NN prediction")
+                    axs[iSystem, 0].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-", label="NN prediction")
+                    axs[iSystem, 1].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-", label="NN prediction")
                 else: 
-                    axs[iSystem, 0].plot(np.arange(numKpts), bandStruct_list[iSystem+1][:, i].detach().numpy(), "r-")
-                    axs[iSystem, 1].plot(np.arange(numKpts), bandStruct_list[iSystem+1][:, i].detach().numpy(), "r-")
+                    axs[iSystem, 0].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-")
+                    axs[iSystem, 1].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-")
             axs[iSystem, 0].legend(frameon=False)
             axs[iSystem, 1].set(ylim=(-8, -2), title=systemNames[iSystem])
             axs[iSystem, 0].get_xaxis().set_ticks([0, 20, 40, 45, 60])
@@ -163,26 +163,25 @@ def plotPP(atomPPOrder, ref_q, pred_q, ref_vq_atoms, pred_vq_atoms, ref_labelNam
 
 
 def plot_training_validation_cost(training_cost, validation_cost, ylogBoolean, SHOWPLOTS): 
-    if len(training_cost) != len(validation_cost): 
-        return
-    else:
-        epochs = range(1, len(training_cost) + 1)
+    epochs = range(0, len(training_cost))
+    evaluation_frequency = len(training_cost) // len(validation_cost)
+    evaluation_epochs = list(range(evaluation_frequency-1, len(training_cost), evaluation_frequency))
     
     # Plot training and validation costs
-    fig, axs = plt.subplots(1,1, figsize=(6,4))
-    
+    fig, axs = plt.subplots(1, 1, figsize=(6, 4))
+
     axs.plot(epochs, training_cost, "b-", label='Training Cost')
-    axs.plot(epochs, validation_cost, "r:", label='Validation Cost')
-    
+    axs.plot(evaluation_epochs, validation_cost, "r:", label='Validation Cost')
+
     if ylogBoolean:
         axs.set_yscale('log')
-    else: 
+    else:
         axs.set_yscale('linear')
     axs.set(xlabel="Epochs", ylabel="Cost", title="Training and Validation Costs")
     axs.legend(frameon=False)
     axs.grid(True)
     fig.tight_layout()
-    if SHOWPLOTS: 
+    if SHOWPLOTS:
         plt.show()
     return fig
 

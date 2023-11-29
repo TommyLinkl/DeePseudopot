@@ -52,21 +52,13 @@ systems = [bulkSystem() for _ in range(nSystem)]
 for iSys in range(nSystem): 
     systems[iSys].setSystem("inputs/system_%d.par" % iSys)
     systems[iSys].setInputs("inputs/input_%d.par" % iSys)
-    systems[iSys].setKPoints("inputs/kpoints_%d.par" % iSys)
+    systems[iSys].setKPointsAndWeights("inputs/kpoints_%d.par" % iSys)
     systems[iSys].setExpBS("inputs/expBandStruct_%d.par" % iSys)
-    
-    bandWeights=torch.ones(systems[iSys].nBands)
-    bandWeights[4:8] = 5.0
-    systems[iSys].setBandWeights(bandWeights)
-    
-    kptWeights=torch.ones(systems[iSys].getNKpts())
-    kptWeights[[0, 20, 40]] = 5.0
-    systems[iSys].setKptWeights(kptWeights)
-    
+    systems[iSys].setBandWeights("inputs/bandWeights_%d.par" % iSys)
     atomPPOrder.append(systems[iSys].atomTypes)
     
 # Count how many atomTypes there are
-atomPPOrder = np.unique(atomPPOrder)
+atomPPOrder = np.unique(np.concatenate(atomPPOrder))
 nPseudopot = len(atomPPOrder)
 print("There are %d atomic pseudopotentials. They are in the order of: " % nPseudopot)
 print(atomPPOrder)
@@ -92,32 +84,52 @@ for atomType in atomPPOrder:
         # BUT WE NEED TO KEEP GRADIENT
 print(totalParams)
 
+oldFunc_plot_bandStruct_list = []
+oldFunc_totalMSE = 0
+for iSystem in range(nSystem): 
+    oldFunc_bandStruct = calcBandStruct_GPU(False, PPmodel, systems[iSystem], atomPPOrder, totalParams, device)
+    oldFunc_plot_bandStruct_list.append(systems[iSystem].expBandStruct)
+    oldFunc_plot_bandStruct_list.append(oldFunc_bandStruct)
+    oldFunc_totalMSE += weighted_mse_bandStruct(oldFunc_bandStruct, systems[iSystem])
+fig = plotBandStruct(allSystemNames, oldFunc_plot_bandStruct_list, SHOWPLOTS)
+fig.suptitle("The total bandStruct MSE = %e " % oldFunc_totalMSE)
+fig.savefig('results/oldFunc_plotBS.png')
+plt.close('all')
 
 ############# Initialize the NN #############
-print("\n############################################\nInitializing the NN by fitting to the latest function form of pseudopotentials. ")
 train_dataset = init_Zunger_data(atomPPOrder, totalParams, True)
 val_dataset = init_Zunger_data(atomPPOrder, totalParams, False)
 
-PPmodel.eval()
-NN_init = PPmodel(val_dataset.q)
-plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, NN_init, "ZungerForm", "NN_init", ["-",":" ]*nPseudopot, False, SHOWPLOTS)
+if os.path.exists('inputs/init_PPmodel.pth'):
+    print("\n############################################\nInitializing the NN with file inputs/init_PPmodel.pth.")
+    PPmodel.load_state_dict(torch.load('inputs/init_PPmodel.pth'))
+    print("\nDone with NN initialization to the file inputs/init_PPmodel.pth.")
+else:
+    print("\n############################################\nInitializing the NN by fitting to the latest function form of pseudopotentials. ")
+    PPmodel.cpu()
+    PPmodel.eval()
+    NN_init = PPmodel(val_dataset.q)
+    plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, NN_init, "ZungerForm", "NN_init", ["-",":" ]*nPseudopot, False, SHOWPLOTS)
+    
+    init_Zunger_criterion = init_Zunger_weighted_mse
+    init_Zunger_optimizer = torch.optim.Adam(PPmodel.parameters(), lr=init_Zunger_optimizer_lr)
+    init_Zunger_scheduler = ExponentialLR(init_Zunger_optimizer, gamma=init_Zunger_scheduler_gamma)
+    trainloader = DataLoader(dataset = train_dataset, batch_size = int(train_dataset.len/4),shuffle=True)
+    validationloader = DataLoader(dataset = val_dataset, batch_size =val_dataset.len, shuffle=False)
+    
+    start_time = time.time()
+    init_Zunger_train_GPU(PPmodel, device, trainloader, validationloader, init_Zunger_criterion, init_Zunger_optimizer, init_Zunger_scheduler, 20, init_Zunger_num_epochs, init_Zunger_plotEvery, atomPPOrder, SHOWPLOTS)
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print("GPU initialization: elapsed time: %.2f seconds" % elapsed_time)
+    
+    os.makedirs('results', exist_ok=True)
+    torch.save(PPmodel.state_dict(), 'results/initZunger_PPmodel.pth')
 
-init_Zunger_criterion = init_Zunger_weighted_mse
-init_Zunger_optimizer = torch.optim.Adam(PPmodel.parameters(), lr=init_Zunger_optimizer_lr)
-init_Zunger_scheduler = ExponentialLR(init_Zunger_optimizer, gamma=init_Zunger_scheduler_gamma)
-trainloader = DataLoader(dataset = train_dataset, batch_size = int(train_dataset.len/4),shuffle=True)
-validationloader = DataLoader(dataset = val_dataset, batch_size =val_dataset.len, shuffle=False)
+    print("\nDone with NN initialization to the latest function form.")
 
-start_time = time.time()
-init_Zunger_train_GPU(PPmodel, device, trainloader, validationloader, init_Zunger_criterion, init_Zunger_optimizer, init_Zunger_scheduler, 20, init_Zunger_num_epochs, init_Zunger_plotEvery, atomPPOrder, SHOWPLOTS)
-end_time = time.time()
-elapsed_time = end_time - start_time
-print("GPU initialization: elapsed time: %.2f seconds" % elapsed_time)
-
-os.makedirs('results', exist_ok=True)
-torch.save(PPmodel.state_dict(), 'results/initZunger_PPmodel.pth')
-
-print("\nDone with NN initialization to the latest function form. \nPlotting and write pseudopotentials in the real and reciprocal space.")
+print("\nPlotting and write pseudopotentials in the real and reciprocal space.")
+torch.cuda.empty_cache()
 PPmodel.eval()
 PPmodel.cpu()
 
@@ -134,12 +146,13 @@ for iSystem in range(nSystem):
     plot_bandStruct_list.append(systems[iSystem].expBandStruct)
     plot_bandStruct_list.append(init_bandStruct)
     init_totalMSE += weighted_mse_bandStruct(init_bandStruct, systems[iSystem])
-    
 fig = plotBandStruct(allSystemNames, plot_bandStruct_list, SHOWPLOTS)
 print("After fitting the NN to the latest function forms, we can reproduce satisfactory band structures. ")
 print("The total bandStruct MSE = %e " % init_totalMSE)
+fig.suptitle("The total bandStruct MSE = %e " % init_totalMSE)
 fig.savefig('results/initZunger_plotBS.png')
-
+plt.close('all')
+torch.cuda.empty_cache()
 
 ############# Fit NN to band structures ############# 
 print("\n############################################\nStart training of the NN to fit to band structures. ")
@@ -152,11 +165,11 @@ optimizer = torch.optim.Adam(PPmodel.parameters(), lr=optimizer_lr)
 scheduler = ExponentialLR(optimizer, gamma=scheduler_gamma)
 
 start_time = time.time()
-LOSS = BandStruct_train_GPU(PPmodel, device, systems, atomPPOrder, totalParams, criterion, optimizer, scheduler, schedulerStep, max_num_epochs, plotEvery, patience, val_dataset, SHOWPLOTS)
+(training_cost, validation_cost) = BandStruct_train_GPU(PPmodel, device, systems, atomPPOrder, totalParams, criterion, optimizer, scheduler, schedulerStep, max_num_epochs, plotEvery, patience, val_dataset, SHOWPLOTS)
 end_time = time.time()
 elapsed_time = end_time - start_time
 print("GPU training: elapsed time: %.2f seconds" % elapsed_time)
-
+torch.cuda.empty_cache()
 
 ############# Writing the trained NN PP ############# 
 print("\n############################################\nWriting the NN pseudopotentials")
