@@ -21,7 +21,7 @@ pwd = pathlib.Path(__file__).parent.resolve()
 system = bulkSystem()
 system.setSystem(f"{pwd}/inputs/soc/system_0.par")
 system.setInputs(f"{pwd}/inputs/soc/input_0.par")
-system.setKPoints(f"{pwd}/inputs/soc/kpoints_0.par")
+system.setKPointsAndWeights(f"{pwd}/inputs/kpoints_0.par")
 system.setExpBS(f"{pwd}/inputs/soc/bandStruct_0.dat")
 atomPPorder = np.unique(system.atomTypes)
 

@@ -56,7 +56,7 @@ for iSys in range(nSystem):
     systems[iSys].setExpBS("inputs/expBandStruct_%d.par" % iSys)
     systems[iSys].setBandWeights("inputs/bandWeights_%d.par" % iSys)
     atomPPOrder.append(systems[iSys].atomTypes)
-    
+
 # Count how many atomTypes there are
 atomPPOrder = np.unique(np.concatenate(atomPPOrder))
 nPseudopot = len(atomPPOrder)

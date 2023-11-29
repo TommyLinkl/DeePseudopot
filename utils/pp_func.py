@@ -68,10 +68,10 @@ def plotBandStruct(systemNames, bandStruct_list, SHOWPLOTS):
                     axs[1].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-")
             axs[0].legend(frameon=False)
             axs[1].set(ylim=(-8, -2), title=systemNames[iSystem])
-            axs[0].get_xaxis().set_ticks([0, 20, 40, 45, 60])
-            axs[0].get_xaxis().set_ticklabels(["L", r"$\Gamma$", "X", "K", r"$\Gamma$"])
-            axs[1].get_xaxis().set_ticks([0, 20, 40, 45, 60])
-            axs[1].get_xaxis().set_ticklabels(["L", r"$\Gamma$", "X", "K", r"$\Gamma$"])
+            # axs[0].get_xaxis().set_ticks([0, 20, 40, 45, 60])
+            # axs[0].get_xaxis().set_ticklabels(["L", r"$\Gamma$", "X", "K", r"$\Gamma$"])
+            # axs[1].get_xaxis().set_ticks([0, 20, 40, 45, 60])
+            # axs[1].get_xaxis().set_ticklabels(["L", r"$\Gamma$", "X", "K", r"$\Gamma$"])
         
     else:
         fig, axs = plt.subplots(nSystem, 2, figsize=(9, 4 * nSystem))
@@ -99,10 +99,10 @@ def plotBandStruct(systemNames, bandStruct_list, SHOWPLOTS):
                     axs[iSystem, 1].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-")
             axs[iSystem, 0].legend(frameon=False)
             axs[iSystem, 1].set(ylim=(-8, -2), title=systemNames[iSystem])
-            axs[iSystem, 0].get_xaxis().set_ticks([0, 20, 40, 45, 60])
-            axs[iSystem, 0].get_xaxis().set_ticklabels(["L", r"$\Gamma$", "X", "K", r"$\Gamma$"])
-            axs[iSystem, 1].get_xaxis().set_ticks([0, 20, 40, 45, 60])
-            axs[iSystem, 1].get_xaxis().set_ticklabels(["L", r"$\Gamma$", "X", "K", r"$\Gamma$"])
+            # axs[iSystem, 0].get_xaxis().set_ticks([0, 20, 40, 45, 60])
+            # axs[iSystem, 0].get_xaxis().set_ticklabels(["L", r"$\Gamma$", "X", "K", r"$\Gamma$"])
+            # axs[iSystem, 1].get_xaxis().set_ticks([0, 20, 40, 45, 60])
+            # axs[iSystem, 1].get_xaxis().set_ticklabels(["L", r"$\Gamma$", "X", "K", r"$\Gamma$"])
 
     fig.tight_layout()
     if SHOWPLOTS: 

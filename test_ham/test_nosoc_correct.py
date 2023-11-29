@@ -21,7 +21,7 @@ PPmodel.load_state_dict(torch.load(f"{pwd}/epoch_199_PPmodel.pth", map_location=
 system = bulkSystem()
 system.setSystem(f"{pwd}/inputs/system_0.par")
 system.setInputs(f"{pwd}/inputs/input_0.par")
-system.setKPoints(f"{pwd}/inputs/kpoints_0.par")
+system.setKPointsAndWeights(f"{pwd}/inputs/kpoints_0.par")
 system.setExpBS(f"{pwd}/inputs/expBandStruct_0.par")
 atomPPorder = np.unique(system.atomTypes)
 
