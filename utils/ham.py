@@ -131,7 +131,7 @@ class Hamiltonian:
         """
         Computes the local potential, either using the algebraic form
         or the NN form.
-        V_{i,j} = <G_i|V|G_j> = \sum_k [e^{-i(G_i-G_j)\cdot\tau_k} * v(|G_i-G_j|) / (V_cell)].
+        V_{i,j} = <G_i|V|G_j> = \sum_k [e^{+i(G_i-G_j)\cdot\tau_k} * v(|G_i-G_j|) / (V_cell)].
         "addMat" can be set to be a partially constructed Hamiltonian matrix, to
         which the local potential can be added. Might help save slightly on memory. 
         """
@@ -155,9 +155,8 @@ class Hamiltonian:
                 sfact_re = 1/self.system.getCellVolume() * torch.cos(gdiffDotTau)
                 sfact_im = 1/self.system.getCellVolume() * torch.sin(gdiffDotTau)
             else:
-                # technically, I think gdiff should be different for deformed calc,
-                # but this was not implemented in Dipti's code...?
-                # the basis is technically rescaled in the deformed basis, so the
+                # gdiff should be different for deformed calc.
+                # the basis is rescaled in the deformed basis, so the
                 # differences are also rescaled...?
                 gdiffDotTau = torch.sum(gdiff * self.system.atomPosDef[alpha], axis=2)
                 sfact_re = 1/self.system.getCellVolumeDef() * torch.cos(gdiffDotTau)
@@ -227,7 +226,8 @@ class Hamiltonian:
                     else:
                         gikp = self.basis[i] + self.system.kpts[kidx]
                         gjkp = self.basis[j] + self.system.kpts[kidx]
-                    gdiff = self.basis[j] - self.basis[i]
+                    #gdiff = self.basis[j] - self.basis[i]
+                    gdiff = self.basis[i] - self.basis[j]
 
                     isum = 0.0
                     inm = torch.norm(gikp)
@@ -439,7 +439,8 @@ class Hamiltonian:
                     else:
                         gikp = self.basis[i] + self.system.kpts[kidx]
                         gjkp = self.basis[j] + self.system.kpts[kidx]
-                    gdiff = self.basis[j] - self.basis[i]
+                    #gdiff = self.basis[j] - self.basis[i]
+                    gdiff = self.basis[i] - self.basis[j]
 
                     isum1 = 0.0
                     isum2 = 0.0
