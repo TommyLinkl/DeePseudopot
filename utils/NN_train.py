@@ -27,7 +27,7 @@ def weighted_mse_bandStruct(bandStruct_hat, bulkSystem):
     MSE = torch.sum((bandStruct_hat-bulkSystem.expBandStruct)**2 * newBandWeights * newKptWeights)
     return MSE
 
-def BandStruct_train_GPU(model, device, bulkSystem_list, atomPPOrder, totalParams, criterion_singleSystem, optimizer, scheduler, scheduler_step, max_epochs, plot_every, patience_epochs, val_dataset, SHOWPLOTS):
+def BandStruct_train_GPU(model, device, bulkSystem_list, ham_list, atomPPOrder, totalParams, criterion_singleSystem, optimizer, scheduler, scheduler_step, max_epochs, plot_every, patience_epochs, val_dataset, SHOWPLOTS):
     training_COST=[]
     validation_COST=[]
     file_trainCost = open('results/final_training_cost.dat', "w")
@@ -41,7 +41,10 @@ def BandStruct_train_GPU(model, device, bulkSystem_list, atomPPOrder, totalParam
         model.train()
         loss = torch.tensor(0.0)
         for iSystem in range(len(bulkSystem_list)):
-            NN_outputs = calcBandStruct_GPU(True, model, bulkSystem_list[iSystem], atomPPOrder, totalParams, device)
+            ham_list[iSystem].NN_locbool = True
+            ham_list[iSystem].set_NNmodel(model)
+            NN_outputs = ham_list[iSystem].calcBandStruct()
+            # NN_outputs = calcBandStruct_GPU(True, model, bulkSystem_list[iSystem], atomPPOrder, totalParams, device)
             systemLoss = criterion_singleSystem(NN_outputs, bulkSystem_list[iSystem])
             loss += systemLoss
         training_COST.append(loss.item())
@@ -59,7 +62,9 @@ def BandStruct_train_GPU(model, device, bulkSystem_list, atomPPOrder, totalParam
             plot_bandStruct_list = []
             val_loss = torch.tensor(0.0)
             for iSystem in range(len(bulkSystem_list)):
-                NN_outputs = calcBandStruct_GPU(True, model, bulkSystem_list[iSystem], atomPPOrder, totalParams, device)
+                ham_list[iSystem].set_NNmodel(model)
+                NN_outputs = ham_list[iSystem].calcBandStruct()
+                # NN_outputs = calcBandStruct_GPU(True, model, bulkSystem_list[iSystem], atomPPOrder, totalParams, device)
                 systemLoss = criterion_singleSystem(NN_outputs, bulkSystem_list[iSystem])
                 val_loss += systemLoss
                 

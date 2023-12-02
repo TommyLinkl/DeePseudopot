@@ -7,14 +7,14 @@ from utils.nn_models import *
 from utils.init_NN_train import init_Zunger_data
 from utils.bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
 from utils.ham import Hamiltonian
-from utils.read import bulkSystem
+from utils.read import BulkSystem
 
 # just test on cpu
 device = torch.device("cpu")
 
 # read and set up system
 pwd = pathlib.Path(__file__).parent.resolve()
-system = bulkSystem()
+system = BulkSystem()
 system.setSystem(f"{pwd}/inputs/soc/system_0.par")
 system.setInputs(f"{pwd}/inputs/soc/input_0.par")
 system.setKPointsAndWeights(f"{pwd}/inputs/soc/kpoints_0.par")

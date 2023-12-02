@@ -1,0 +1,52 @@
+***************************
+for this test to pass, make sure the ...Integral_dan() functions
+are called when the hamiltonian is constructing SO and NL matrices.
+***************************
+Cs is being initialized to the function form as stored in /global/u2/t/tommylin/NN_pseudopotential_fitting/test_ham/inputs/soc/CsParams.par
+I is being initialized to the function form as stored in /global/u2/t/tommylin/NN_pseudopotential_fitting/test_ham/inputs/soc/IParams.par
+Pb is being initialized to the function form as stored in /global/u2/t/tommylin/NN_pseudopotential_fitting/test_ham/inputs/soc/PbParams.par
+{'Cs': tensor([0.0000, 0.7352, 2.4692, 1.3389, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000]), 'I': tensor([1.1376e+02, 2.1413e+00, 2.8422e+00, 5.6710e-01, 0.0000e+00, 3.0344e+00,
+        4.5100e-02, 2.2000e-03, 5.0000e-02]), 'Pb': tensor([ 8.8830e+01,  2.6050e+00,  4.2869e+00,  5.1950e-01, -0.0000e+00,
+         7.7899e+00,  1.0640e+00, -8.0800e-03,  5.0000e-02])}
+initializing SO: kpt 1/8
+initializing SO: kpt 2/8
+initializing SO: kpt 3/8
+initializing SO: kpt 4/8
+initializing SO: kpt 5/8
+initializing SO: kpt 6/8
+initializing SO: kpt 7/8
+initializing SO: kpt 8/8
+initializing NL pots: kpt 1/8
+time int1: 5.174686670303345
+int2 est. maxerr: 3.340055560424502e-05
+time int2: 6.703976392745972
+initializing NL pots: kpt 2/8
+time int1: 5.022180557250977
+int2 est. maxerr: 3.2567824668693354e-05
+time int2: 7.833817481994629
+initializing NL pots: kpt 3/8
+time int1: 4.789116859436035
+int2 est. maxerr: 3.250550337944858e-05
+time int2: 8.227466821670532
+initializing NL pots: kpt 4/8
+time int1: 4.801669120788574
+int2 est. maxerr: 3.290007931433789e-05
+time int2: 8.4174644947052
+initializing NL pots: kpt 5/8
+time int1: 4.739362716674805
+int2 est. maxerr: 3.288699081181293e-05
+time int2: 8.483333587646484
+initializing NL pots: kpt 6/8
+time int1: 4.7127392292022705
+int2 est. maxerr: 3.286579146372589e-05
+time int2: 8.54577350616455
+initializing NL pots: kpt 7/8
+time int1: 4.628335475921631
+int2 est. maxerr: 3.158350874120643e-05
+time int2: 7.021907806396484
+initializing NL pots: kpt 8/8
+time int1: 4.6764702796936035
+int2 est. maxerr: 3.2756725654314994e-05
+time int2: 6.713593006134033
+Finished calculating the SOC band structure... Elapsed time: 613.17 seconds
+SOC, zunger-style pot: c code and python code return same band energies : True

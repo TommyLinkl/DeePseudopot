@@ -11,21 +11,25 @@ from torch.optim.lr_scheduler import ExponentialLR
 
 from constants.constants import *
 from utils.nn_models import Net_relu_xavier, Net_relu_xavier_decay1, Net_relu_xavier_decay2
-from utils.read import bulkSystem, read_NNConfigFile
+from utils.read import BulkSystem, read_NNConfigFile, read_PPparams
 from utils.pp_func import pot_func, realSpacePot, plotBandStruct, plotPP, plot_training_validation_cost, FT_converge_and_write_pp
 from utils.bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
 from utils.init_NN_train import init_Zunger_data, init_Zunger_weighted_mse, init_Zunger_train_GPU
 from utils.NN_train import weighted_mse_bandStruct, BandStruct_train_GPU
+from utils.ham import *
 
 torch.set_default_dtype(torch.float32)
 torch.manual_seed(24)
 
+'''
 if torch.cuda.is_available():
     device = torch.device("cuda")
     print("CUDA is available.\n")
 else:
     device = torch.device("cpu")
     print("CUDA is not available. Using CPU.\n")
+'''
+device = torch.device("cpu")
 
 
 ############## main ##############
@@ -46,9 +50,9 @@ schedulerStep = NNConfig['schedulerStep']
 patience = NNConfig['patience']
 
 # Read and set up systems
-print("############################################\nReading and setting up the bulkSystems. ")
+print("############################################\nReading and setting up the BulkSystems. ")
 atomPPOrder = []
-systems = [bulkSystem() for _ in range(nSystem)]
+systems = [BulkSystem() for _ in range(nSystem)]
 for iSys in range(nSystem): 
     systems[iSys].setSystem("inputs/system_%d.par" % iSys)
     systems[iSys].setInputs("inputs/input_%d.par" % iSys)
@@ -57,37 +61,37 @@ for iSys in range(nSystem):
     systems[iSys].setBandWeights("inputs/bandWeights_%d.par" % iSys)
     atomPPOrder.append(systems[iSys].atomTypes)
 
-# Count how many atomTypes there are
+# Calculate atomPPOrder. Read in initial PPparams. Set up NN accordingly
 atomPPOrder = np.unique(np.concatenate(atomPPOrder))
 nPseudopot = len(atomPPOrder)
 print("There are %d atomic pseudopotentials. They are in the order of: " % nPseudopot)
 print(atomPPOrder)
 allSystemNames = [x.systemName for x in systems]
-
-# Set up NN accordingly
+PPparams, totalParams = read_PPparams(atomPPOrder, "inputs/init_")
+localPotParams = totalParams[:,:4]
 layers = [1] + hiddenLayers + [nPseudopot]
 # PPmodel = Net_relu_xavier([1, 20, 20, 20, 2])
 # PPmodel = Net_relu_xavier_decay1([1, 20, 20, 20, 2], 1.5, 6)
 PPmodel = Net_relu_xavier_decay2(layers)
 
-# Set up datasets accordingly
-totalParams = torch.empty(0, 5)
-for atomType in atomPPOrder: 
-    file_path = 'inputs/init_'+atomType+'Params.par'
-    if os.path.isfile(file_path):
-        print(atomType + " is being initialized to the function form as stored in " + file_path)
-        with open(file_path, 'r') as file:
-            a = torch.tensor([float(line.strip()) for line in file])
-        totalParams = torch.cat((totalParams, a.unsqueeze(0)), dim=0)
-    else:
-        print("File " + file_path + " cannot be found. This atom will not be initialized. OR IT WILL BE INITIALIZED TO BE 0. ")
-        # BUT WE NEED TO KEEP GRADIENT
-print(totalParams)
+# Initialize the ham class for each BulkSystem
+print("Initializing the ham class for each BulkSystem. ")
+hams = []
+for iSys in range(nSystem): 
+    start_time = time.time()
+    ham = Hamiltonian(systems[iSys], PPparams, atomPPOrder, device, SObool=True)
+    hams.append(ham)
+    end_time = time.time()
+    print(f"Finished initializing {iSys}-th Hamiltonian Class... Elapsed time: {(end_time - start_time):.2f} seconds")
 
 oldFunc_plot_bandStruct_list = []
 oldFunc_totalMSE = 0
 for iSystem in range(nSystem): 
-    oldFunc_bandStruct = calcBandStruct_GPU(False, PPmodel, systems[iSystem], atomPPOrder, totalParams, device)
+    start_time = time.time()
+    oldFunc_bandStruct = hams[iSystem].calcBandStruct()  
+    # oldFunc_bandStruct = calcBandStruct_GPU(False, PPmodel, systems[iSystem], atomPPOrder, localPotParams, device) 
+    end_time = time.time()
+    print(f"Finished calculating {iSystem}-th band structure... Elapsed time: {(end_time - start_time):.2f} seconds")
     oldFunc_plot_bandStruct_list.append(systems[iSystem].expBandStruct)
     oldFunc_plot_bandStruct_list.append(oldFunc_bandStruct)
     oldFunc_totalMSE += weighted_mse_bandStruct(oldFunc_bandStruct, systems[iSystem])
@@ -96,9 +100,9 @@ fig.suptitle("The total bandStruct MSE = %e " % oldFunc_totalMSE)
 fig.savefig('results/oldFunc_plotBS.png')
 plt.close('all')
 
-############# Initialize the NN #############
-train_dataset = init_Zunger_data(atomPPOrder, totalParams, True)
-val_dataset = init_Zunger_data(atomPPOrder, totalParams, False)
+############# Initialize the NN to the local pot function form #############
+train_dataset = init_Zunger_data(atomPPOrder, localPotParams, True)
+val_dataset = init_Zunger_data(atomPPOrder, localPotParams, False)
 
 if os.path.exists('inputs/init_PPmodel.pth'):
     print("\n############################################\nInitializing the NN with file inputs/init_PPmodel.pth.")
@@ -142,7 +146,13 @@ print("\nEvaluating band structures using the initialized pseudopotentials. ")
 plot_bandStruct_list = []
 init_totalMSE = 0
 for iSystem in range(nSystem): 
-    init_bandStruct = calcBandStruct_GPU(True, PPmodel, systems[iSystem], atomPPOrder, totalParams, device)
+    hams[iSystem].NN_locbool = True
+    hams[iSystem].set_NNmodel(PPmodel)
+    start_time = time.time()
+    init_bandStruct = hams[iSystem].calcBandStruct()
+    # init_bandStruct = calcBandStruct_GPU(True, PPmodel, systems[iSystem], atomPPOrder, localPotParams, device)
+    end_time = time.time()
+    print(f"Finished calculating {iSystem}-th band structure... Elapsed time: {(end_time - start_time):.2f} seconds")
     plot_bandStruct_list.append(systems[iSystem].expBandStruct)
     plot_bandStruct_list.append(init_bandStruct)
     init_totalMSE += weighted_mse_bandStruct(init_bandStruct, systems[iSystem])
@@ -156,16 +166,13 @@ torch.cuda.empty_cache()
 
 ############# Fit NN to band structures ############# 
 print("\n############################################\nStart training of the NN to fit to band structures. ")
-# layers = [1] + hiddenLayers + [nPseudopot]
-# PPmodel = Net_relu_xavier_decay2([layers])
-# PPmodel.load_state_dict(torch.load('results/initZunger_PPmodel.pth'))
 
 criterion = weighted_mse_bandStruct
 optimizer = torch.optim.Adam(PPmodel.parameters(), lr=optimizer_lr)
 scheduler = ExponentialLR(optimizer, gamma=scheduler_gamma)
 
 start_time = time.time()
-(training_cost, validation_cost) = BandStruct_train_GPU(PPmodel, device, systems, atomPPOrder, totalParams, criterion, optimizer, scheduler, schedulerStep, max_num_epochs, plotEvery, patience, val_dataset, SHOWPLOTS)
+(training_cost, validation_cost) = BandStruct_train_GPU(PPmodel, device, systems, hams, atomPPOrder, localPotParams, criterion, optimizer, scheduler, schedulerStep, max_num_epochs, plotEvery, patience, val_dataset, SHOWPLOTS)
 end_time = time.time()
 elapsed_time = end_time - start_time
 print("GPU training: elapsed time: %.2f seconds" % elapsed_time)
@@ -173,9 +180,6 @@ torch.cuda.empty_cache()
 
 ############# Writing the trained NN PP ############# 
 print("\n############################################\nWriting the NN pseudopotentials")
-# layers = [1] + hiddenLayers + [nPseudopot]
-# PPmodel = Net_relu_xavier_decay2([layers])
-# PPmodel.load_state_dict(torch.load('results/epoch_199_PPmodel.pth')) # , map_location=torch.device('cpu')))
 PPmodel.eval()
 PPmodel.cpu()
 

@@ -24,7 +24,7 @@ class Hamiltonian:
     ):
         """
         The Hamiltonian is initialized by passing it an initialized and
-        populated bulkSystem class, which contains all the relevant 
+        populated BulkSystem class, which contains all the relevant 
         information about the basis, atoms, etc. 
         PPparams should be formatted as a dict of lists, where
         PPparams[atomkey] = [params], and atomkey is the string symbol of the atom.
@@ -124,6 +124,7 @@ class Hamiltonian:
             # which might be slower.
             Htot.to(self.device)
 
+        print("Does Htot have requires_grad? ", Htot.requires_grad)
         return Htot
 
     
@@ -631,7 +632,7 @@ class Hamiltonian:
                 tmp = torch.tensor(self.SOmats[kidx,alpha])
 
             SOmatf = SOmatf + tmp * self.PPparams[self.system.atomTypes[alpha]][5]
-        
+
         return SOmatf
     
 
@@ -663,7 +664,7 @@ class Hamiltonian:
 
             NLmatf = (NLmatf + tmp1 * self.PPparams[self.system.atomTypes[alpha]][6]
                              + tmp2 * self.PPparams[self.system.atomTypes[alpha]][7] )
-        
+
         return NLmatf
 
 

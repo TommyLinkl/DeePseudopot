@@ -8,6 +8,11 @@ from constants.constants import *
 from utils.pp_func import pot_func, realSpacePot, plotBandStruct
 
 def calcHamiltonianMatrix_GPU(NN_boolean, model, basisStates, atomPos, atomTypes, nAtoms, cellVolume, kVector, atomPPOrder, totalParams, device):
+    '''
+    This function is outdated and miss the implementation of 
+    SOC and NL parts of the pseudopotential. Please use 
+    functions for class Hamiltonian in ham.py instead. 
+    '''
     model.to(device)
     basisStates = basisStates.to(device)
     kVector = kVector.to(device)
@@ -43,6 +48,11 @@ def calcHamiltonianMatrix_GPU(NN_boolean, model, basisStates, atomPos, atomTypes
     return HMatrix
 
 def calcBandStruct_GPU(NN_boolean, model, bulkSystem, atomPPOrder, totalParams, device):
+    '''
+    This function is outdated and miss the implementation of 
+    SOC and NL parts of the pseudopotential. Please use 
+    functions for class Hamiltonian in ham.py instead. 
+    '''
     nBands = bulkSystem.nBands
     kpts_coord = bulkSystem.kpts
     nkpt = bulkSystem.getNKpts()

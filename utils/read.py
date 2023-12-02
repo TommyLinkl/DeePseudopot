@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import os
 
 from constants.constants import *
 
@@ -26,9 +27,26 @@ def read_NNConfigFile(filename):
                     config[key] = value
     return config
 
-# Note: the python convention is capitalize the first letter of classes,
-# so this should be BulkSystem
-class bulkSystem:
+def read_PPparams(atomPPOrder, paramsFilePath): 
+    PPparams = {}
+    totalParams = torch.empty(0,9) # see the readme for definition of all 9 params.
+                                   # They are not all used in this test. Only
+                                   # params 0-3,5-7 are used (local pot, SOC,
+                                   # and nonlocal, no long range or strain)
+    for atomType in atomPPOrder:
+        file_path = f"{paramsFilePath}{atomType}Params.par"
+        if os.path.isfile(file_path):
+            print(atomType + " is being initialized to the function form as stored in " + file_path)
+            with open(file_path, 'r') as file:
+                a = torch.tensor([float(line.strip()) for line in file])
+            totalParams = torch.cat((totalParams, a.unsqueeze(0)), dim=0)
+            PPparams[atomType] = a
+        else:
+            print("File " + file_path + " cannot be found. This atom will not be initialized. OR IT WILL BE INITIALIZED TO BE 0. ")
+            # BUT WE NEED TO KEEP GRADIENT
+    return PPparams, totalParams
+
+class BulkSystem:
     def __init__(self, scale=1.0, unitCellVectors_unscaled=None, atomTypes=None, atomPos_unscaled=None, kpts_recipLatVec=None, expBandStruct=None, nBands=16, maxKE=5):
         if unitCellVectors_unscaled is None:
             unitCellVectors_unscaled = torch.zeros(3, 3)
