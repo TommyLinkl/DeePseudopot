@@ -98,27 +98,20 @@ class bulkSystem:
             
         self.scale = scale
         self.unitCellVectors = scale * torch.tensor(cell)
-        # 1% expansion, matching the DFT literature
-        self.unitCellVectorsDef = self.unitCellVectors * 1.01
         self.atomTypes = np.array(atomTypes).flatten()
         self.atomPos = torch.tensor(atomCoords) @ self.unitCellVectors
-        self.atomPosDef = torch.tensor(atomCoords) @ self.unitCellVectorsDef
         self.systemName = ''.join(self.atomTypes)
     
     def setKPointsAndWeights(self, kPointsFilename):
-        try:
-            with open(kPointsFilename, 'r') as file:
-                data = np.loadtxt(file)
-                kpts = data[:, :3]
-                kptWeights = data[:, 3]
-                gVectors = self.getGVectors()
-                
-                self.kpts = torch.tensor(kpts, dtype=torch.float32) @ gVectors
-                self.kptWeights = torch.tensor(kptWeights, dtype=torch.float32)
-        except FileNotFoundError:
-            print(f"File not found: {kPointsFilename}")
-        except Exception as e:
-            print(f"An error occurred while processing the file: {e}")
+        with open(kPointsFilename, 'r') as file:
+            data = np.loadtxt(file)
+            kpts = data[:, :3]
+            kptWeights = data[:, 3]
+            gVectors = self.getGVectors()
+            
+            self.kpts = torch.tensor(kpts, dtype=torch.float32) @ gVectors
+            self.kptWeights = torch.tensor(kptWeights, dtype=torch.float32)
+        
 
     def setExpBS(self, expBSFilename):
         with open(expBSFilename, 'r') as file:
@@ -139,9 +132,6 @@ class bulkSystem:
     def getCellVolume(self): 
         return float(torch.dot(self.unitCellVectors[0], torch.cross(self.unitCellVectors[1], self.unitCellVectors[2])))
     
-    def getCellVolumeDef(self):
-        return float(torch.dot(self.unitCellVectorsDef[0], torch.cross(self.unitCellVectorsDef[1], self.unitCellVectorsDef[2])))
-
     def getNAtoms(self):
         return len(self.atomTypes)
     

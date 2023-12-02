@@ -57,6 +57,7 @@ class Hamiltonian:
         if SObool and cacheSO:
             #self.SOmats = self.initSOmat()
             self.SOmats = self.initSOmat_fast()
+            self.SOmats_def = None
             # check if nonlocal potentials are included, if so, cache them
             checknl = False
             for alpha in range(system.getNAtomTypes()):
@@ -69,6 +70,7 @@ class Hamiltonian:
             if checknl:
                 #self.NLmats = self.initNLmat()
                 self.NLmats = self.initNLmat_fast()
+                self.NLmats_def = None
         elif SObool and not cacheSO:
             raise NotImplementedError("currently we only support caching the SO matrices")
         
@@ -94,7 +96,7 @@ class Hamiltonian:
         
 
 
-    def buildHtot(self, kidx, defbool=False):
+    def buildHtot(self, kidx):
         """
         Build the total Hamiltonian for a given kpt, specified by its kidx.
         """
@@ -111,7 +113,7 @@ class Hamiltonian:
             Htot[i,i] = HBAR**2 / (2*MASS) * torch.norm(self.basis[i%nbv] + self.system.kpts[kidx])**2
 
         # local potential
-        Htot = self.buildVlocMat(defbool=defbool, addMat=Htot)
+        Htot = self.buildVlocMat(addMat=Htot)
 
         if self.SObool:
             Htot = self.buildSOmat(kidx, addMat=Htot)
@@ -125,9 +127,90 @@ class Hamiltonian:
             Htot.to(self.device)
 
         return Htot
+    
+
+    def buildHtot_def(self, kidx, scale=1.0001):
+        """
+        Build the total Hamiltonian in the deformed basis, for a given kpoint
+        (specified by its kidx). This is used for the "classic" method of
+        computing the deformation potential. The deformed unit cell is scaled
+        by "scale". IMPORTANT: this function assumes that you only want to
+        construct the deformed Hamiltonian at a SINGLE kpoint - the kpoint 
+        corresponding to the bandgap. The input arg "kidx" should be the 
+        index of the bandgap kpoint.
+        """
+        print("***************************")
+        print("You are computing deformation potentials by directly changing")
+        print("the volume of the material. To be precise, computing a")
+        print("quantity that can be correctly compared to the DFT literature,")
+        print("or experiments, requires very careful consideration of the")
+        print("g_i - g_j = 0 point in the potentials. These considerations")
+        print("are not made here. Consult the DFT literature, e.g.")
+        print("PRB 73 245206 (2006) and its references.")
+        print("***************************")
+
+        self.defscale = self.system.scale * scale
+        # modify the relevent quantities, then modify them back after diagonalizing
+        self.basis *= (self.system.scale / self.defscale)
+        self.system.kpts *= (self.system.scale / self.defscale)
+        self.system.unitCellVectors *= (self.defscale / self.system.scale)
+        self.system.atomPos *= (self.defscale / self.system.scale)
+
+
+
+        nbv = self.basis.shape[0]
+        if self.SObool:
+            Htot = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
+        else:
+            Htot = torch.zeros([nbv, nbv], dtype=torch.complex128)
+        
+        # kinetic energy
+        if self.SObool: top = 2*nbv
+        else: top = nbv
+        for i in range(top):
+            Htot[i,i] = HBAR**2 / (2*MASS) * torch.norm(self.basis[i%nbv] + self.system.kpts[kidx])**2
+
+        # local potential
+        Htot = self.buildVlocMat(addMat=Htot)
+
+        if self.SObool:
+            store_SOmats = self.SOmats
+            store_NLmats = self.NLmats
+            # only compute the SO integrals for the kpt corresponding to the gap (assuming direct gap).
+            # check if we cached them from the first call...
+            if self.SOmats_def is not None:
+                self.SOmats = self.SOmats_def
+            else:
+                self.SOmats_def = self.initSOmat_fast(defbool=True, idxGap=kidx)
+                self.SOmats = self.SOmats_def
+            if self.NLmats_def is not None:
+                self.NLmats = self.NLmats_def
+            else:
+                self.NLmats_def = self.initNLmat_fast(defbool=True, idxGap=kidx)
+                self.NLmats = self.NLmats_def
+
+            # the below calls are kidx=0 because they index into the SOmats and NLmats
+            # arrays, for which there is only a single kpoint. There are no calls
+            # self.system.kpts[kidx] in these functions, so it does not cause any
+            # issues.
+            Htot = self.buildSOmat(0, addMat=Htot)
+            Htot = self.buildNLmat(0, addMat=Htot)
+
+        
+        
+        # now return everything to its non-deformed values
+        self.basis *= (self.defscale / self.system.scale)
+        self.system.kpts *= (self.defscale / self.system.scale)
+        self.system.unitCellVectors *= (self.system.scale / self.defscale)
+        self.system.atomPos *= (self.system.scale / self.defscale)
+        if self.SObool:
+            self.SOmats = store_SOmats
+            self.NLmats = store_NLmats
+
+        return Htot
 
     
-    def buildVlocMat(self, defbool=False, addMat=None):
+    def buildVlocMat(self, addMat=None):
         """
         Computes the local potential, either using the algebraic form
         or the NN form.
@@ -150,17 +233,9 @@ class Hamiltonian:
                 Vmat = torch.zeros([nbv, nbv])
 
         for alpha in range(self.system.getNAtoms()):
-            if not defbool:
-                gdiffDotTau = torch.sum(gdiff * self.system.atomPos[alpha], axis=2)
-                sfact_re = 1/self.system.getCellVolume() * torch.cos(gdiffDotTau)
-                sfact_im = 1/self.system.getCellVolume() * torch.sin(gdiffDotTau)
-            else:
-                # gdiff should be different for deformed calc.
-                # the basis is rescaled in the deformed basis, so the
-                # differences are also rescaled...?
-                gdiffDotTau = torch.sum(gdiff * self.system.atomPosDef[alpha], axis=2)
-                sfact_re = 1/self.system.getCellVolumeDef() * torch.cos(gdiffDotTau)
-                sfact_im = 1/self.system.getCellVolumeDef() * torch.sin(gdiffDotTau)
+            gdiffDotTau = torch.sum(gdiff * self.system.atomPos[alpha], axis=2)
+            sfact_re = 1/self.system.getCellVolume() * torch.cos(gdiffDotTau)
+            sfact_im = 1/self.system.getCellVolume() * torch.sin(gdiffDotTau)
 
             thisAtomIndex = np.where(self.system.atomTypes[alpha]==self.atomPPorder)[0]
             if len(thisAtomIndex)!=1: 
@@ -353,16 +428,10 @@ class Hamiltonian:
                               np.stack([gjkp]*nbv, axis=0), axisa=-1, axisb=-1, axisc=-1)
 
             for alpha in range(self.system.getNAtoms()):
-                if not defbool:
-                    gdiffDotTau = gdiff * self.system.atomPos[alpha]
-                    gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
-                    sfact_re = 1 / self.system.getCellVolume() * np.cos(gdiffDotTau)
-                    sfact_im = 1 / self.system.getCellVolume() * np.sin(gdiffDotTau)
-                else:
-                    gdiffDotTau = gdiff * self.system.atomPosDef[alpha]
-                    gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
-                    sfact_re = 1 / self.system.getCellVolumeDef() * np.cos(gdiffDotTau)
-                    sfact_im = 1 / self.system.getCellVolumeDef() * np.sin(gdiffDotTau)
+                gdiffDotTau = gdiff * self.system.atomPos[alpha]
+                gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
+                sfact_re = 1 / self.system.getCellVolume() * np.cos(gdiffDotTau)
+                sfact_im = 1 / self.system.getCellVolume() * np.sin(gdiffDotTau)
 
                 # build SO matrix
                 # up up
@@ -574,17 +643,11 @@ class Hamiltonian:
             prefactor[ids] = 12.0 * np.pi / denom[ids]
 
             for alpha in range(self.system.getNAtoms()):
-                if not defbool:
-                    gdiffDotTau = gdiff * self.system.atomPos[alpha]
-                    gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
-                    sfact_re = 1 / self.system.getCellVolume() * np.cos(gdiffDotTau)
-                    sfact_im = 1 / self.system.getCellVolume() * np.sin(gdiffDotTau)
-                else:
-                    gdiffDotTau = gdiff * self.system.atomPosDef[alpha]
-                    gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
-                    sfact_re = 1 / self.system.getCellVolumeDef() * np.cos(gdiffDotTau)
-                    sfact_im = 1 / self.system.getCellVolumeDef() * np.sin(gdiffDotTau)
-
+                gdiffDotTau = gdiff * self.system.atomPos[alpha]
+                gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
+                sfact_re = 1 / self.system.getCellVolume() * np.cos(gdiffDotTau)
+                sfact_im = 1 / self.system.getCellVolume() * np.sin(gdiffDotTau)
+                
             
                 # This potential is block diagonal on spin
                 # up up, 1st integral
