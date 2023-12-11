@@ -12,10 +12,10 @@ def read_NNConfigFile(filename):
     with open(filename, 'r') as file:
         for line in file:
             if '=' in line:
-                key, value = line.strip().split('=')
+                key, value = line.split('#')[0].strip().split('=')
                 key = key.strip()
                 value = value.strip()
-                if key == 'SHOWPLOTS':
+                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint']:
                     config[key] = bool(int(value))
                 elif key in ['nSystem', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience']:
                     config[key] = int(value)
@@ -150,7 +150,7 @@ class BulkSystem:
                 if len(bandWeights) != self.nBands:
                     raise ValueError(f"Invalid number of bands in {bandWeightsFilename}, not equal to nBands input: {self.nBands}")
         except FileNotFoundError:
-            print(f"File not found: {kPointsFilename}")
+            print(f"File not found: {bandWeightsFilename}")
         except Exception as e:
             print(f"An error occurred while processing the file: {e}")
 

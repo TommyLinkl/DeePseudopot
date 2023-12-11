@@ -9,6 +9,7 @@ import torch.nn.init as init
 from torch.optim.lr_scheduler import ExponentialLR
 
 from utils.pp_func import *
+from utils.memory import print_memory_usage
 torch.set_default_dtype(torch.float32)
 torch.manual_seed(24)
 
@@ -49,6 +50,9 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
     validation_cost=[]
     model.to(device)
     for epoch in range(epochs):
+        print(f"This is epoch #{epoch}. ")
+        print("Training: ")
+        print_memory_usage()
         train_cost = 0
         val_cost = 0
         for q, vq_atoms, w in train_loader:
@@ -66,6 +70,10 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
         training_cost.append(train_cost)
         if epoch > 0 and epoch % scheduler_step == 0:
             scheduler.step()
+        print_memory_usage()
+
+        print("Evaluation: ")
+        print_memory_usage()
         for q, vq_atoms, w in val_loader:
             model.eval()
             q = q.to(device) 
@@ -81,8 +89,10 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
                 plot_pred_outputs = pred_outputs.cpu()
                 print(f'Epoch [{epoch+1}/{epochs}], Validation Loss: {loss.item():.4f}')
                 plotPP(atomPPOrder, plot_q, plot_q, plot_vq_atoms, plot_pred_outputs, "ZungerForm", f"NN_{epoch+1}", ["-",":" ]*len(atomPPOrder), True, SHOWPLOTS)
-                
         validation_cost.append(val_cost)
+        print_memory_usage()
+        torch.cuda.empty_cache()
     fig_cost = plot_training_validation_cost(training_cost, validation_cost, True, SHOWPLOTS)
     fig_cost.savefig('results/init_train_cost.png')
+    torch.cuda.empty_cache()
     return (training_cost, validation_cost)

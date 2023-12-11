@@ -4,10 +4,11 @@ from scipy.special import erf
 from scipy.integrate import quad, quadrature, quad_vec
 import time
 import sys
+from torch.utils.checkpoint import checkpoint
 
 from constants.constants import *
 from utils.pp_func import pot_func
-
+from utils.memory import print_memory_usage
 
 class Hamiltonian:
     def __init__(
@@ -15,7 +16,8 @@ class Hamiltonian:
         system,
         PPparams,
         atomPPorder,
-        device,
+        device, 
+        NNConfig, 
         SObool = False,
         cacheSO = True,
         NN_locbool = False,
@@ -43,6 +45,7 @@ class Hamiltonian:
         self.atomPPorder = atomPPorder
         self.system = system
         self.device = device
+        self.NNConfig = NNConfig
         self.SObool = SObool
         self.cacheSO = cacheSO
         self.NN_locbool = NN_locbool
@@ -111,7 +114,7 @@ class Hamiltonian:
             Htot[i,i] = HBAR**2 / (2*MASS) * torch.norm(self.basis[i%nbv] + self.system.kpts[kidx])**2
 
         # local potential
-        Htot = self.buildVlocMat(defbool=defbool, addMat=Htot)
+        Htot = self.buildVlocMat(self.NNConfig, defbool=defbool, addMat=Htot)
 
         if self.SObool:
             Htot = self.buildSOmat(kidx, addMat=Htot)
@@ -124,11 +127,11 @@ class Hamiltonian:
             # which might be slower.
             Htot.to(self.device)
 
-        print("Does Htot have requires_grad? ", Htot.requires_grad)
+        # print("Does Htot have requires_grad? ", Htot.requires_grad)
         return Htot
 
     
-    def buildVlocMat(self, defbool=False, addMat=None):
+    def buildVlocMat(self, NNConfig, defbool=False, addMat=None):
         """
         Computes the local potential, either using the algebraic form
         or the NN form.
@@ -139,6 +142,9 @@ class Hamiltonian:
         nbv = self.basis.shape[0]
         gdiff = torch.stack([self.basis] * nbv, dim=1 ) - self.basis.repeat(nbv,1,1)
 
+        def compute_atomFF():
+            return self.model(torch.norm(gdiff, dim=2).view(-1,1))
+    
         if addMat is not None:
             if self.SObool:
                 assert addMat.shape[0] == 2*nbv
@@ -169,7 +175,11 @@ class Hamiltonian:
             thisAtomIndex = thisAtomIndex[0]
 
             if self.NN_locbool:
-                atomFF = self.model(torch.norm(gdiff, dim=2).view(-1,1))
+                # atomFF = self.model(torch.norm(gdiff, dim=2).view(-1,1))
+                if self.NNConfig['checkpoint']==0: 
+                    atomFF = self.model(torch.norm(gdiff, dim=2).view(-1,1))
+                elif self.NNConfig['checkpoint']==1: 
+                    atomFF = checkpoint(compute_atomFF, use_reentrant=False)
                 atomFF = atomFF[:, thisAtomIndex].view(nbv, nbv)
             else:
                 atomFF = pot_func(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
@@ -667,6 +677,39 @@ class Hamiltonian:
 
         return NLmatf
 
+    def calcEigValsAtK(self, kidx):
+        '''
+        This function builds the Htot at a certain kpoint that is given as the input, 
+        digonalizes the Htot, and obtains the eigenvalues at this kpoint. 
+        '''
+        nbands = self.system.nBands
+        eigVals = torch.zeros(nbands)
+
+        print("\nbuildHtot, before and after: ")
+        print_memory_usage()
+        H = self.buildHtot(kidx)
+        print_memory_usage()
+
+        if not self.coupling:
+            print("\neigvalsh, before and after: ")
+            print_memory_usage() 
+            energies = torch.linalg.eigvalsh(H)
+            print_memory_usage() 
+            energiesEV = energies * AUTOEV
+        else:
+            ens, vecs = torch.linalg.eigh(H)
+            energiesEV = ens * AUTOEV
+            self.vb_vecs[kidx, :] = vecs[:, self.idx_vb]
+            self.cb_vecs[kidx, :] = vecs[:, self.idx_cb]
+
+        if not self.SObool:
+            # 2-fold degeneracy for spin. Not sure why this is necessary, but
+            # it is included in Tommy's code...
+            energiesEV = energiesEV.repeat_interleave(2)
+        eigVals[:] = energiesEV[:nbands]
+        print_memory_usage()
+        print("End of ham.calcEigValsAtK function")
+        return eigVals
 
     def calcBandStruct(self):
         nbands = self.system.nBands
@@ -677,10 +720,16 @@ class Hamiltonian:
         # this loop should be parallelized for good performance.
         # can be done with shared memory by simply using the multiprocessing module
         for kidx in range(nkpt):
+            print("\nbuildHtot, before and after: ")
+            print_memory_usage()  # 0.64 GB
             H = self.buildHtot(kidx)
+            print_memory_usage()  # 2.57 GB
 
             if not self.coupling:
+                print("\neigvalsh, before and after: ")
+                print_memory_usage() # 2.60 GB
                 energies = torch.linalg.eigvalsh(H)
+                print_memory_usage() # 2.82 GB
                 energiesEV = energies * AUTOEV
             else:
                 # this will be slow, since torch seems to only support
@@ -701,9 +750,9 @@ class Hamiltonian:
                 energiesEV = energiesEV.repeat_interleave(2)
                 # dont need to interleave eigenvecs (if stored) since we only
                 # store the vb and cb anyways.
-
             bandStruct[kidx,:] = energiesEV[:nbands]
-
+        print_memory_usage()
+        print("End of ham.calcBandStruct function")
         return bandStruct
 
 
