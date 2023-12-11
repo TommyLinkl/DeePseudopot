@@ -5,6 +5,10 @@ import matplotlib.pyplot as plt
 memory_usage_data = []
 DEBUG_MEMORY_FLAG = False
 
+def set_debug_memory_flag(value):
+    global DEBUG_MEMORY_FLAG
+    DEBUG_MEMORY_FLAG = value
+
 def print_memory_usage():
     if DEBUG_MEMORY_FLAG: 
         process = psutil.Process()

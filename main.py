@@ -1,12 +1,8 @@
 import os
 import numpy as np
 import time
-import matplotlib as mpl
-import matplotlib.pyplot as plt 
 import torch
-from torch.utils.data import Dataset, DataLoader
-import torch.nn as nn
-import torch.nn.init as init
+from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ExponentialLR
 
 from constants.constants import *
@@ -16,7 +12,7 @@ from utils.pp_func import plotPP, FT_converge_and_write_pp
 from utils.init_NN_train import init_Zunger_data, init_Zunger_weighted_mse, init_Zunger_train_GPU
 from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, bandStruct_train_GPU
 from utils.ham import Hamiltonian
-from utils.memory import memory_usage_data, print_memory_usage, plot_memory_usage
+from utils.memory import print_memory_usage, plot_memory_usage, set_debug_memory_flag
 
 torch.set_default_dtype(torch.float32)
 torch.manual_seed(24)
@@ -31,12 +27,13 @@ else:
 '''
 device = torch.device("cpu")
 memory_usage_data = []
-DEBUG_MEMORY_FLAG = False
+set_debug_memory_flag(False)
 
 ############## main ##############
 
 inputsFolder = 'inputs/'
 resultsFolder = 'results/'
+os.makedirs(resultsFolder, exist_ok=True)
 
 NNConfig = read_NNConfigFile(inputsFolder + 'NN_config.par')
 SHOWPLOTS = NNConfig['SHOWPLOTS']  # True or False
@@ -72,7 +69,6 @@ PPparams, totalParams = read_PPparams(atomPPOrder, inputsFolder + "init_")
 localPotParams = totalParams[:,:4]
 layers = [1] + NNConfig['hiddenLayers'] + [nPseudopot]
 PPmodel = Net_relu_xavier_decay2(layers)
-
 print_memory_usage()
 
 # Initialize the ham class for each BulkSystem
@@ -136,7 +132,6 @@ else:
     elapsed_time = end_time - start_time
     print("GPU initialization: elapsed time: %.2f seconds" % elapsed_time)
     
-    os.makedirs(resultsFolder, exist_ok=True)
     torch.save(PPmodel.state_dict(), resultsFolder + 'initZunger_PPmodel.pth')
 
     print("\nDone with NN initialization to the latest function form.")

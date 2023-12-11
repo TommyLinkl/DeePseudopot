@@ -10,8 +10,8 @@ device = torch.device("cpu")
 set_debug_memory_flag(True)
 
 pwd = pathlib.Path(__file__).parent.resolve()
-inputsFolder = f'{pwd}/separateKpts_inputs/'
-resultsFolder = f'{pwd}/separateKpts_results/'
+inputsFolder = f'{pwd}/vanilla_inputs/'
+resultsFolder = f'{pwd}/vanilla_results/'
 os.makedirs(resultsFolder, exist_ok=True)
 
 run_memory_test(inputsFolder, resultsFolder, device)
