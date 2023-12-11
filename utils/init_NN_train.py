@@ -45,7 +45,7 @@ def init_Zunger_weighted_mse(yhat,y,weight):
     return torch.mean(weight*(yhat-y)**2)
 #criterion=nn.MSELoss()
 
-def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, optimizer, scheduler, scheduler_step, epochs, plot_every, atomPPOrder, SHOWPLOTS):
+def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, optimizer, scheduler, scheduler_step, epochs, plot_every, atomPPOrder, SHOWPLOTS, resultsFolder):
     training_cost=[]
     validation_cost=[]
     model.to(device)
@@ -93,6 +93,6 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
         print_memory_usage()
         torch.cuda.empty_cache()
     fig_cost = plot_training_validation_cost(training_cost, validation_cost, True, SHOWPLOTS)
-    fig_cost.savefig('results/init_train_cost.png')
+    fig_cost.savefig(resultsFolder + 'init_train_cost.png')
     torch.cuda.empty_cache()
     return (training_cost, validation_cost)

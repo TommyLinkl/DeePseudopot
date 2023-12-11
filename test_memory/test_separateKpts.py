@@ -17,7 +17,12 @@ from utils.pp_func import pot_func, realSpacePot, plotBandStruct, plotPP, plot_t
 from utils.bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
 from utils.init_NN_train import init_Zunger_data, init_Zunger_weighted_mse, init_Zunger_train_GPU
 from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, bandStruct_train_GPU
-from utils.ham import print_memory_usage, Hamiltonian
+from utils.ham import Hamiltonian
+from utils.memory import memory_usage_data, print_memory_usage, plot_memory_usage
+
+torch.set_default_dtype(torch.float32)
+torch.manual_seed(24)
+DEBUG_MEMORY_FLAG = True
 
 device = torch.device("cpu")
 
@@ -67,9 +72,10 @@ scheduler = ExponentialLR(optimizer, gamma=NNConfig['scheduler_gamma'])
 
 start_time = time.time()
 (training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, NNConfig, [system], [ham], atomPPOrder, localPotParams, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, val_dataset)
-# (training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, systems, hams, atomPPOrder, localPotParams, criterion, optimizer, scheduler, NNConfig['schedulerStep'], NNConfig['max_num_epochs'], NNConfig['plotEvery'], NNConfig['patience'], val_dataset, NNConfig['SHOWPLOTS'])
-# (training_cost, validation_cost) = bandStruct_train_GPU_kptSeparate(PPmodel, device, systems, hams, atomPPOrder, localPotParams, criterion_singleKpt, criterion, optimizer, scheduler, NNConfig['schedulerStep'], NNConfig['max_num_epochs'], NNConfig['plotEvery'], NNConfig['patience'], val_dataset, NNConfig['SHOWPLOTS'])
+
 end_time = time.time()
 elapsed_time = end_time - start_time
 print("GPU training: elapsed time: %.2f seconds" % elapsed_time)
 torch.cuda.empty_cache()
+
+plot_memory_usage()

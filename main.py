@@ -16,7 +16,7 @@ from utils.pp_func import plotPP, FT_converge_and_write_pp
 from utils.init_NN_train import init_Zunger_data, init_Zunger_weighted_mse, init_Zunger_train_GPU
 from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, bandStruct_train_GPU
 from utils.ham import Hamiltonian
-from utils.memory import print_memory_usage, plot_memory_usage
+from utils.memory import memory_usage_data, print_memory_usage, plot_memory_usage
 
 torch.set_default_dtype(torch.float32)
 torch.manual_seed(24)
@@ -30,34 +30,36 @@ else:
     print("CUDA is not available. Using CPU.\n")
 '''
 device = torch.device("cpu")
-
+memory_usage_data = []
+DEBUG_MEMORY_FLAG = False
 
 ############## main ##############
 
-memory_usage_data = []
+inputsFolder = 'inputs/'
+resultsFolder = 'results/'
 
-NNConfig = read_NNConfigFile('inputs/NN_config.par')
+NNConfig = read_NNConfigFile(inputsFolder + 'NN_config.par')
 SHOWPLOTS = NNConfig['SHOWPLOTS']  # True or False
 nSystem = NNConfig['nSystem']
 checkpoint = NNConfig['checkpoint']  # True or False
 separateKptGrad = NNConfig['separateKptGrad']  # True or False
 if (checkpoint==1) and (separateKptGrad==1): 
-    raise ValueError("Please don't turn on both checkpoint and separateKptGrad. \n")
+    raise ValueError("############################################\nPlease don't turn on both checkpoint and separateKptGrad. \n############################################\n")
 elif (checkpoint==1) and (separateKptGrad==0):
-    print("WARNING: Using checkpointing! Please use this as a last resort, only for pseudopotential fitting where memory limit is a major issue. The code will run slower due to checkpointing. \n")
+    print("############################################\nWARNING: Using checkpointing! Please use this as a last resort, only for pseudopotential fitting where memory limit is a major issue. The code will run slower due to checkpointing. \n############################################\n")
 elif (checkpoint==0) and (separateKptGrad==1): 
-    print("Using separateKptGrad. This can decrease the peak memory load during the fitting code. \n")
+    print("############################################\nUsing separateKptGrad. This can decrease the peak memory load during the fitting code. \n############################################\n")
 
 # Read and set up systems
 print("############################################\nReading and setting up the BulkSystems. ")
 atomPPOrder = []
 systems = [BulkSystem() for _ in range(nSystem)]
 for iSys in range(nSystem): 
-    systems[iSys].setSystem("inputs/system_%d.par" % iSys)
-    systems[iSys].setInputs("inputs/input_%d.par" % iSys)
-    systems[iSys].setKPointsAndWeights("inputs/kpoints_%d.par" % iSys)
-    systems[iSys].setExpBS("inputs/expBandStruct_%d.par" % iSys)
-    systems[iSys].setBandWeights("inputs/bandWeights_%d.par" % iSys)
+    systems[iSys].setSystem(inputsFolder + "system_%d.par" % iSys)
+    systems[iSys].setInputs(inputsFolder + "input_%d.par" % iSys)
+    systems[iSys].setKPointsAndWeights(inputsFolder + "kpoints_%d.par" % iSys)
+    systems[iSys].setExpBS(inputsFolder + "expBandStruct_%d.par" % iSys)
+    systems[iSys].setBandWeights(inputsFolder + "bandWeights_%d.par" % iSys)
     atomPPOrder.append(systems[iSys].atomTypes)
 
 # Calculate atomPPOrder. Read in initial PPparams. Set up NN accordingly
@@ -66,7 +68,7 @@ nPseudopot = len(atomPPOrder)
 print("There are %d atomic pseudopotentials. They are in the order of: " % nPseudopot)
 print(atomPPOrder)
 allSystemNames = [x.systemName for x in systems]
-PPparams, totalParams = read_PPparams(atomPPOrder, "inputs/init_")
+PPparams, totalParams = read_PPparams(atomPPOrder, inputsFolder + "init_")
 localPotParams = totalParams[:,:4]
 layers = [1] + NNConfig['hiddenLayers'] + [nPseudopot]
 PPmodel = Net_relu_xavier_decay2(layers)
@@ -101,7 +103,7 @@ for iSystem in range(nSystem):
     oldFunc_totalMSE += weighted_mse_bandStruct(oldFunc_bandStruct, systems[iSystem])
 fig = plotBandStruct(allSystemNames, oldFunc_plot_bandStruct_list, NNConfig['SHOWPLOTS'])
 fig.suptitle("The total bandStruct MSE = %e " % oldFunc_totalMSE)
-fig.savefig('results/oldFunc_plotBS.png')
+fig.savefig(resultsFolder + 'oldFunc_plotBS.png')
 plt.close('all')
 
 print_memory_usage()
@@ -111,10 +113,10 @@ print_memory_usage()
 train_dataset = init_Zunger_data(atomPPOrder, localPotParams, True)
 val_dataset = init_Zunger_data(atomPPOrder, localPotParams, False)
 
-if os.path.exists('inputs/init_PPmodel.pth'):
-    print("\n############################################\nInitializing the NN with file inputs/init_PPmodel.pth.")
-    PPmodel.load_state_dict(torch.load('inputs/init_PPmodel.pth'))
-    print("\nDone with NN initialization to the file inputs/init_PPmodel.pth.")
+if os.path.exists(inputsFolder + 'init_PPmodel.pth'):
+    print(f"\n############################################\nInitializing the NN with file {inputsFolder}init_PPmodel.pth.")
+    PPmodel.load_state_dict(torch.load(inputsFolder + 'init_PPmodel.pth'))
+    print(f"\nDone with NN initialization to the file {inputsFolder}init_PPmodel.pth.")
 else:
     print("\n############################################\nInitializing the NN by fitting to the latest function form of pseudopotentials. ")
     PPmodel.cpu()
@@ -129,13 +131,13 @@ else:
     validationloader = DataLoader(dataset = val_dataset, batch_size =val_dataset.len, shuffle=False)
     
     start_time = time.time()
-    init_Zunger_train_GPU(PPmodel, device, trainloader, validationloader, init_Zunger_criterion, init_Zunger_optimizer, init_Zunger_scheduler, 20, NNConfig['init_Zunger_num_epochs'], NNConfig['init_Zunger_plotEvery'], atomPPOrder, NNConfig['SHOWPLOTS'])
+    init_Zunger_train_GPU(PPmodel, device, trainloader, validationloader, init_Zunger_criterion, init_Zunger_optimizer, init_Zunger_scheduler, 20, NNConfig['init_Zunger_num_epochs'], NNConfig['init_Zunger_plotEvery'], atomPPOrder, NNConfig['SHOWPLOTS'], resultsFolder)
     end_time = time.time()
     elapsed_time = end_time - start_time
     print("GPU initialization: elapsed time: %.2f seconds" % elapsed_time)
     
-    os.makedirs('results', exist_ok=True)
-    torch.save(PPmodel.state_dict(), 'results/initZunger_PPmodel.pth')
+    os.makedirs(resultsFolder, exist_ok=True)
+    torch.save(PPmodel.state_dict(), resultsFolder + 'initZunger_PPmodel.pth')
 
     print("\nDone with NN initialization to the latest function form.")
 
@@ -150,7 +152,7 @@ PPmodel.cpu()
 qmax = np.array([10.0, 20.0, 30.0])
 nQGrid = np.array([2048, 4096])
 nRGrid = np.array([2048, 4096])
-FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, val_dataset, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, 'results/initZunger_plotPP', 'results/initZunger_pot', NNConfig['SHOWPLOTS'])
+FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, val_dataset, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, resultsFolder + 'initZunger_plotPP', resultsFolder + 'initZunger_pot', NNConfig['SHOWPLOTS'])
 
 print_memory_usage()
 
@@ -172,7 +174,7 @@ fig = plotBandStruct(allSystemNames, plot_bandStruct_list, NNConfig['SHOWPLOTS']
 print("After fitting the NN to the latest function forms, we can reproduce satisfactory band structures. ")
 print("The total bandStruct MSE = %e " % init_totalMSE)
 fig.suptitle("The total bandStruct MSE = %e " % init_totalMSE)
-fig.savefig('results/initZunger_plotBS.png')
+fig.savefig(resultsFolder + 'initZunger_plotBS.png')
 plt.close('all')
 '''
 torch.cuda.empty_cache()
@@ -187,9 +189,7 @@ optimizer = torch.optim.Adam(PPmodel.parameters(), lr=NNConfig['optimizer_lr'])
 scheduler = ExponentialLR(optimizer, gamma=NNConfig['scheduler_gamma'])
 
 start_time = time.time()
-(training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, NNConfig, systems, hams, atomPPOrder, localPotParams, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, val_dataset)
-# (training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, systems, hams, atomPPOrder, localPotParams, criterion, optimizer, scheduler, NNConfig['schedulerStep'], NNConfig['max_num_epochs'], NNConfig['plotEvery'], NNConfig['patience'], val_dataset, NNConfig['SHOWPLOTS'])
-# (training_cost, validation_cost) = bandStruct_train_GPU_kptSeparate(PPmodel, device, systems, hams, atomPPOrder, localPotParams, criterion_singleKpt, criterion, optimizer, scheduler, NNConfig['schedulerStep'], NNConfig['max_num_epochs'], NNConfig['plotEvery'], NNConfig['patience'], val_dataset, NNConfig['SHOWPLOTS'])
+(training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, NNConfig, systems, hams, atomPPOrder, localPotParams, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, val_dataset, resultsFolder)
 end_time = time.time()
 elapsed_time = end_time - start_time
 print("GPU training: elapsed time: %.2f seconds" % elapsed_time)
@@ -203,7 +203,6 @@ PPmodel.cpu()
 qmax = np.array([10.0, 20.0, 30.0])
 nQGrid = np.array([2048, 4096])
 nRGrid = np.array([2048, 4096])
-FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, val_dataset, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, 'results/final_plotPP', 'results/final_pot', NNConfig['SHOWPLOTS'])
+FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, val_dataset, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, resultsFolder + 'final_plotPP', resultsFolder + 'final_pot', NNConfig['SHOWPLOTS'])
 
-fig_memory = plot_memory_usage(memory_usage_data)
-fig_memory.savefig("results/memoryUsage.png") 
+plot_memory_usage(resultsFolder)

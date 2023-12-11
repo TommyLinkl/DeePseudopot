@@ -685,13 +685,11 @@ class Hamiltonian:
         nbands = self.system.nBands
         eigVals = torch.zeros(nbands)
 
-        print("\nbuildHtot, before and after: ")
         print_memory_usage()
         H = self.buildHtot(kidx)
         print_memory_usage()
 
         if not self.coupling:
-            print("\neigvalsh, before and after: ")
             print_memory_usage() 
             energies = torch.linalg.eigvalsh(H)
             print_memory_usage() 
@@ -708,7 +706,6 @@ class Hamiltonian:
             energiesEV = energiesEV.repeat_interleave(2)
         eigVals[:] = energiesEV[:nbands]
         print_memory_usage()
-        print("End of ham.calcEigValsAtK function")
         return eigVals
 
     def calcBandStruct(self):
@@ -720,16 +717,14 @@ class Hamiltonian:
         # this loop should be parallelized for good performance.
         # can be done with shared memory by simply using the multiprocessing module
         for kidx in range(nkpt):
-            print("\nbuildHtot, before and after: ")
-            print_memory_usage()  # 0.64 GB
+            print_memory_usage()
             H = self.buildHtot(kidx)
-            print_memory_usage()  # 2.57 GB
+            print_memory_usage()
 
             if not self.coupling:
-                print("\neigvalsh, before and after: ")
-                print_memory_usage() # 2.60 GB
+                print_memory_usage()
                 energies = torch.linalg.eigvalsh(H)
-                print_memory_usage() # 2.82 GB
+                print_memory_usage()
                 energiesEV = energies * AUTOEV
             else:
                 # this will be slow, since torch seems to only support
@@ -752,7 +747,6 @@ class Hamiltonian:
                 # store the vb and cb anyways.
             bandStruct[kidx,:] = energiesEV[:nbands]
         print_memory_usage()
-        print("End of ham.calcBandStruct function")
         return bandStruct
 
 
