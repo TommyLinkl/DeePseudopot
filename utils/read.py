@@ -55,6 +55,9 @@ class bulkSystem:
         # nBands can be redundant
         maxKE = None
         nBands = None
+        idxVB = None
+        idxCB = None
+        idxGap = None
         with open(inputFilename, 'r') as file:
             for line in file:
                 parts = line.strip().split('=')
@@ -65,8 +68,18 @@ class bulkSystem:
                         maxKE = float(value)
                     elif variable_name == 'nBands':
                         nBands = int(float(value))
+                    elif variable_name == 'idxVB':
+                        idxVB = int(float(value))
+                    elif variable_name == 'idxCB':
+                        idxCB = int(float(value))
+                    elif variable_name == 'idxGap':
+                        idxGap = int(float(value))
         self.maxKE = maxKE
         self.nBands = nBands
+        self.idx_vb = idxVB
+        self.idx_cb = idxCB
+        self.idx_gap = idxGap
+
         
     def setSystem(self, systemFilename):
         # scale, unitCellVectors_unscaled, atomTypes, atomPos
@@ -111,6 +124,17 @@ class bulkSystem:
             
             self.kpts = torch.tensor(kpts, dtype=torch.float32) @ gVectors
             self.kptWeights = torch.tensor(kptWeights, dtype=torch.float32)
+    
+
+    def setQPointsAndWeights(self, qPointsFilename):
+        with open(qPointsFilename, 'r') as file:
+            data = np.loadtxt(file)
+            qpts = data[:, :3]
+            qptWeights = data[:, 3]
+            gVectors = self.getGVectors()
+            
+            self.qpts = torch.tensor(qpts, dtype=torch.float32) @ gVectors
+            self.qptWeights = torch.tensor(qptWeights, dtype=torch.float32)
         
 
     def setExpBS(self, expBSFilename):

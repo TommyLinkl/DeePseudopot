@@ -53,7 +53,8 @@ print(f"DEF (system) vbm, cbm energies: {bs2[0,7]:.6f}, {bs2[0,8]:.6f}")
 
 # now use the deformation potential routine
 print(f"\nusing buildHtot_def() routine...")
-Hdef = ham1.buildHtot_def(0, scale=1.0001)
+ham1.idx_gap = 0
+Hdef = ham1.buildHtot_def(scale=1.0001)
 vals, vecs = scipy.linalg.eigh(Hdef)
 print(f"DEF (ham) vbm, cbm energies: {AUTOEV*vals[3]:.6f}, {AUTOEV*vals[4]:.6f}")
 
@@ -103,7 +104,8 @@ print(f"DEF (system) vbm, cbm energies: {bs2[0,25]:.6f}, {bs2[0,26]:.6f}")
 
 # now use the deformation potential routine
 print(f"\nusing buildHtot_def() routine...")
-Hdef = ham1.buildHtot_def(0, scale=1.0001)
+ham1.idx_gap = 0
+Hdef = ham1.buildHtot_def(scale=1.0001)
 vals, vecs = scipy.linalg.eigh(Hdef, subset_by_index=[0,30], driver='evr')
 print(f"DEF (ham) vbm, cbm energies: {AUTOEV*vals[25]:.6f}, {AUTOEV*vals[26]:.6f}")
 
