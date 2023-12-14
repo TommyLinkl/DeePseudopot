@@ -4,6 +4,7 @@ import time
 import torch
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ExponentialLR
+import matplotlib.pyplot as plt
 
 from constants.constants import *
 from utils.nn_models import Net_relu_xavier_decay2
@@ -76,16 +77,13 @@ print("Initializing the ham class for each BulkSystem. ")
 hams = []
 for iSys in range(nSystem): 
     start_time = time.time()
-    # ham = Hamiltonian(systems[iSys], PPparams, atomPPOrder, device, SObool=True)
-    ########################## Initializting the hamiltonian with SO takes 7.6GB of memory for this trial run. 
-    ham = Hamiltonian(systems[iSys], PPparams, atomPPOrder, device, NNConfig, SObool=False)
+    ham = Hamiltonian(systems[iSys], PPparams, atomPPOrder, device, NNConfig, SObool=True)
     hams.append(ham)
     end_time = time.time()
     print(f"Finished initializing {iSys}-th Hamiltonian Class... Elapsed time: {(end_time - start_time):.2f} seconds")
 
 print_memory_usage()
 
-''' # Commented out for testing
 oldFunc_plot_bandStruct_list = []
 oldFunc_totalMSE = 0
 for iSystem in range(nSystem): 
@@ -101,9 +99,7 @@ fig = plotBandStruct(allSystemNames, oldFunc_plot_bandStruct_list, NNConfig['SHO
 fig.suptitle("The total bandStruct MSE = %e " % oldFunc_totalMSE)
 fig.savefig(resultsFolder + 'oldFunc_plotBS.png')
 plt.close('all')
-
 print_memory_usage()
-'''
 
 ############# Initialize the NN to the local pot function form #############
 train_dataset = init_Zunger_data(atomPPOrder, localPotParams, True)
@@ -135,10 +131,8 @@ else:
     torch.save(PPmodel.state_dict(), resultsFolder + 'initZunger_PPmodel.pth')
 
     print("\nDone with NN initialization to the latest function form.")
-
 print_memory_usage()
 
-''' # Commented out for testing 
 print("\nPlotting and write pseudopotentials in the real and reciprocal space.")
 torch.cuda.empty_cache()
 PPmodel.eval()
@@ -148,7 +142,6 @@ qmax = np.array([10.0, 20.0, 30.0])
 nQGrid = np.array([2048, 4096])
 nRGrid = np.array([2048, 4096])
 FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, val_dataset, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, resultsFolder + 'initZunger_plotPP', resultsFolder + 'initZunger_pot', NNConfig['SHOWPLOTS'])
-
 print_memory_usage()
 
 print("\nEvaluating band structures using the initialized pseudopotentials. ")
@@ -171,7 +164,6 @@ print("The total bandStruct MSE = %e " % init_totalMSE)
 fig.suptitle("The total bandStruct MSE = %e " % init_totalMSE)
 fig.savefig(resultsFolder + 'initZunger_plotBS.png')
 plt.close('all')
-'''
 torch.cuda.empty_cache()
 print_memory_usage()
 
@@ -199,5 +191,4 @@ qmax = np.array([10.0, 20.0, 30.0])
 nQGrid = np.array([2048, 4096])
 nRGrid = np.array([2048, 4096])
 FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, val_dataset, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, resultsFolder + 'final_plotPP', resultsFolder + 'final_pot', NNConfig['SHOWPLOTS'])
-
 plot_memory_usage(resultsFolder)

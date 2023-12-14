@@ -50,8 +50,6 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
     validation_cost=[]
     model.to(device)
     for epoch in range(epochs):
-        print(f"This is epoch #{epoch}. ")
-        print("Training: ")
         print_memory_usage()
         train_cost = 0
         val_cost = 0
@@ -72,7 +70,6 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
             scheduler.step()
         print_memory_usage()
 
-        print("Evaluation: ")
         print_memory_usage()
         for q, vq_atoms, w in val_loader:
             model.eval()
