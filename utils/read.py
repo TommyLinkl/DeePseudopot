@@ -15,16 +15,24 @@ def read_NNConfigFile(filename):
                 key, value = line.split('#')[0].strip().split('=')
                 key = key.strip()
                 value = value.strip()
-                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint']:
+                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool']:
                     config[key] = bool(int(value))
                 elif key in ['nSystem', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience']:
                     config[key] = int(value)
-                elif key in ['init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma']:
+                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma']:
                     config[key] = float(value)
                 elif key in ['hiddenLayers']: 
                     config[key] = [int(x) for x in value.split()]
                 else:
                     config[key] = value
+
+    if (config["checkpoint"]==1) and (config["separateKptGrad"]==1): 
+        raise ValueError("############################################\n# Please don't turn on both checkpoint and separateKptGrad. \n############################################\n")
+    elif (config["checkpoint"]==1) and (config["separateKptGrad"]==0):
+        print("############################################\n# WARNING: Using checkpointing! Please use this as a last resort, only for pseudopotential fitting where memory limit is a major issue. The code will run slower due to checkpointing. \n############################################\n")
+    elif (config["checkpoint"]==0) and (config["separateKptGrad"]==1): 
+        print("############################################\n# Using separateKptGrad. This can decrease the peak memory load during the fitting code. \n############################################\n")
+
     return config
 
 def read_PPparams(atomPPOrder, paramsFilePath): 
@@ -36,14 +44,13 @@ def read_PPparams(atomPPOrder, paramsFilePath):
     for atomType in atomPPOrder:
         file_path = f"{paramsFilePath}{atomType}Params.par"
         if os.path.isfile(file_path):
-            print(atomType + " is being initialized to the function form as stored in " + file_path)
             with open(file_path, 'r') as file:
                 a = torch.tensor([float(line.strip()) for line in file])
             totalParams = torch.cat((totalParams, a.unsqueeze(0)), dim=0)
             PPparams[atomType] = a
         else:
-            print("File " + file_path + " cannot be found. This atom will not be initialized. OR IT WILL BE INITIALIZED TO BE 0. ")
-            # BUT WE NEED TO KEEP GRADIENT
+            raise FileNotFoundError("Error: File " + file_path + " cannot be found. This atom cannot be initialized. ")
+            
     return PPparams, totalParams
 
 class BulkSystem:

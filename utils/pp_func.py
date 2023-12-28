@@ -4,7 +4,6 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt 
 mpl.rcParams['lines.markersize'] = 3
 import torch
-from torch.utils.data import Dataset, DataLoader
 
 from constants.constants import * 
 torch.set_default_dtype(torch.float32)
@@ -15,10 +14,9 @@ def pot_func(x, params):
     return pot
 
 def realSpacePot(vq, qSpacePot, nRGrid, rmax=25): 
-    # vq and qSpacePot are both 1D tensor of torch.Size([nQGrid]). vq is also assumed to be equally spaced. 
+    # vq and qSpacePot are both 1D tensor of torch.Size([nQGrid]). vq is assumed to be equally spaced. 
     # rmax and nRGrid are both scalars
     dq = vq[1] - vq[0]
-    nQGrid = vq.shape[0]
     
     # dr = 0.02*2*np.pi / (nGrid * dq)
     # vr = torch.linspace(0, (nGrid - 1) * dr, nGrid)

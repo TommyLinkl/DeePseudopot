@@ -7,9 +7,9 @@ from torch.optim.lr_scheduler import ExponentialLR
 import matplotlib.pyplot as plt
 
 from constants.constants import *
-from utils.nn_models import Net_relu_xavier_decay2
+from utils.nn_models import *
 from utils.read import BulkSystem, read_NNConfigFile, read_PPparams
-from utils.pp_func import plotPP, FT_converge_and_write_pp
+from utils.pp_func import plotPP, FT_converge_and_write_pp, plotBandStruct
 from utils.init_NN_train import init_Zunger_data, init_Zunger_weighted_mse, init_Zunger_train_GPU
 from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, bandStruct_train_GPU
 from utils.ham import Hamiltonian
@@ -31,22 +31,12 @@ memory_usage_data = []
 set_debug_memory_flag(False)
 
 ############## main ##############
-
 inputsFolder = 'inputs/'
 resultsFolder = 'results/'
 os.makedirs(resultsFolder, exist_ok=True)
 
 NNConfig = read_NNConfigFile(inputsFolder + 'NN_config.par')
-SHOWPLOTS = NNConfig['SHOWPLOTS']  # True or False
 nSystem = NNConfig['nSystem']
-checkpoint = NNConfig['checkpoint']  # True or False
-separateKptGrad = NNConfig['separateKptGrad']  # True or False
-if (checkpoint==1) and (separateKptGrad==1): 
-    raise ValueError("############################################\nPlease don't turn on both checkpoint and separateKptGrad. \n############################################\n")
-elif (checkpoint==1) and (separateKptGrad==0):
-    print("############################################\nWARNING: Using checkpointing! Please use this as a last resort, only for pseudopotential fitting where memory limit is a major issue. The code will run slower due to checkpointing. \n############################################\n")
-elif (checkpoint==0) and (separateKptGrad==1): 
-    print("############################################\nUsing separateKptGrad. This can decrease the peak memory load during the fitting code. \n############################################\n")
 
 # Read and set up systems
 print("############################################\nReading and setting up the BulkSystems. ")
@@ -63,13 +53,21 @@ for iSys in range(nSystem):
 # Calculate atomPPOrder. Read in initial PPparams. Set up NN accordingly
 atomPPOrder = np.unique(np.concatenate(atomPPOrder))
 nPseudopot = len(atomPPOrder)
-print("There are %d atomic pseudopotentials. They are in the order of: " % nPseudopot)
-print(atomPPOrder)
+print(f"There are {nPseudopot} atomic pseudopotentials. They are in the order of: {atomPPOrder}")
 allSystemNames = [x.systemName for x in systems]
 PPparams, totalParams = read_PPparams(atomPPOrder, inputsFolder + "init_")
 localPotParams = totalParams[:,:4]
 layers = [1] + NNConfig['hiddenLayers'] + [nPseudopot]
-PPmodel = Net_relu_xavier_decay2(layers)
+# PPmodel = Net_relu_xavier_decay2(layers)
+if NNConfig['PPmodel'] in globals() and callable(globals()[NNConfig['PPmodel']]):
+    if NNConfig['PPmodel']=='Net_relu_xavier_decay': 
+        PPmodel = globals()[NNConfig['PPmodel']](layers, decay_rate=NNConfig['PPmodel_decay_rate'], decay_center=NNConfig['PPmodel_decay_center'])
+    elif NNConfig['PPmodel']=='Net_relu_xavier_decayGaussian': 
+        PPmodel = globals()[NNConfig['PPmodel']](layers, gaussian_std=NNConfig['PPmodel_gaussian_std'])
+    else: 
+        PPmodel = globals()[NNConfig['PPmodel']](layers)
+else:
+    raise ValueError(f"Function {NNConfig['PPmodel']} does not exist.")
 print_memory_usage()
 
 # Initialize the ham class for each BulkSystem
@@ -77,11 +75,10 @@ print("Initializing the ham class for each BulkSystem. ")
 hams = []
 for iSys in range(nSystem): 
     start_time = time.time()
-    ham = Hamiltonian(systems[iSys], PPparams, atomPPOrder, device, NNConfig, SObool=True)
+    ham = Hamiltonian(systems[iSys], PPparams, atomPPOrder, device, NNConfig, SObool=NNConfig['SObool'])
     hams.append(ham)
     end_time = time.time()
     print(f"Finished initializing {iSys}-th Hamiltonian Class... Elapsed time: {(end_time - start_time):.2f} seconds")
-
 print_memory_usage()
 
 oldFunc_plot_bandStruct_list = []
@@ -102,8 +99,8 @@ plt.close('all')
 print_memory_usage()
 
 ############# Initialize the NN to the local pot function form #############
-train_dataset = init_Zunger_data(atomPPOrder, localPotParams, True)
-val_dataset = init_Zunger_data(atomPPOrder, localPotParams, False)
+train_dataset = init_Zunger_data(atomPPOrder, localPotParams, train=True)
+val_dataset = init_Zunger_data(atomPPOrder, localPotParams, train=False)
 
 if os.path.exists(inputsFolder + 'init_PPmodel.pth'):
     print(f"\n############################################\nInitializing the NN with file {inputsFolder}init_PPmodel.pth.")
@@ -137,7 +134,6 @@ print("\nPlotting and write pseudopotentials in the real and reciprocal space.")
 torch.cuda.empty_cache()
 PPmodel.eval()
 PPmodel.cpu()
-
 qmax = np.array([10.0, 20.0, 30.0])
 nQGrid = np.array([2048, 4096])
 nRGrid = np.array([2048, 4096])
@@ -186,7 +182,6 @@ torch.cuda.empty_cache()
 print("\n############################################\nWriting the NN pseudopotentials")
 PPmodel.eval()
 PPmodel.cpu()
-
 qmax = np.array([10.0, 20.0, 30.0])
 nQGrid = np.array([2048, 4096])
 nRGrid = np.array([2048, 4096])

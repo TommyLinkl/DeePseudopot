@@ -6,7 +6,6 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.nn as nn
 import torch.nn.init as init
-from torch.optim.lr_scheduler import ExponentialLR
 
 from utils.pp_func import *
 from utils.memory import print_memory_usage
