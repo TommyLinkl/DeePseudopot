@@ -7,7 +7,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 
 from constants.constants import * 
-torch.set_default_dtype(torch.float32)
+torch.set_default_dtype(torch.float64)
 torch.manual_seed(24)
 
 def pot_func(x, params): 

@@ -17,7 +17,7 @@ from utils.bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
 from utils.init_NN_train import init_Zunger_data, init_Zunger_weighted_mse, init_Zunger_train_GPU
 from utils.NN_train import weighted_mse_bandStruct, BandStruct_train_GPU
 
-torch.set_default_dtype(torch.float32)
+torch.set_default_dtype(torch.float64)
 torch.manual_seed(24)
 
 if torch.cuda.is_available():

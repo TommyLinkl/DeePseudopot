@@ -9,7 +9,7 @@ import torch.nn.init as init
 from torch.optim.lr_scheduler import ExponentialLR
 
 from utils.pp_func import *
-torch.set_default_dtype(torch.float32)
+torch.set_default_dtype(torch.float64)
 torch.manual_seed(24)
 
 class init_Zunger_data(Dataset):

@@ -10,7 +10,7 @@ from torch.optim.lr_scheduler import ExponentialLR
 
 from utils.pp_func import *
 from utils.bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
-torch.set_default_dtype(torch.float32)
+torch.set_default_dtype(torch.float64)
 torch.manual_seed(24)
 
 def weighted_mse_bandStruct(bandStruct_hat, bulkSystem): 

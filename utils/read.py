@@ -3,7 +3,7 @@ import torch
 
 from constants.constants import *
 
-torch.set_default_dtype(torch.float32)
+torch.set_default_dtype(torch.float64)
 torch.manual_seed(24)
 
 def read_NNConfigFile(filename):
@@ -122,8 +122,8 @@ class bulkSystem:
             kptWeights = data[:, 3]
             gVectors = self.getGVectors()
             
-            self.kpts = torch.tensor(kpts, dtype=torch.float32) @ gVectors
-            self.kptWeights = torch.tensor(kptWeights, dtype=torch.float32)
+            self.kpts = torch.tensor(kpts, dtype=torch.float64) @ gVectors
+            self.kptWeights = torch.tensor(kptWeights, dtype=torch.float64)
     
 
     def setQPointsAndWeights(self, qPointsFilename):
@@ -133,19 +133,19 @@ class bulkSystem:
             qptWeights = data[:, 3]
             gVectors = self.getGVectors()
             
-            self.qpts = torch.tensor(qpts, dtype=torch.float32) @ gVectors
-            self.qptWeights = torch.tensor(qptWeights, dtype=torch.float32)
+            self.qpts = torch.tensor(qpts, dtype=torch.float64) @ gVectors
+            self.qptWeights = torch.tensor(qptWeights, dtype=torch.float64)
         
 
     def setExpBS(self, expBSFilename):
         with open(expBSFilename, 'r') as file:
-            self.expBandStruct = torch.tensor(np.loadtxt(file)[:, 1:], dtype=torch.float32)
+            self.expBandStruct = torch.tensor(np.loadtxt(file)[:, 1:], dtype=torch.float64)
             
     def setBandWeights(self, bandWeightsFilename): 
         try:
             with open(bandWeightsFilename, 'r') as file:
                 bandWeights = np.loadtxt(file)
-                self.bandWeights = torch.tensor(bandWeights, dtype=torch.float32)
+                self.bandWeights = torch.tensor(bandWeights, dtype=torch.float64)
                 if len(bandWeights) != self.nBands:
                     raise ValueError(f"Invalid number of bands in {bandWeightsFilename}, not equal to nBands input: {self.nBands}")
         except FileNotFoundError:
@@ -173,20 +173,23 @@ class bulkSystem:
         gVector1 = prefactor * torch.cross(self.unitCellVectors[1], self.unitCellVectors[2])
         gVector2 = prefactor * torch.cross(self.unitCellVectors[2], self.unitCellVectors[0])
         gVector3 = prefactor * torch.cross(self.unitCellVectors[0], self.unitCellVectors[1])
-        gVectors = torch.cat((gVector1.unsqueeze(0), gVector2.unsqueeze(0), gVector3.unsqueeze(0)), dim=0).to(torch.float32)
+        gVectors = torch.cat((gVector1.unsqueeze(0), gVector2.unsqueeze(0), gVector3.unsqueeze(0)), dim=0).to(torch.float64)
         return gVectors
     
     def getNKpts(self): 
         return self.kpts.shape[0]
+    
+    def getNQpts(self):
+        return self.qpts.shape[0]
     
     def basis(self): 
         gVectors = self.getGVectors()
         minGMag = min(torch.norm(gVectors[0]), torch.norm(gVectors[1]), torch.norm(gVectors[2]))
         numMaxBasisVectors = int(np.sqrt(2*self.maxKE) / minGMag)
     
-        k = torch.arange(-numMaxBasisVectors, numMaxBasisVectors+1, dtype=torch.float32).repeat((2*numMaxBasisVectors+1)**2)
-        j = torch.arange(-numMaxBasisVectors, numMaxBasisVectors+1, dtype=torch.float32).repeat_interleave((2*numMaxBasisVectors+1)).repeat((2*numMaxBasisVectors+1))
-        i = torch.arange(-numMaxBasisVectors, numMaxBasisVectors+1, dtype=torch.float32).repeat_interleave((2*numMaxBasisVectors+1)**2)
+        k = torch.arange(-numMaxBasisVectors, numMaxBasisVectors+1, dtype=torch.float64).repeat((2*numMaxBasisVectors+1)**2)
+        j = torch.arange(-numMaxBasisVectors, numMaxBasisVectors+1, dtype=torch.float64).repeat_interleave((2*numMaxBasisVectors+1)).repeat((2*numMaxBasisVectors+1))
+        i = torch.arange(-numMaxBasisVectors, numMaxBasisVectors+1, dtype=torch.float64).repeat_interleave((2*numMaxBasisVectors+1)**2)
         allGrid = torch.vstack((i, j, k)).T
         transform = gVectors.T
         allBasisSet = allGrid @ transform

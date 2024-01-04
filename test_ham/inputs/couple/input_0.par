@@ -1,0 +1,5 @@
+maxKE = 10
+nBands = 16
+idxVB = 7
+idxCB = 8
+idxGap = 0
