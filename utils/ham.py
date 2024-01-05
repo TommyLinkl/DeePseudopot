@@ -135,7 +135,7 @@ class Hamiltonian:
         return Htot
     
 
-    def buildHtot_def(self, scale=1.0001):
+    def buildHtot_def(self, scale=1.0001, verbosity=2):
         """
         Build the total Hamiltonian in the deformed basis, for ONLY the
         bandgap kpt. This is used for the "classic" method of
@@ -144,15 +144,16 @@ class Hamiltonian:
         construct the deformed Hamiltonian at a SINGLE kpoint - the kpoint 
         corresponding to the bandgap.
         """
-        print("***************************")
-        print("You are computing deformation potentials by directly changing")
-        print("the volume of the material. To be precise, computing a")
-        print("quantity that can be correctly compared to the DFT literature,")
-        print("or experiments, requires very careful consideration of the")
-        print("g_i - g_j = 0 point in the potentials. These considerations")
-        print("are not made here. Consult the DFT literature, e.g.")
-        print("PRB 73 245206 (2006) and its references.")
-        print("***************************")
+        if verbosity >= 2:
+            print("***************************")
+            print("You are computing deformation potentials by directly changing")
+            print("the volume of the material. To be precise, computing a")
+            print("quantity that can be correctly compared to the DFT literature,")
+            print("or experiments, requires very careful consideration of the")
+            print("g_i - g_j = 0 point in the potentials. These considerations")
+            print("are not made here. Consult the DFT literature, e.g.")
+            print("PRB 73 245206 (2006) and its references.")
+            print("***************************")
 
         kidx = self.idx_gap
 
@@ -1142,26 +1143,26 @@ class Hamiltonian:
                     if key[1] in symm_equiv_compat[key[0]]:
                         avg_cb = avg_couple[(key[0], 'cb')]
                         avg_vb = avg_couple[(key[0], 'vb')]
-                        ret_dict[key+(qid,'cb')] = torch.sqrt(avg_cb.conj() * avg_cb)
-                        ret_dict[key+(qid,'vb')] = torch.sqrt(avg_vb.conj() * avg_vb)
+                        ret_dict[key+(qid,'cb')] = torch.sqrt(avg_cb.conj() * avg_cb).real
+                        ret_dict[key+(qid,'vb')] = torch.sqrt(avg_vb.conj() * avg_vb).real
 
                     else:
                         cpl = torch.matmul(dV_dict[key], self.cb_vecs[needKidx])
                         cpl = torch.dot(torch.conj(self.cb_vecs[self.idx_gap]), cpl)
-                        ret_dict[key + (qid,'cb')] = torch.sqrt(cpl.conj() * cpl)
+                        ret_dict[key + (qid,'cb')] = torch.sqrt(cpl.conj() * cpl).real
 
                         cpl = torch.matmul(dV_dict[key], self.vb_vecs[needKidx])
                         cpl = torch.dot(torch.conj(self.vb_vecs[self.idx_gap]), cpl)
-                        ret_dict[key + (qid,'vb')] = torch.sqrt(cpl.conj() * cpl)
+                        ret_dict[key + (qid,'vb')] = torch.sqrt(cpl.conj() * cpl).real
                 else:
                     # need to repeat the code block here.. a bit awkward logic
                     cpl = torch.matmul(dV_dict[key], self.cb_vecs[needKidx])
                     cpl = torch.dot(torch.conj(self.cb_vecs[self.idx_gap]), cpl)
-                    ret_dict[key + (qid,'cb')] = torch.sqrt(cpl.conj() * cpl)
+                    ret_dict[key + (qid,'cb')] = torch.sqrt(cpl.conj() * cpl).real
 
                     cpl = torch.matmul(dV_dict[key], self.vb_vecs[needKidx])
                     cpl = torch.dot(torch.conj(self.vb_vecs[self.idx_gap]), cpl)
-                    ret_dict[key + (qid,'vb')] = torch.sqrt(cpl.conj() * cpl)
+                    ret_dict[key + (qid,'vb')] = torch.sqrt(cpl.conj() * cpl).real
 
         return ret_dict
 
