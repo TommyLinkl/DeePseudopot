@@ -50,6 +50,7 @@ class bulkSystem:
         self.expBandStruct = expBandStruct
         self.nBands = nBands
         self.maxKE = maxKE
+        self.expCouplingBands = None
         
     def setInputs(self, inputFilename):
         # nBands can be redundant
@@ -149,9 +150,57 @@ class bulkSystem:
                 if len(bandWeights) != self.nBands:
                     raise ValueError(f"Invalid number of bands in {bandWeightsFilename}, not equal to nBands input: {self.nBands}")
         except FileNotFoundError:
-            print(f"File not found: {kPointsFilename}")
+            print(f"File not found: {bandWeightsFilename}")
         except Exception as e:
             print(f"An error occurred while processing the file: {e}")
+
+    def setExpCouplings(self, expCplFilename):
+        #with open(expCplFilename, 'r') as fread:
+        #    self.expCouplingBands = torch.tensor(np.loadtxt(fread)[:, 1:], dtype=torch.float64)
+
+        self.expCouplingBands = {}
+        with open(expCplFilename, 'r') as fread:
+            lines = fread.readlines()
+            for lidx, line in enumerate(lines):
+                if "Atom idx" in line:
+                    sp = line.split()
+                    atomidx = int(float(sp[3]))
+                    begin_block = lidx
+                elif "coupling elements" in line:
+                    assert lidx == begin_block+1 or lidx == begin_block+7
+                    sp = line.split()
+                    bandid = sp[0].split("-")[0]
+                    gamma = sp[-1]
+                elif "polarization" in line:
+                    assert lidx in [begin_block+3, begin_block+5, begin_block+9, begin_block+11]
+                    gamma = line.split()[-1]
+
+                else:
+                    # numerical data read in this block
+
+                    # first work out numerical value of gamma
+                    if gamma == 'x' or gamma == 0:
+                        gamma = 0
+                    elif gamma == 'y' or gamma == 1:
+                        gamma = 1
+                    elif gamma == 'z' or gamma == 2:
+                        gamma = 2
+                    else:
+                        raise ValueError("unexpected value of gamma")
+                    
+                    sp = line.split()
+                    for qidx in range(len(sp)):
+                        self.expCouplingBands[(atomidx, gamma, qidx, bandid)] = float(sp[qidx])
+
+
+    def setExpDefPot(self, expDefPotFilename):
+        with open(expDefPotFilename, 'r') as fread:
+            lines = fread.readlines()
+            assert len(lines) == 2
+            self.expDefPots = np.array([0.0, 0.0])
+            self.expDefPots[0] = float(lines[0]) # VBM
+            self.expDefPots[1] = float(lines[1]) # CBM
+
 
     def getCellVolume(self): 
         return float(torch.dot(self.unitCellVectors[0], torch.cross(self.unitCellVectors[1], self.unitCellVectors[2])))
