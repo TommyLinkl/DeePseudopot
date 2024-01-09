@@ -28,7 +28,7 @@ else:
 '''
 device = torch.device("cpu")
 memory_usage_data = []
-set_debug_memory_flag(False)
+set_debug_memory_flag(False)  # False
 
 ############## main ##############
 inputsFolder = 'inputs/'
@@ -54,7 +54,6 @@ for iSys in range(nSystem):
 atomPPOrder = np.unique(np.concatenate(atomPPOrder))
 nPseudopot = len(atomPPOrder)
 print(f"There are {nPseudopot} atomic pseudopotentials. They are in the order of: {atomPPOrder}")
-allSystemNames = [x.systemName for x in systems]
 PPparams, totalParams = read_PPparams(atomPPOrder, inputsFolder + "init_")
 localPotParams = totalParams[:,:4]
 layers = [1] + NNConfig['hiddenLayers'] + [nPseudopot]
@@ -92,7 +91,7 @@ for iSystem in range(nSystem):
     oldFunc_plot_bandStruct_list.append(systems[iSystem].expBandStruct)
     oldFunc_plot_bandStruct_list.append(oldFunc_bandStruct)
     oldFunc_totalMSE += weighted_mse_bandStruct(oldFunc_bandStruct, systems[iSystem])
-fig = plotBandStruct(allSystemNames, oldFunc_plot_bandStruct_list, NNConfig['SHOWPLOTS'])
+fig = plotBandStruct(systems, oldFunc_plot_bandStruct_list, NNConfig['SHOWPLOTS'])
 fig.suptitle("The total bandStruct MSE = %e " % oldFunc_totalMSE)
 fig.savefig(resultsFolder + 'oldFunc_plotBS.png')
 plt.close('all')
@@ -154,7 +153,7 @@ for iSystem in range(nSystem):
     plot_bandStruct_list.append(systems[iSystem].expBandStruct)
     plot_bandStruct_list.append(init_bandStruct)
     init_totalMSE += weighted_mse_bandStruct(init_bandStruct, systems[iSystem])
-fig = plotBandStruct(allSystemNames, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
+fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
 print("After fitting the NN to the latest function forms, we can reproduce satisfactory band structures. ")
 print("The total bandStruct MSE = %e " % init_totalMSE)
 fig.suptitle("The total bandStruct MSE = %e " % init_totalMSE)

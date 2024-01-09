@@ -54,7 +54,7 @@ def read_PPparams(atomPPOrder, paramsFilePath):
     return PPparams, totalParams
 
 class BulkSystem:
-    def __init__(self, scale=1.0, unitCellVectors_unscaled=None, atomTypes=None, atomPos_unscaled=None, kpts_recipLatVec=None, expBandStruct=None, nBands=16, maxKE=5):
+    def __init__(self, scale=1.0, unitCellVectors_unscaled=None, atomTypes=None, atomPos_unscaled=None, kpts_recipLatVec=None, expBandStruct=None, nBands=16, maxKE=5, BS_plot_center=-5.0, systemName='NoName'):
         if unitCellVectors_unscaled is None:
             unitCellVectors_unscaled = torch.zeros(3, 3)
         if atomTypes is None:
@@ -75,23 +75,24 @@ class BulkSystem:
         self.expBandStruct = expBandStruct
         self.nBands = nBands
         self.maxKE = maxKE
+        self.BS_plot_center = BS_plot_center
+        self.systemName = systemName
         
     def setInputs(self, inputFilename):
-        # nBands can be redundant
-        maxKE = None
-        nBands = None
+        attributes = {}
         with open(inputFilename, 'r') as file:
             for line in file:
-                parts = line.strip().split('=')
-                if len(parts) == 2:
-                    variable_name = parts[0].strip()
-                    value = parts[1].strip()
-                    if variable_name == 'maxKE':
-                        maxKE = float(value)
-                    elif variable_name == 'nBands':
-                        nBands = int(float(value))
-        self.maxKE = maxKE
-        self.nBands = nBands
+                if '=' in line:
+                    key, value = line.split('#')[0].strip().split('=')
+                    key = key.strip()
+                    value = value.strip()
+                    if key in ['maxKE', 'BS_plot_center']:
+                        attributes[key] = float(value)
+                    elif key in ['nBands']:            # nBands can be redundant
+                        attributes[key] = int(float(value))
+                    elif key in ['hiddenLayers']: 
+                        attributes[key] = value
+        vars(self).update(attributes)
         
     def setSystem(self, systemFilename):
         # scale, unitCellVectors_unscaled, atomTypes, atomPos
@@ -128,7 +129,7 @@ class BulkSystem:
         self.atomTypes = np.array(atomTypes).flatten()
         self.atomPos = torch.tensor(atomCoords) @ self.unitCellVectors
         self.atomPosDef = torch.tensor(atomCoords) @ self.unitCellVectorsDef
-        self.systemName = ''.join(self.atomTypes)
+        # self.systemName = ''.join(self.atomTypes)
     
     def setKPointsAndWeights(self, kPointsFilename):
         try:

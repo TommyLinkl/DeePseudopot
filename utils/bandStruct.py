@@ -10,7 +10,7 @@ from torch.autograd import profiler
 from torch.utils.checkpoint import checkpoint
 
 from constants.constants import *
-from utils.pp_func import pot_func, realSpacePot, plotBandStruct
+from utils.pp_func import pot_func
 from utils.memory import print_memory_usage
 
 def calcHamiltonianMatrix_GPU(NN_boolean, model, basisStates, atomPos, atomTypes, nAtoms, cellVolume, kVector, atomPPOrder, totalParams, device):

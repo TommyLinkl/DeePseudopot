@@ -716,9 +716,10 @@ class Hamiltonian:
 
         # this loop should be parallelized for good performance.
         # can be done with shared memory by simply using the multiprocessing module
+        # maybe multiple writing into bandStruct
         for kidx in range(nkpt):
             print_memory_usage()
-            H = self.buildHtot(kidx)
+            H = self.buildHtot(kidx)   # buildHtot_parallel(kidx, cached_XXX, )
             print_memory_usage()
 
             if not self.coupling:

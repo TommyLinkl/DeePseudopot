@@ -92,6 +92,7 @@ def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, ato
                 ham_list[iSystem].set_NNmodel(model)
                 print_memory_usage()
 
+                # multiprocessing here. But beware that the benefit of memory saving maybe lost. 
                 for kidx in range(bulkSystem_list[iSystem].getNKpts()): 
                     calcEnergies = ham_list[iSystem].calcEigValsAtK(kidx)
                     systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem_list[iSystem], kidx)
@@ -153,7 +154,7 @@ def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, ato
             fig.savefig(resultsFolder + 'epoch_%d_plotPP.png' % epoch)
             model.to(device)
             
-            fig = plotBandStruct([x.systemName for x in bulkSystem_list], plot_bandStruct_list, NNConfig['SHOWPLOTS'])
+            fig = plotBandStruct(bulkSystem_list, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
             fig.savefig(resultsFolder + 'epoch_%d_plotBS.png' % epoch)
             torch.save(model.state_dict(), resultsFolder + 'epoch_%d_PPmodel.pth' % epoch)
             torch.cuda.empty_cache()
