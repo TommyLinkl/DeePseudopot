@@ -37,6 +37,8 @@ os.makedirs(resultsFolder, exist_ok=True)
 
 NNConfig = read_NNConfigFile(inputsFolder + 'NN_config.par')
 nSystem = NNConfig['nSystem']
+if 'memory_flag' in NNConfig:
+    set_debug_memory_flag(NNConfig['memory_flag'])
 
 # Read and set up systems
 print("############################################\nReading and setting up the BulkSystems. ")
@@ -84,10 +86,11 @@ oldFunc_plot_bandStruct_list = []
 oldFunc_totalMSE = 0
 for iSystem in range(nSystem): 
     start_time = time.time()
-    oldFunc_bandStruct = hams[iSystem].calcBandStruct()  
+    oldFunc_bandStruct = hams[iSystem].calcBandStruct_noGrad(NNConfig)  
+    oldFunc_bandStruct.detach_()
     # oldFunc_bandStruct = calcBandStruct_GPU(False, PPmodel, systems[iSystem], atomPPOrder, localPotParams, device) 
     end_time = time.time()
-    print(f"Finished calculating {iSystem}-th band structure... Elapsed time: {(end_time - start_time):.2f} seconds")
+    print(f"Finished calculating {iSystem}-th band structure in the Zunger function form ... Elapsed time: {(end_time - start_time):.2f} seconds")
     oldFunc_plot_bandStruct_list.append(systems[iSystem].expBandStruct)
     oldFunc_plot_bandStruct_list.append(oldFunc_bandStruct)
     oldFunc_totalMSE += weighted_mse_bandStruct(oldFunc_bandStruct, systems[iSystem])
@@ -122,7 +125,7 @@ else:
     init_Zunger_train_GPU(PPmodel, device, trainloader, validationloader, init_Zunger_criterion, init_Zunger_optimizer, init_Zunger_scheduler, 20, NNConfig['init_Zunger_num_epochs'], NNConfig['init_Zunger_plotEvery'], atomPPOrder, NNConfig['SHOWPLOTS'], resultsFolder)
     end_time = time.time()
     elapsed_time = end_time - start_time
-    print("GPU initialization: elapsed time: %.2f seconds" % elapsed_time)
+    print("Initialization elapsed time: %.2f seconds" % elapsed_time)
     
     torch.save(PPmodel.state_dict(), resultsFolder + 'initZunger_PPmodel.pth')
 
@@ -146,10 +149,11 @@ for iSystem in range(nSystem):
     hams[iSystem].NN_locbool = True
     hams[iSystem].set_NNmodel(PPmodel)
     start_time = time.time()
-    init_bandStruct = hams[iSystem].calcBandStruct()
+    init_bandStruct = hams[iSystem].calcBandStruct_noGrad(NNConfig)
+    init_bandStruct.detach_()
     # init_bandStruct = calcBandStruct_GPU(True, PPmodel, systems[iSystem], atomPPOrder, localPotParams, device)
     end_time = time.time()
-    print(f"Finished calculating {iSystem}-th band structure... Elapsed time: {(end_time - start_time):.2f} seconds")
+    print(f"Finished calculating {iSystem}-th band structure in the initialized NN form... Elapsed time: {(end_time - start_time):.2f} seconds")
     plot_bandStruct_list.append(systems[iSystem].expBandStruct)
     plot_bandStruct_list.append(init_bandStruct)
     init_totalMSE += weighted_mse_bandStruct(init_bandStruct, systems[iSystem])
@@ -174,7 +178,7 @@ start_time = time.time()
 (training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, NNConfig, systems, hams, atomPPOrder, localPotParams, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, val_dataset, resultsFolder)
 end_time = time.time()
 elapsed_time = end_time - start_time
-print("GPU training: elapsed time: %.2f seconds" % elapsed_time)
+print("Training elapsed time: %.2f seconds" % elapsed_time)
 torch.cuda.empty_cache()
 
 ############# Writing the trained NN PP ############# 

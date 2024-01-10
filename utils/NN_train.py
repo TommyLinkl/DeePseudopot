@@ -8,12 +8,22 @@ import torch.nn as nn
 import torch.nn.init as init
 from torch.optim.lr_scheduler import ExponentialLR
 import gc
+import multiprocessing as mp
+from functools import partial
 
 from utils.pp_func import *
-from utils.bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
+# from utils.bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
 from utils.memory import print_memory_usage
 torch.set_default_dtype(torch.float32)
 torch.manual_seed(24)
+
+def merge_dicts(dicts):
+    merged_dict = {}
+    for d in dicts:
+        for key in d:
+            merged_dict[key] = merged_dict.get(key, 0) + d[key]
+
+    return merged_dict
 
 def print_and_inspect_gradients(model): 
     for name, param in model.named_parameters():
@@ -46,6 +56,25 @@ def weighted_mse_energiesAtKpt(calcEnergiesAtKpt, bulkSystem, kidx):
     MSE = torch.sum((calcEnergiesAtKpt-bulkSystem.expBandStruct[kidx])**2 * bandWeights)
     return MSE
 
+def calcGradSingleKpt_parallel(kidx, ham, bulkSystem, criterion_singleKpt, optimizer, model):
+    # loop over kidx
+    # The rest of the arguments are "constants" / "constant functions" for a single kidx
+    singleKptGradients = {}
+    calcEnergies = ham.calcEigValsAtK(kidx)
+    systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem, kidx)
+    optimizer.zero_grad()
+    systemKptLoss.backward()
+    for name, param in model.named_parameters():
+        if param.grad is not None:
+            if name not in singleKptGradients:
+                singleKptGradients[name] = param.grad.detach().clone() * bulkSystem.kptWeights[kidx]
+            else: 
+                singleKptGradients[name] += param.grad.detach().clone() * bulkSystem.kptWeights[kidx]
+    trainLoss_systemKpt = systemKptLoss.detach().item() * bulkSystem.kptWeights[kidx]
+    del systemKptLoss
+    gc.collect()
+    return singleKptGradients, trainLoss_systemKpt
+
 def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, atomPPOrder, totalParams, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, val_dataset, resultsFolder):
     training_COST=[]
     validation_COST=[]
@@ -65,7 +94,7 @@ def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, ato
                 ham_list[iSystem].NN_locbool = True
                 ham_list[iSystem].set_NNmodel(model)
                 print_memory_usage()
-                NN_outputs = ham_list[iSystem].calcBandStruct()
+                NN_outputs = ham_list[iSystem].calcBandStruct_withGrad()
                 # NN_outputs = calcBandStruct_GPU(True, model, bulkSystem_list[iSystem], atomPPOrder, totalParams, device)
                 print_memory_usage()
                 systemLoss = criterion_singleSystem(NN_outputs, bulkSystem_list[iSystem])
@@ -92,22 +121,38 @@ def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, ato
                 ham_list[iSystem].set_NNmodel(model)
                 print_memory_usage()
 
-                # multiprocessing here. But beware that the benefit of memory saving maybe lost. 
-                for kidx in range(bulkSystem_list[iSystem].getNKpts()): 
-                    calcEnergies = ham_list[iSystem].calcEigValsAtK(kidx)
-                    systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem_list[iSystem], kidx)
-                    optimizer.zero_grad()
-                    systemKptLoss.backward()
-                    for name, param in model.named_parameters():
-                        if param.grad is not None:
-                            if name not in total_gradients:
-                                total_gradients[name] = param.grad.detach().clone() * bulkSystem_list[iSystem].kptWeights[kidx]
-                            else: 
-                                total_gradients[name] += param.grad.detach().clone() * bulkSystem_list[iSystem].kptWeights[kidx]
-
-                    trainLoss += systemKptLoss.detach().item() * bulkSystem_list[iSystem].kptWeights[kidx]
-                    del systemKptLoss
+                if ('num_cores' not in NNConfig): # or (NNConfig['num_cores']==1): 
+                    print("We are not doing multiprocessing. ")
+                    for kidx in range(bulkSystem_list[iSystem].getNKpts()): 
+                        calcEnergies = ham_list[iSystem].calcEigValsAtK(kidx)
+                        systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem_list[iSystem], kidx)
+                        optimizer.zero_grad()
+                        systemKptLoss.backward()
+                        for name, param in model.named_parameters():
+                            if param.grad is not None:
+                                if name not in total_gradients:
+                                    total_gradients[name] = param.grad.detach().clone() * bulkSystem_list   [iSystem].kptWeights[kidx]
+                                else: 
+                                    total_gradients[name] += param.grad.detach().clone() * bulkSystem_list  [iSystem].kptWeights[kidx]
+                        trainLoss += systemKptLoss.detach().item() * bulkSystem_list[iSystem].kptWeights[kidx]
+                        del systemKptLoss
+                        gc.collect()
+                    print(total_gradients)
+                    print(trainLoss)
+                else: 
+                    # multiprocessing
+                    pool = mp.Pool(NNConfig['num_cores'])
+                    print(f"Total num_cores available = {mp.cpu_count()}. We are using num_cores = {NNConfig['num_cores']}.")
+                    results_systemKpt = pool.map(partial(calcGradSingleKpt_parallel, ham=ham_list[iSystem], bulkSystem=bulkSystem_list[iSystem], criterion_singleKpt=criterion_singleKpt,optimizer=optimizer, model=model), range(bulkSystem_list[iSystem].getNKpts()))
+                    gradients_systemKpt, trainLoss_systemKpt = zip(*results_systemKpt)
                     gc.collect()
+                    pool.close()
+                    pool.join()
+                    total_gradients = merge_dicts(gradients_systemKpt)
+                    trainLoss = torch.sum(torch.tensor(trainLoss_systemKpt))
+                    print(total_gradients)
+                    print(trainLoss)
+
             optimizer.zero_grad()
             with torch.no_grad():
                 for name, param in model.named_parameters():
@@ -137,7 +182,7 @@ def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, ato
             for iSystem in range(len(bulkSystem_list)):
                 ham_list[iSystem].set_NNmodel(model)
                 with torch.no_grad():
-                    NN_outputs = ham_list[iSystem].calcBandStruct()
+                    NN_outputs = ham_list[iSystem].calcBandStruct_noGrad(NNConfig)
                 # NN_outputs = calcBandStruct_GPU(True, model, bulkSystem_list[iSystem], atomPPOrder, totalParams, device)
                 systemLoss = criterion_singleSystem(NN_outputs, bulkSystem_list[iSystem])
                 val_loss += systemLoss.item()

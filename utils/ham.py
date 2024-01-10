@@ -5,6 +5,8 @@ from scipy.integrate import quad, quadrature, quad_vec
 import time
 import sys
 from torch.utils.checkpoint import checkpoint
+import multiprocessing as mp
+from multiprocessing import shared_memory
 
 from constants.constants import *
 from utils.pp_func import pot_func
@@ -677,6 +679,7 @@ class Hamiltonian:
 
         return NLmatf
 
+
     def calcEigValsAtK(self, kidx):
         '''
         This function builds the Htot at a certain kpoint that is given as the input, 
@@ -695,6 +698,12 @@ class Hamiltonian:
             print_memory_usage() 
             energiesEV = energies * AUTOEV
         else:
+            # this will be slow, since torch seems to only support
+            # full diagonalization including all eigenvectors. 
+            # If computing couplings, it might
+            # make sense to implement a custom torch diagonalization wrapper
+            # that uses scipy under the hood to allow for better partial
+            # diagonalization algorithms.
             ens, vecs = torch.linalg.eigh(H)
             energiesEV = ens * AUTOEV
             self.vb_vecs[kidx, :] = vecs[:, self.idx_vb]
@@ -704,49 +713,61 @@ class Hamiltonian:
             # 2-fold degeneracy for spin. Not sure why this is necessary, but
             # it is included in Tommy's code...
             energiesEV = energiesEV.repeat_interleave(2)
+            # dont need to interleave eigenvecs (if stored) since we only
+            # store the vb and cb anyways.
         eigVals[:] = energiesEV[:nbands]
         print_memory_usage()
         return eigVals
+    
 
-    def calcBandStruct(self):
+    def calcEigValsAtK_detach(self, kidx):
+        eig_vals = self.calcEigValsAtK(kidx)
+        eig_vals_detach = eig_vals.detach()
+        return eig_vals_detach
+
+
+    def calcBandStruct_withGrad(self):
+        print("This function is calcBandStruct_withGrad, and no multiprocessing is implemented due to the requirement to keep gradients. ")
+        
+        nbands = self.system.nBands
+        nkpt = self.system.getNKpts()
+        bandStruct = torch.zeros([nkpt, nbands])
+        for kidx in range(nkpt):
+            eigValsAtK = self.calcEigValsAtK(kidx)
+            bandStruct[kidx,:] = eigValsAtK
+        
+        print_memory_usage()
+        return bandStruct
+
+
+    def calcBandStruct_noGrad(self, NNConfig):
+        print("This function is calcBandStruct_noGrad. Multiprocessing is implemented. However, the returned bandStruct doesn't have gradients.")
+        
         nbands = self.system.nBands
         nkpt = self.system.getNKpts()
 
-        bandStruct = torch.zeros([nkpt, nbands])
+        bandStruct = torch.zeros([nkpt, nbands], requires_grad=False)   # We no longer need the gradients in this function
 
         # this loop should be parallelized for good performance.
         # can be done with shared memory by simply using the multiprocessing module
         # maybe multiple writing into bandStruct
-        for kidx in range(nkpt):
-            print_memory_usage()
-            H = self.buildHtot(kidx)   # buildHtot_parallel(kidx, cached_XXX, )
-            print_memory_usage()
+        # buildHtot_parallel(kidx, cached_XXX, )  OR like # shm = shared_memory.SharedMemory(create=True, size=a.nbytes)
+        # Not tested
+        
+        if ('num_cores' not in NNConfig): # or (NNConfig['num_cores']==1): Commented out for fast testing.
+            print("We are not doing multiprocessing. ")
+            for kidx in range(nkpt):
+                eigValsAtK = self.calcEigValsAtK_detach(kidx)
+                bandStruct[kidx,:] = eigValsAtK
+        else: 
+            # multiprocessing
+            pool = mp.Pool(NNConfig['num_cores'])
+            print(f"Total num_cores available = {mp.cpu_count()}. We are using num_cores = {NNConfig['num_cores']}.")
+            eigValsList = pool.map(self.calcEigValsAtK_detach, range(nkpt))
+            pool.close()
+            pool.join()
+            bandStruct = torch.stack(eigValsList)
 
-            if not self.coupling:
-                print_memory_usage()
-                energies = torch.linalg.eigvalsh(H)
-                print_memory_usage()
-                energiesEV = energies * AUTOEV
-            else:
-                # this will be slow, since torch seems to only support
-                # full diagonalization including all eigenvectors. 
-                # If computing couplings, it might
-                # make sense to implement a custom torch diagonalization wrapper
-                # that uses scipy under the hood to allow for better partial
-                # diagonalization algorithms.
-                ens, vecs = torch.linalg.eigh(H)
-                energiesEV = ens * AUTOEV
-                self.vb_vecs[kidx, :] = vecs[:, self.idx_vb]
-                self.cb_vecs[kidx, :] = vecs[:, self.idx_cb]
-
-
-            if not self.SObool:
-                # 2-fold degeneracy for spin. Not sure why this is necessary, but
-                # it is included in Tommy's code...
-                energiesEV = energiesEV.repeat_interleave(2)
-                # dont need to interleave eigenvecs (if stored) since we only
-                # store the vb and cb anyways.
-            bandStruct[kidx,:] = energiesEV[:nbands]
         print_memory_usage()
         return bandStruct
 
