@@ -2,6 +2,7 @@ import numpy as np
 import torch.linalg
 from constants.constants import *
 import time
+import os
 
 class MonteCarloFit:
 
@@ -52,6 +53,7 @@ class MonteCarloFit:
         self.stepsAtTemp = stepsAtTemp
         self.tempStepSizeMod = tempStepSizeMod
         self.paramSteps = paramSteps
+        self.totalIter = totalIter
 
         self.fitDefPot = fitDefPot
         self.fitCoupling = fitCoupling
@@ -77,18 +79,20 @@ class MonteCarloFit:
 
         self.expBS = ham.system.expBandStruct
         self.bndWeight = ham.system.bandWeights
-        self.expCpl = ham.system.expCouplingBands
-        self.expDef = ham.system.expDefPots
-        #self.cplBndWeight = ham.system.couplingBandWeights
-        self.idx_gap = ham.system.idx_gap
-        self.idx_vb = ham.system.idx_vb
-        self.idx_cb = ham.system.idx_cb
+        if fitCoupling:
+            self.expCpl = ham.system.expCouplingBands
+            #self.cplBndWeight = ham.system.couplingBandWeights
+            self.idx_gap = ham.system.idx_gap
+            self.idx_vb = ham.system.idx_vb
+            self.idx_cb = ham.system.idx_cb
+        if fitDefPot:
+            self.expDef = ham.system.expDefPots
 
-        self.run_mc(totalIter)
+        #self.run_mc(totalIter)
 
 
 
-    def run_mc(self, totalIter):
+    def run_mc(self):
 
         # calculate initial band structure, ?defpot, ?coupling and 
         # write them to files
@@ -120,16 +124,16 @@ class MonteCarloFit:
         bestPP = None  # to store the globally optimal PPparams
 
         t0 = time.time()
-        for _ in range(totalIter):
+        for _ in range(self.totalIter):
             sinceLastAccept += 1
             nIter += 1
             if sinceLastAccept > 10000:
                 print("no accepted moves for a while...quitting")
                 break
 
-            # update step
+            # modify params step
             tmpPP = self.ham.get_PPparams()
-            self.updatePPparams()
+            self.updatePPparams(tempIdx)
 
             # check cost fn
             bs = self.ham.calcBandStruct()
@@ -144,12 +148,12 @@ class MonteCarloFit:
             stepsAtTemp += 1
             if self.newMSE < bestAtTemp:
                 bestAtTemp = self.newMSE
-                stepsAtTemp = 0
-            if tempIdx == 0 and stepsAtTemp > self.stepsAtTemp[0]:
+                #stepsAtTemp = 0 # this means stepsAtTemp is the number of steps WITHOUT IMPROVEMENT
+            if tempIdx == 0 and stepsAtTemp >= self.stepsAtTemp[0]:
                 tempIdx = 1
                 stepsAtTemp = 0
                 bestAtTemp = 1e6
-            if tempIdx == 1 and stepsAtTemp > self.stepsAtTemp[1]:
+            if tempIdx == 1 and stepsAtTemp >= self.stepsAtTemp[1]:
                 tempIdx = 0
                 stepsAtTemp = 0
                 bestAtTemp = 0
@@ -162,7 +166,7 @@ class MonteCarloFit:
                 nAccept += 1
             
             # write iteration once per n iterations, before we revert the PPparams
-            if nIter % 1 == 1: self.writeIteration(nAccept/nIter)
+            if nIter % 1 == 0: self.writeIteration(nAccept/nIter)
 
             # update PPparams?
             if self.newMSE < self.bestMSE:
@@ -171,6 +175,8 @@ class MonteCarloFit:
                 bestPP = self.ham.get_PPparams()
                 self.writeBands(bs, stub="/bestBandStruct_0.dat")
                 sinceLastAccept = 0
+                if self.fitCoupling:
+                    self.writeCoupling(cpl_dict, stub="/bestCoupling_0.dat")
             elif mc_bool:
                 # new MSE is higher, but we still accept.
                 # keep self.ham.PPparams in the updated form
@@ -201,7 +207,8 @@ class MonteCarloFit:
             cost = self.calcIndivMSEgaps(bs)
         else:
             cost = self.calcIndivMSE(bs)
-        cost += self.calcNonLocalWeighting()
+        if self.ham.SObool:
+            cost += self.calcNonLocalWeighting()
         if self.fitEffMass:
             #cost += self.calcEffMassMSE(bs)
             pass
@@ -229,7 +236,7 @@ class MonteCarloFit:
         for kidx in range(self.kpts.shape[0]):
             tmp = 0.0
             for bidx in range(bs.shape[1] - 1):
-                if abs(self.expBS[kidx, bidx+1] > 1e-15 and self.expBS[kidx, bidx] > 1e-15):
+                if abs(self.expBS[kidx, bidx+1]) > 1e-15 and abs(self.expBS[kidx, bidx]) > 1e-15:
                     dgap = bs[kidx, bidx+1] - bs[kidx, bidx]
                     egap = self.expBS[kidx, bidx+1] - self.expBS[kidx, bidx]
                     tmp += (dgap - egap)**2
@@ -313,7 +320,7 @@ class MonteCarloFit:
     
 
     def writeBands(self, bs, stub="/bandStruct_0.dat"):
-        with open(self.writeDir + stub, 'a') as fwrite:
+        with open(self.writeDir + stub, 'w') as fwrite:
             pathlength = 0.0
             for i in range(bs.shape[0]):
                 if i > 0:
@@ -330,9 +337,9 @@ class MonteCarloFit:
         This function takes the couplings as they are output from ham.calcCouplings()
         and writes them in a labelled data file. 
         """
-        with open(self.writeDir + stub, 'a') as fwrite:
+        with open(self.writeDir + stub, 'w') as fwrite:
             for atomidx in range(self.ham.system.getNAtoms()):
-                print(f"Atom idx = {atomidx}, atom = {self.ham.system.atomTypes[atomidx]}, position = {self.ham.system.atomPos[atomidx]}", file=fwrite)
+                print(f"Atom idx = {atomidx}   atom = {self.ham.system.atomTypes[atomidx]}   position = {self.ham.system.atomPos[atomidx]}", file=fwrite)
 
                 for band in ["vb", "cb"]:
                     print(f"{band}-{band} coupling elements. ", file=fwrite, end="")
@@ -345,15 +352,19 @@ class MonteCarloFit:
                             print("polarization of derivative = z", file=fwrite)
                         
                         for qidx in range(self.qpts.shape[0]):
-                            print(f"{cpl_dict[(atomidx, gamma, qidx, band)]:.6e}", file=fwrite, end="")
+                            print(f"{cpl_dict[(atomidx, gamma, qidx, band)]:.6e}   ", file=fwrite, end="")
                         print("\n", file=fwrite, end="")
-                print("\n", file=fwrite, end="")
+                print("\n\n", file=fwrite, end="")
 
 
     def writeIteration(self, perAccept, stub="/iterations.dat"):
+        if self.firstIter is True:
+            if os.path.isfile(self.writeDir + stub):
+                # don't append to an existing file, remove existing file
+                os.remove(self.writeDir + stub)
+
         with open(self.writeDir + stub, 'a') as fwrite:
             if self.firstIter is True:
-                self.firstIter = False
                 print("newMSE \t curMSE \t bstMSE \t %Accpt \t ", file=fwrite, end="")
                 for atom, params in self.ham.PPparams.items():
                     for j in range(len(params)):
@@ -365,11 +376,66 @@ class MonteCarloFit:
                 for j in range(len(params)):
                     print(f"{params[j]:.6g}\t", file=fwrite, end="")
             print("\n", file=fwrite, end="")
+        
+        if self.firstIter:
+            self.firstIter = False
 
 
     def writeBestPPparams(self, param_dict):
         for atom, params in param_dict.items():
             with open(self.writeDir + f"/best_{atom}Params.dat", 'w') as fwrite:
                 for j in range(len(params)):
-                    print(params[j], file=fwrite)
+                    print(f"{params[j]:.6f}", file=fwrite)
                 
+
+
+
+def read_mc_opts(filename):
+    """
+    Helper function to read monte carlo options from a file
+    and return them as a dict, which can be passed to the
+    MonteCarloFit constructor with **kwargs.
+    """
+    mc_opts = {}
+    with open(filename, 'r') as fread:
+        lines = fread.readlines()
+        for line in lines:
+            if " = " not in line:
+                raise RuntimeError("each line must contain an equals sign and spaces between every distinct word/symbol/number")
+            if "," in line:
+                raise RuntimeError("don't put commas in between numbers")
+            
+            if "betas" in line:
+                sp = line.split()
+                mc_opts[sp[0]] = [float(sp[2]), float(sp[3])]
+            elif "stepsAtTemp" in line:
+                sp = line.split()
+                mc_opts[sp[0]] = [int(float(sp[2])), int(float(sp[3]))]
+            elif "tempStepSizeMod" in line:
+                sp = line.split()
+                mc_opts[sp[0]] = [float(sp[2]), float(sp[3])]
+            elif "paramSteps" in line:
+                print("!WARNING! paramSteps should not be sepcified in MC input file")
+            elif "totalIter" in line:
+                sp = line.split()
+                mc_opts[sp[0]] = int(float(sp[2]))
+            elif "fitDefPot" in line:
+                sp = line.split()
+                mc_opts[sp[0]] = (sp[2] == "True" or sp[2] == "true")
+            elif "fitCoupling" in line:
+                sp = line.split()
+                mc_opts[sp[0]] = (sp[2] == "True" or sp[2] == "true") 
+            elif "fitEffMass" in line:
+                sp = line.split()
+                mc_opts[sp[0]] = (sp[2] == "True" or sp[2] == "true")
+            elif "optGaps" in line:
+                sp = line.split()
+                mc_opts[sp[0]] = (sp[2] == "True" or sp[2] == "true")
+            elif "defPotWeight" in line:
+                sp = line.split()
+                mc_opts[sp[0]] = float(sp[2])
+            else:
+                sp = line.split()
+                raise ValueError(f"unexpected montecarlo input keyword: {sp[0]}")
+            
+    return mc_opts

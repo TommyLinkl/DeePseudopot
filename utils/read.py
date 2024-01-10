@@ -51,6 +51,7 @@ class bulkSystem:
         self.nBands = nBands
         self.maxKE = maxKE
         self.expCouplingBands = None
+        self.bandWeights = None
         
     def setInputs(self, inputFilename):
         # nBands can be redundant
@@ -167,12 +168,12 @@ class bulkSystem:
                     atomidx = int(float(sp[3]))
                     begin_block = lidx
                 elif "coupling elements" in line:
-                    assert lidx == begin_block+1 or lidx == begin_block+7
+                    assert lidx == begin_block+1 or lidx == begin_block+8
                     sp = line.split()
                     bandid = sp[0].split("-")[0]
                     gamma = sp[-1]
                 elif "polarization" in line:
-                    assert lidx in [begin_block+3, begin_block+5, begin_block+9, begin_block+11]
+                    assert lidx in [begin_block+3, begin_block+5, begin_block+10, begin_block+12]
                     gamma = line.split()[-1]
 
                 else:

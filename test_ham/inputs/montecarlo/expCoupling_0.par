@@ -1,0 +1,78 @@
+Atom idx = 0   atom = Pb   position = XXX
+vb-vb coupling elements. polarization of derivative = x
+0.028   0.69   
+polarization of derivative = y
+0.12   0.69   
+polarization of derivative = z
+0.009   0.69   
+
+cb-cb coupling elements. polarization of derivative = x
+0.028   1.25   
+polarization of derivative = y
+0.12   0.7   
+polarization of derivative = z
+0.009   0.69   
+
+
+Atom idx = 1   atom = I   position = XXX
+vb-vb coupling elements. polarization of derivative = x
+0   0.182   
+polarization of derivative = y
+0   0.182   
+polarization of derivative = z
+0   0.182   
+
+cb-cb coupling elements. polarization of derivative = x
+0   0.4   
+polarization of derivative = y
+0   0.4   
+polarization of derivative = z
+0   0.4   
+
+
+Atom idx = 2   atom = I   position = XXX
+vb-vb coupling elements. polarization of derivative = x
+0   0.333333   
+polarization of derivative = y
+0   0.333333   
+polarization of derivative = z
+0   0.333333   
+
+cb-cb coupling elements. polarization of derivative = x
+0   0.166667   
+polarization of derivative = y
+0   0.166667   
+polarization of derivative = z
+0   0.166667   
+
+
+Atom idx = 3   atom = I   position = XXX
+vb-vb coupling elements. polarization of derivative = x
+0   0.333333   
+polarization of derivative = y
+0   0.333333   
+polarization of derivative = z
+0   0.333333   
+
+cb-cb coupling elements. polarization of derivative = x
+0   0.333333   
+polarization of derivative = y
+0   0.333333   
+polarization of derivative = z
+0   0.333333   
+
+
+Atom idx = 4   atom = Cs   position = XXX
+vb-vb coupling elements. polarization of derivative = x
+0.00000   0.00000   
+polarization of derivative = y
+0.00000   0.00000   
+polarization of derivative = z
+0.00000   0.00000   
+
+cb-cb coupling elements. polarization of derivative = x
+0.00000   0.00000   
+polarization of derivative = y
+0.00000   0.00000   
+polarization of derivative = z
+0.00000   0.00000   

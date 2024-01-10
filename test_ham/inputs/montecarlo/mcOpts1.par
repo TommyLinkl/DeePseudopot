@@ -1,0 +1,7 @@
+betas = 100 1
+stepsAtTemp = 5 5
+tempStepSizeMod = 1.0 1.0
+totalIter = 20
+fitDefPot = False
+fitCoupling = False
+optGaps = True

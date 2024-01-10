@@ -4,6 +4,7 @@ from scipy.special import erf
 from scipy.integrate import quad, quadrature, quad_vec
 import time
 import sys
+import copy
 
 from constants.constants import *
 from utils.pp_func import pot_func
@@ -1047,7 +1048,8 @@ class Hamiltonian:
 
         This return a dictionary with keys that are tuples: 
         (atomidx, gamma, qidx, 'vb'/'cb')
-        and values are just floats (the coupling value)
+        and values are just floats (the coupling value). The couplings are in
+        units of eV.
 
         qlist is a list of qidx integers corresponding to the phonon q-points
         for which we want to evaluate the coupling. The default behavior
@@ -1094,11 +1096,19 @@ class Hamiltonian:
         
         k_bg = self.system.kpts[self.idx_gap]
         ret_dict = {}
+        equiv_arr = torch.ones([3,3]) # use this to check for matching kpoint (up to periodic boundary conditions)
+        equiv_arr[0,:] *= 0.0
+        equiv_arr[1,:] *= 2*np.pi / self.system.scale
+        equiv_arr[2,:] *= -2*np.pi / self.system.scale
+
         for qid in qlist:
             needKidx = None
-            qvec = self.system.qpts[qid]
+            #qvec = self.system.qpts[qid]
+            kp = k_bg + self.system.qpts[qid]
             for kid in range(self.system.getNKpts()):
-                if torch.allclose(k_bg + self.system.kpts[kid], qvec):
+                if torch.any(torch.all(torch.isclose(kp - self.system.kpts[kid], equiv_arr), dim=1)):
+                    # this complicated looking statement is true when the vector "kp"
+                    # differs from a kpt vector by equiv_arr[0,:], equiv_arr[1,:], or equiv_arr[2,:]
                     needKidx = kid
                     break
             if needKidx is None:
@@ -1143,29 +1153,28 @@ class Hamiltonian:
                     if key[1] in symm_equiv_compat[key[0]]:
                         avg_cb = avg_couple[(key[0], 'cb')]
                         avg_vb = avg_couple[(key[0], 'vb')]
-                        ret_dict[key+(qid,'cb')] = torch.sqrt(avg_cb.conj() * avg_cb).real
-                        ret_dict[key+(qid,'vb')] = torch.sqrt(avg_vb.conj() * avg_vb).real
+                        ret_dict[key+(qid,'cb')] = torch.sqrt(avg_cb.conj() * avg_cb).real * AUTOEV
+                        ret_dict[key+(qid,'vb')] = torch.sqrt(avg_vb.conj() * avg_vb).real * AUTOEV
 
                     else:
                         cpl = torch.matmul(dV_dict[key], self.cb_vecs[needKidx])
                         cpl = torch.dot(torch.conj(self.cb_vecs[self.idx_gap]), cpl)
-                        ret_dict[key + (qid,'cb')] = torch.sqrt(cpl.conj() * cpl).real
+                        ret_dict[key + (qid,'cb')] = torch.sqrt(cpl.conj() * cpl).real * AUTOEV
 
                         cpl = torch.matmul(dV_dict[key], self.vb_vecs[needKidx])
                         cpl = torch.dot(torch.conj(self.vb_vecs[self.idx_gap]), cpl)
-                        ret_dict[key + (qid,'vb')] = torch.sqrt(cpl.conj() * cpl).real
+                        ret_dict[key + (qid,'vb')] = torch.sqrt(cpl.conj() * cpl).real * AUTOEV
                 else:
                     # need to repeat the code block here.. a bit awkward logic
                     cpl = torch.matmul(dV_dict[key], self.cb_vecs[needKidx])
                     cpl = torch.dot(torch.conj(self.cb_vecs[self.idx_gap]), cpl)
-                    ret_dict[key + (qid,'cb')] = torch.sqrt(cpl.conj() * cpl).real
+                    ret_dict[key + (qid,'cb')] = torch.sqrt(cpl.conj() * cpl).real * AUTOEV
 
                     cpl = torch.matmul(dV_dict[key], self.vb_vecs[needKidx])
                     cpl = torch.dot(torch.conj(self.vb_vecs[self.idx_gap]), cpl)
-                    ret_dict[key + (qid,'vb')] = torch.sqrt(cpl.conj() * cpl).real
+                    ret_dict[key + (qid,'vb')] = torch.sqrt(cpl.conj() * cpl).real * AUTOEV
 
         return ret_dict
-
 
 
 
@@ -1343,7 +1352,7 @@ class Hamiltonian:
         self.model = newmodel
 
     def get_PPparams(self):
-        return self.PPparams
+        return copy.deepcopy(self.PPparams)
     
     def set_PPparams(self, newparams):
         """
