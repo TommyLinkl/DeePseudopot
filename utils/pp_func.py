@@ -73,7 +73,7 @@ def plotBandStruct(bulkSystem_list, bandStruct_list, SHOWPLOTS):
         predEmin = torch.min(predEList).item()
         predEmax = torch.max(predEList).item()
         axs_flat[2*iSystem+0].set(ylim=(min(refEmin, predEmin)-0.5, max(refEmax, predEmax)+0.5))
-        axs_flat[2*iSystem+1].set(ylim=(bulkSystem_list[iSystem].BS_plot_center-3, bulkSystem_list[iSystem].BS_plot_center+3), title=systemNames[iSystem])
+        axs_flat[2*iSystem+1].set(ylim=(bulkSystem_list[iSystem].BS_plot_center-4, bulkSystem_list[iSystem].BS_plot_center+5), title=systemNames[iSystem])
         # axs_flat[2*iSystem+0].get_xaxis().set_ticks([0, 20, 40, 45, 60])
         # axs_flat[2*iSystem+0].get_xaxis().set_ticklabels(["L", r"$\Gamma$", "X", "K", r"$\Gamma$"])
         # axs_flat[2*iSystem+1].get_xaxis().set_ticks([0, 20, 40, 45, 60])

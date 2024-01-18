@@ -90,7 +90,7 @@ class BulkSystem:
                         attributes[key] = float(value)
                     elif key in ['nBands']:            # nBands can be redundant
                         attributes[key] = int(float(value))
-                    elif key in ['hiddenLayers']: 
+                    elif key in ['systemName']: 
                         attributes[key] = value
         vars(self).update(attributes)
         
@@ -219,3 +219,14 @@ class BulkSystem:
         sorted_basisSet = basisSet[sorting_indices]
         
         return sorted_basisSet
+    
+    def print_basisStates(self, basisStateFileName):
+        sorted_basisSet = self.basis().numpy()
+        norm_column = np.linalg.norm(sorted_basisSet, axis=1, keepdims=True)
+        sorted_basisSet = np.hstack((sorted_basisSet, norm_column))
+        
+        first_column = np.arange(len(sorted_basisSet))[:, np.newaxis]
+        sorted_basisSet = np.hstack((first_column, sorted_basisSet))
+
+        np.savetxt(basisStateFileName, sorted_basisSet, fmt=['%d']+['%f']*(sorted_basisSet.shape[1]-1), delimiter='\t')
+        return

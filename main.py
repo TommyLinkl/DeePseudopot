@@ -5,6 +5,8 @@ import torch
 from torch.utils.data import DataLoader
 from torch.optim.lr_scheduler import ExponentialLR
 import matplotlib.pyplot as plt
+import gc
+from multiprocessing import shared_memory
 
 from constants.constants import *
 from utils.nn_models import *
@@ -30,6 +32,9 @@ device = torch.device("cpu")
 memory_usage_data = []
 set_debug_memory_flag(False)  # False
 
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
 ############## main ##############
 inputsFolder = 'inputs/'
 resultsFolder = 'results/'
@@ -41,7 +46,7 @@ if 'memory_flag' in NNConfig:
     set_debug_memory_flag(NNConfig['memory_flag'])
 
 # Read and set up systems
-print("############################################\nReading and setting up the BulkSystems. ")
+print(f"{'#' * 40}\nReading and setting up the BulkSystems.")
 atomPPOrder = []
 systems = [BulkSystem() for _ in range(nSystem)]
 for iSys in range(nSystem): 
@@ -50,6 +55,7 @@ for iSys in range(nSystem):
     systems[iSys].setKPointsAndWeights(inputsFolder + "kpoints_%d.par" % iSys)
     systems[iSys].setExpBS(inputsFolder + "expBandStruct_%d.par" % iSys)
     systems[iSys].setBandWeights(inputsFolder + "bandWeights_%d.par" % iSys)
+    systems[iSys].print_basisStates(resultsFolder + "basisStates_%d.dat" % iSys)
     atomPPOrder.append(systems[iSys].atomTypes)
 
 # Calculate atomPPOrder. Read in initial PPparams. Set up NN accordingly
@@ -71,30 +77,90 @@ else:
     raise ValueError(f"Function {NNConfig['PPmodel']} does not exist.")
 print_memory_usage()
 
-# Initialize the ham class for each BulkSystem
+# Initialize the ham class for each BulkSystem. 
+# dummy_ham is used to initialize and store the cached SOmats and NLmats
 print("Initializing the ham class for each BulkSystem. ")
 hams = []
+cached_SOmats_list = [] 
+cached_SOmats_shape_list = [] 
+cached_SOmats_dtype_list = [] 
+cached_NLmats_list = []
+cached_NLmats_shape_list = [] 
+cached_NLmats_dtype_list = [] 
 for iSys in range(nSystem): 
     start_time = time.time()
-    ham = Hamiltonian(systems[iSys], PPparams, atomPPOrder, device, NNConfig, SObool=NNConfig['SObool'])
+    if not NNConfig['SObool']: 
+        ham = Hamiltonian(systems[iSys], PPparams, atomPPOrder, device, NNConfig, SObool=NNConfig['SObool'])
+        cached_SOmats_list.append(None)
+        cached_NLmats_list.append(None)
+    else: 
+        ham = Hamiltonian(systems[iSys], PPparams, atomPPOrder, device, NNConfig, SObool=True, cacheSO=False)
+        dummy_ham = Hamiltonian(systems[iSys], PPparams, atomPPOrder, device, NNConfig, SObool=NNConfig['SObool'])
+        
+        if dummy_ham.NLmats is not None: 
+            # reshape dummy_ham.SOmats into 4D arrays 
+            # of shape (nkpt)*(nAtoms)*(2*nbasis) x (2*nbasis)
+            tmpSOmats = dummy_ham.SOmats
+            tmpSOmats_4d = np.array(tmpSOmats.tolist(), dtype=np.complex128).reshape((tmpSOmats.shape[0], tmpSOmats.shape[1], tmpSOmats[0,0].shape[0], tmpSOmats[0,0].shape[1]))
+            cached_SOmats_list.append(tmpSOmats_4d)
+            del tmpSOmats, tmpSOmats_4d
+        else: 
+            cached_SOmats_list.append(None)
+
+        if dummy_ham.NLmats is not None: 
+            # reshape dummy_ham.NLmats into 5D arrays 
+            # of shape (nkpt)*(nAtoms)*(2)*(2*nbasis) x (2*nbasis)
+            tmpNLmats = dummy_ham.NLmats
+            tmpNLmats_5d = np.array(tmpNLmats.tolist(), dtype=np.complex128).reshape((tmpNLmats.shape[0], tmpNLmats.shape[1], tmpNLmats.shape[2], tmpNLmats[0,0,0].shape[0], tmpNLmats[0,0,0].shape[1]))
+            cached_NLmats_list.append(tmpNLmats_5d)
+            del tmpNLmats, tmpNLmats_5d
+        else: 
+            cached_NLmats_list.append(None)
+
+        del dummy_ham
+        gc.collect()
     hams.append(ham)
     end_time = time.time()
     print(f"Finished initializing {iSys}-th Hamiltonian Class... Elapsed time: {(end_time - start_time):.2f} seconds")
+print_memory_usage()
+for _ in cached_SOmats_list:
+    cached_SOmats_shape_list.append(_.shape)
+    cached_SOmats_dtype_list.append(_.dtype)
+for _ in cached_NLmats_list:
+    cached_NLmats_shape_list.append(_.shape)
+    cached_NLmats_dtype_list.append(_.dtype)
+
+print("Loading cached SO and NL mats into shared memory.")
+# Maybe we need to separate real and imag parts??? Seemingly not necessary
+start_time = time.time()
+for iSys in range(nSystem): 
+    if cached_SOmats_list[iSys] is not None: 
+        shm = shared_memory.SharedMemory(create=True, size=cached_SOmats_list[iSys].nbytes, name=f"SOmats_{iSys}")
+        tmp_arr = np.ndarray(cached_SOmats_shape_list[iSys], dtype=cached_SOmats_dtype_list[iSys], buffer=shm.buf)  # Create a NumPy array backed by shared memory
+        tmp_arr[:] = cached_SOmats_list[iSys][:]   # Copy the cached SOmat into shared memory
+    if cached_NLmats_list[iSys] is not None: 
+        shm = shared_memory.SharedMemory(create=True, size=cached_NLmats_list[iSys].nbytes, name=f"NLmats_{iSys}")
+        tmp_arr = np.ndarray(cached_NLmats_shape_list[iSys], dtype=cached_NLmats_dtype_list[iSys], buffer=shm.buf)
+        tmp_arr[:] = cached_NLmats_list[iSys][:]
+end_time = time.time()
+print(f"Elapsed time: {(end_time - start_time):.2f} seconds\n")
 print_memory_usage()
 
 oldFunc_plot_bandStruct_list = []
 oldFunc_totalMSE = 0
 for iSystem in range(nSystem): 
     start_time = time.time()
-    oldFunc_bandStruct = hams[iSystem].calcBandStruct_noGrad(NNConfig)  
+    # Ensure that when SOmats and NLmats are None, this still works! 
+    oldFunc_bandStruct = hams[iSystem].calcBandStruct_noGrad(NNConfig, f"SOmats_{iSystem}", cached_SOmats_shape_list[iSystem], cached_SOmats_dtype_list[iSystem], f"NLmats_{iSystem}", cached_NLmats_shape_list[iSystem], cached_NLmats_dtype_list[iSystem])
     oldFunc_bandStruct.detach_()
     # oldFunc_bandStruct = calcBandStruct_GPU(False, PPmodel, systems[iSystem], atomPPOrder, localPotParams, device) 
     end_time = time.time()
-    print(f"Finished calculating {iSystem}-th band structure in the Zunger function form ... Elapsed time: {(end_time - start_time):.2f} seconds")
+    print(f"Old Zunger BS: Finished calculating {iSystem}-th band structure in the Zunger function form ... Elapsed time: {(end_time - start_time):.2f} seconds")
     oldFunc_plot_bandStruct_list.append(systems[iSystem].expBandStruct)
     oldFunc_plot_bandStruct_list.append(oldFunc_bandStruct)
     oldFunc_totalMSE += weighted_mse_bandStruct(oldFunc_bandStruct, systems[iSystem])
 fig = plotBandStruct(systems, oldFunc_plot_bandStruct_list, NNConfig['SHOWPLOTS'])
+print("The total bandStruct MSE = %e " % oldFunc_totalMSE)
 fig.suptitle("The total bandStruct MSE = %e " % oldFunc_totalMSE)
 fig.savefig(resultsFolder + 'oldFunc_plotBS.png')
 plt.close('all')
@@ -105,11 +171,11 @@ train_dataset = init_Zunger_data(atomPPOrder, localPotParams, train=True)
 val_dataset = init_Zunger_data(atomPPOrder, localPotParams, train=False)
 
 if os.path.exists(inputsFolder + 'init_PPmodel.pth'):
-    print(f"\n############################################\nInitializing the NN with file {inputsFolder}init_PPmodel.pth.")
+    print(f"\n{'#' * 40}\nInitializing the NN with file {inputsFolder}init_PPmodel.pth.")
     PPmodel.load_state_dict(torch.load(inputsFolder + 'init_PPmodel.pth'))
-    print(f"\nDone with NN initialization to the file {inputsFolder}init_PPmodel.pth.")
+    print(f"Done with NN initialization to the file {inputsFolder}init_PPmodel.pth.")
 else:
-    print("\n############################################\nInitializing the NN by fitting to the latest function form of pseudopotentials. ")
+    print(f"\n{'#' * 40}\nInitializing the NN by fitting to the latest function form of pseudopotentials. ")
     PPmodel.cpu()
     PPmodel.eval()
     NN_init = PPmodel(val_dataset.q)
@@ -129,10 +195,10 @@ else:
     
     torch.save(PPmodel.state_dict(), resultsFolder + 'initZunger_PPmodel.pth')
 
-    print("\nDone with NN initialization to the latest function form.")
+    print("Done with NN initialization to the latest function form.")
 print_memory_usage()
 
-print("\nPlotting and write pseudopotentials in the real and reciprocal space.")
+print("Plotting and write pseudopotentials in the real and reciprocal space.")
 torch.cuda.empty_cache()
 PPmodel.eval()
 PPmodel.cpu()
@@ -149,7 +215,7 @@ for iSystem in range(nSystem):
     hams[iSystem].NN_locbool = True
     hams[iSystem].set_NNmodel(PPmodel)
     start_time = time.time()
-    init_bandStruct = hams[iSystem].calcBandStruct_noGrad(NNConfig)
+    init_bandStruct = hams[iSystem].calcBandStruct_noGrad(NNConfig, f"SOmats_{iSystem}", cached_SOmats_shape_list[iSystem], cached_SOmats_dtype_list[iSystem], f"NLmats_{iSystem}", cached_NLmats_shape_list[iSystem], cached_NLmats_dtype_list[iSystem])
     init_bandStruct.detach_()
     # init_bandStruct = calcBandStruct_GPU(True, PPmodel, systems[iSystem], atomPPOrder, localPotParams, device)
     end_time = time.time()
@@ -158,7 +224,6 @@ for iSystem in range(nSystem):
     plot_bandStruct_list.append(init_bandStruct)
     init_totalMSE += weighted_mse_bandStruct(init_bandStruct, systems[iSystem])
 fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
-print("After fitting the NN to the latest function forms, we can reproduce satisfactory band structures. ")
 print("The total bandStruct MSE = %e " % init_totalMSE)
 fig.suptitle("The total bandStruct MSE = %e " % init_totalMSE)
 fig.savefig(resultsFolder + 'initZunger_plotBS.png')
@@ -167,7 +232,7 @@ torch.cuda.empty_cache()
 print_memory_usage()
 
 ############# Fit NN to band structures ############# 
-print("\n############################################\nStart training of the NN to fit to band structures. ")
+print(f"\n{'#' * 40}\nStart training of the NN to fit to band structures. ")
 
 criterion_singleSystem = weighted_mse_bandStruct
 criterion_singleKpt = weighted_mse_energiesAtKpt
@@ -175,14 +240,14 @@ optimizer = torch.optim.Adam(PPmodel.parameters(), lr=NNConfig['optimizer_lr'])
 scheduler = ExponentialLR(optimizer, gamma=NNConfig['scheduler_gamma'])
 
 start_time = time.time()
-(training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, NNConfig, systems, hams, atomPPOrder, localPotParams, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, val_dataset, resultsFolder)
+(training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, NNConfig, systems, hams, atomPPOrder, localPotParams, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, val_dataset, resultsFolder, cached_SOmats_shape_list, cached_SOmats_dtype_list, cached_NLmats_shape_list, cached_NLmats_dtype_list)
 end_time = time.time()
 elapsed_time = end_time - start_time
 print("Training elapsed time: %.2f seconds" % elapsed_time)
 torch.cuda.empty_cache()
 
 ############# Writing the trained NN PP ############# 
-print("\n############################################\nWriting the NN pseudopotentials")
+print(f"\n{'#' * 40}\nWriting the NN pseudopotentials")
 PPmodel.eval()
 PPmodel.cpu()
 qmax = np.array([10.0, 20.0, 30.0])
