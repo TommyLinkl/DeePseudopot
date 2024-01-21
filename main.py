@@ -43,15 +43,14 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     if 'memory_flag' in NNConfig:
         set_debug_memory_flag(NNConfig['memory_flag'])
     if 'num_cores' in NNConfig: 
-        os.environ["OMP_NUM_THREADS"] = str(NNConfig['num_cores'])     # Accelerate numpy-related operations (eigh) through OpenMP
-        os.environ["MKL_NUM_THREADS"] = "1"
-        print(f"Setting OMP_NUM_THREADS = {NNConfig['num_cores']}, MKL_NUM_THREADS = 1")
+        omp_num_threads = str(NNConfig['num_cores'])     # Accelerate numpy-related operations (eigh) through OpenMP
+        mkl_num_threads = "1"     # maybe use str(NNConfig['num_cores'])? 
     else: 
-        os.environ["OMP_NUM_THREADS"] = "1"
-        os.environ["MKL_NUM_THREADS"] = "1"
-        print(f"Setting OMP_NUM_THREADS = 1, MKL_NUM_THREADS = 1")
-
-
+        omp_num_threads = str(os.cpu_count())  # "1"
+        mkl_num_threads = str(os.cpu_count())  # "1"
+    os.environ["OMP_NUM_THREADS"] = omp_num_threads
+    os.environ["MKL_NUM_THREADS"] = mkl_num_threads
+    print(f"Setting OMP_NUM_THREADS = {omp_num_threads}, MKL_NUM_THREADS = {mkl_num_threads}")
 
     # Read and set up systems
     print(f"{'#' * 40}\nReading and setting up the BulkSystems.")
@@ -73,7 +72,6 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     PPparams, totalParams = read_PPparams(atomPPOrder, inputsFolder + "init_")
     localPotParams = totalParams[:,:4]
     layers = [1] + NNConfig['hiddenLayers'] + [nPseudopot]
-    # PPmodel = Net_relu_xavier_decay2(layers)
     if NNConfig['PPmodel'] in globals() and callable(globals()[NNConfig['PPmodel']]):
         if NNConfig['PPmodel']=='Net_relu_xavier_decay': 
             PPmodel = globals()[NNConfig['PPmodel']](layers, decay_rate=NNConfig['PPmodel_decay_rate'], decay_center=NNConfig['PPmodel_decay_center'])
@@ -161,7 +159,6 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     oldFunc_totalMSE = 0
     for iSystem in range(nSystem): 
         start_time = time.time()
-        # Ensure that when SOmats and NLmats are None, this still works! 
         oldFunc_bandStruct = hams[iSystem].calcBandStruct_noGrad(NNConfig, iSystem, cachedMats_info if cachedMats_info is not None else None)
         oldFunc_bandStruct.detach_()
         end_time = time.time()

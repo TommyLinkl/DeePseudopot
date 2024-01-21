@@ -1,0 +1,72 @@
+############################################
+# Using separateKptGrad. This can decrease the peak memory load during the fitting code. 
+############################################
+
+Setting OMP_NUM_THREADS = 1, MKL_NUM_THREADS = 1
+########################################
+Reading and setting up the BulkSystems.
+There are 3 atomic pseudopotentials. They are in the order of: ['Cs' 'I' 'Pb']
+
+Initializing the ham class for each BulkSystem. 
+Elapsed time: 0.00 seconds
+
+Total num_cores available = 256. We are using num_cores = 3.
+Building VlocMat, elapsed time: 0.85 seconds
+Building Htot, elapsed time: 1.04 seconds
+eigvalsh and storing energies, elapsed time: 1.16 seconds
+Building VlocMat, elapsed time: 0.70 seconds
+Building Htot, elapsed time: 0.87 seconds
+eigvalsh and storing energies, elapsed time: 1.11 seconds
+Old Zunger BS: Finished calculating 0-th band structure in the Zunger function form ... Elapsed time: 2.42 seconds
+The total bandStruct MSE = 1.925923e+01 
+
+########################################
+Initializing the NN with file test_parallel/inputs_noSOC_para3/init_PPmodel.pth.
+Done with NN initialization to the file test_parallel/inputs_noSOC_para3/init_PPmodel.pth.
+Plotting and write pseudopotentials in the real and reciprocal space.
+
+Evaluating band structures using the initialized pseudopotentials. 
+Total num_cores available = 256. We are using num_cores = 3.
+Building VlocMat, elapsed time: 4.99 seconds
+Building Htot, elapsed time: 5.29 seconds
+eigvalsh and storing energies, elapsed time: 1.13 seconds
+Building VlocMat, elapsed time: 4.89 seconds
+Building Htot, elapsed time: 5.31 seconds
+eigvalsh and storing energies, elapsed time: 1.18 seconds
+Building VlocMat, elapsed time: 5.24 seconds
+Building Htot, elapsed time: 5.56 seconds
+eigvalsh and storing energies, elapsed time: 1.05 seconds
+Finished calculating 0-th band structure in the initialized NN form... Elapsed time: 6.78 seconds
+The total bandStruct MSE = 9.239716e+01 
+
+########################################
+Start training of the NN to fit to band structures. 
+Total num_cores available = 256. We are using num_cores = 3.
+Building VlocMat, elapsed time: 4.67 seconds
+Building Htot, elapsed time: 4.80 seconds
+eigvalsh and storing energies, elapsed time: 3.02 seconds
+loss_backward + optimizer.step, elapsed time: 6.75 seconds
+Building VlocMat, elapsed time: 5.08 seconds
+Building Htot, elapsed time: 5.23 seconds
+eigvalsh and storing energies, elapsed time: 3.37 seconds
+loss_backward + optimizer.step, elapsed time: 6.78 seconds
+Building VlocMat, elapsed time: 5.43 seconds
+Building Htot, elapsed time: 5.51 seconds
+eigvalsh and storing energies, elapsed time: 3.59 seconds
+loss_backward + optimizer.step, elapsed time: 6.53 seconds
+Epoch [1/1], training cost: 219.2325
+Total num_cores available = 256. We are using num_cores = 3.
+Building VlocMat, elapsed time: 5.30 seconds
+Building Htot, elapsed time: 5.38 seconds
+eigvalsh and storing energies, elapsed time: 1.14 seconds
+Building VlocMat, elapsed time: 5.02 seconds
+Building Htot, elapsed time: 5.16 seconds
+eigvalsh and storing energies, elapsed time: 1.20 seconds
+Building VlocMat, elapsed time: 5.27 seconds
+Building Htot, elapsed time: 5.41 seconds
+eigvalsh and storing energies, elapsed time: 1.15 seconds
+Epoch [1/1], validation cost: 55.8718
+Training elapsed time: 24.16 seconds
+
+########################################
+Writing the NN pseudopotentials

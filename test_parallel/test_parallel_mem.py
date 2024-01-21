@@ -1,20 +1,19 @@
-import os
 import sys
+sys.path.append('..')
 from main import main
 from memory_profiler import profile
 
-main = profile(main)
+@profile
+def run_main_memProfile(input_path, output_path):
+    main(input_path, output_path)
 
-def wrapped_main(test_case):
-    inputs_folder = 'inputs/'
-    results_folder = 'results/'
+if len(sys.argv) != 2:
+    print("Usage: python test_parallel_mem.py <testCase>")
+    sys.exit(1)
 
-    # Call the original main function with the provided arguments
-    main(inputs_folder, results_folder, test_case)
+testCase = sys.argv[1]
+print("Input argument:", testCase)
 
-if __name__ == "__main__":
-    # Access the command-line argument (test case)
-    test_case = sys.argv[1]
-
-    # Call the wrapped main function with the test case argument
-    wrapped_main(test_case)
+input_path = f"inputs_{testCase}/"
+output_path = f"results_{testCase}/"
+run_main_memProfile(input_path, output_path)
