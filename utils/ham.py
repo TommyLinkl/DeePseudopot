@@ -75,9 +75,8 @@ class Hamiltonian:
             if checknl:
                 #self.NLmats = self.initNLmat()
                 self.NLmats = self.initNLmat_fast()
-        elif SObool and not cacheSO:
-            print("WARNING: SObool=True, while cacheSO=False. If used without multiprocessing parallelization, significant slowdown is expected for SO matrix calculations. If used with multiprocessing parallelization, you can ignore this warning. ")
-            print("Change this warning!!! This is now the expected method! ")
+        elif (SObool) and (not cacheSO) and ('num_cores' not in NNConfig):
+            print("WARNING: Setting SObool=True, cacheSO=False, without multiprocessing parallelization. This is not implemented. ")
         
         if self.coupling:
             nkpt = self.system.getNKpt()
@@ -101,7 +100,7 @@ class Hamiltonian:
         
 
 
-    def buildHtot(self, kidx, shared_SOmats, shared_NLmats, defbool=False):
+    def buildHtot(self, kidx, preComp_SOmats_kidx, preComp_NLmats_kidx, defbool=False, requires_grad=True):
         """
         Build the total Hamiltonian for a given kpt, specified by its kidx.
         """
@@ -118,11 +117,29 @@ class Hamiltonian:
             Htot[i,i] = HBAR**2 / (2*MASS) * torch.norm(self.basis[i%nbv] + self.system.kpts[kidx])**2
 
         # local potential
+        start_time = time.time()
         Htot = self.buildVlocMat(self.NNConfig, defbool=defbool, addMat=Htot)
+        if not requires_grad: 
+            Htot = Htot.detach()
+        end_time = time.time()
+        print(f"Building VlocMat, elapsed time: {(end_time - start_time):.2f} seconds")
 
         if self.SObool:
-            Htot = self.buildSOmat(kidx, shared_SOmats, addMat=Htot)
-            Htot = self.buildNLmat(kidx, shared_NLmats, addMat=Htot)
+            start_time = time.time()
+            if preComp_SOmats_kidx is None: 
+                raise ValueError("SObool is True, but preComp_SOmats_kidx isn't passed. ")
+            else: 
+                Htot = self.buildSOmat(kidx, preComp_SOmats_kidx, addMat=Htot)
+            end_time = time.time()
+            print(f"Building SOmat, elapsed time: {(end_time - start_time):.2f} seconds")
+
+            start_time = time.time()
+            if preComp_NLmats_kidx is None: 
+                raise ValueError("Trying to buildNLmat, but preComp_NLmats_kidx is not pre-computed. ")
+            else: 
+                Htot = self.buildNLmat(kidx, preComp_NLmats_kidx, addMat=Htot)
+            end_time = time.time()
+            print(f"Building NLmat, elapsed time: {(end_time - start_time):.2f} seconds")
 
         if self.device.type == "cuda":
             # !!! is this sufficient to match previous performance?
@@ -131,7 +148,8 @@ class Hamiltonian:
             # which might be slower.
             Htot.to(self.device)
 
-        # print("Does Htot have requires_grad? ", Htot.requires_grad)
+        if not requires_grad: 
+            Htot = Htot.detach()
         return Htot
 
     
@@ -623,7 +641,7 @@ class Hamiltonian:
         return NLmats
     
     
-    def buildSOmat(self, kidx, shared_SOmats, addMat=None):
+    def buildSOmat(self, kidx, preComp_SOmats_kidx, addMat=None):
         """
         Build the final SO mat for a given kpoint (specified by its kidx).
         Using the cached SOmats, this function just multiplies by the 
@@ -631,6 +649,7 @@ class Hamiltonian:
         "addMat" can be set to be a partially constructed Hamiltonian matrix, to
         which the local potential can be added. Might help save slightly on memory.
         """
+        # It seems that we only use preComp_SOmats[kidx]. So why don't we just load this part of the SOmats
         nbv = self.basis.shape[0]
         if addMat is not None:
             assert addMat.shape[0] == 2*nbv
@@ -640,17 +659,17 @@ class Hamiltonian:
             SOmatf = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
         
         for alpha in range(self.system.getNAtoms()):
-            if isinstance(shared_SOmats[kidx,alpha], torch.Tensor):
-                tmp = shared_SOmats[kidx,alpha]
+            if isinstance(preComp_SOmats_kidx[alpha], torch.Tensor):
+                tmp = preComp_SOmats_kidx[alpha]
             else:
-                tmp = torch.tensor(shared_SOmats[kidx,alpha])
+                tmp = torch.tensor(preComp_SOmats_kidx[alpha])
 
             SOmatf = SOmatf + tmp * self.PPparams[self.system.atomTypes[alpha]][5]
 
         return SOmatf
     
 
-    def buildNLmat(self, kidx, shared_NLmats, addMat=None):
+    def buildNLmat(self, kidx, preComp_NLmats_kidx, addMat=None):
         """
         Build the final nonlocal mat for a given kpoint (specified by its kidx).
         Using the cached NLmats, this function just multiplies by the 
@@ -658,6 +677,7 @@ class Hamiltonian:
         "addMat" can be set to be a partially constructed Hamiltonian matrix, to
         which the local potential can be added. Might help save slightly on memory.
         """
+        # It seems that we only use preComp_NLmats[kidx]. So why don't we just load this part of the NLmats
         nbv = self.basis.shape[0]
         if addMat is not None:
             assert addMat.shape[0] == 2*nbv
@@ -667,14 +687,14 @@ class Hamiltonian:
             NLmatf = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
         
         for alpha in range(self.system.getNAtoms()):
-            if isinstance(shared_NLmats[kidx,alpha,0], torch.Tensor):
-                tmp1 = shared_NLmats[kidx,alpha,0]
+            if isinstance(preComp_NLmats_kidx[alpha,0], torch.Tensor):
+                tmp1 = preComp_NLmats_kidx[alpha,0]
             else:
-                tmp1 = torch.tensor(shared_NLmats[kidx,alpha,0])
-            if isinstance(shared_NLmats[kidx,alpha,1], torch.Tensor):
-                tmp2 = shared_NLmats[kidx,alpha,1]
+                tmp1 = torch.tensor(preComp_NLmats_kidx[alpha,0])
+            if isinstance(preComp_NLmats_kidx[alpha,1], torch.Tensor):
+                tmp2 = preComp_NLmats_kidx[alpha,1]
             else:
-                tmp2 = torch.tensor(shared_NLmats[kidx,alpha,1])
+                tmp2 = torch.tensor(preComp_NLmats_kidx[alpha,1])
 
             NLmatf = (NLmatf + tmp1 * self.PPparams[self.system.atomTypes[alpha]][6]
                              + tmp2 * self.PPparams[self.system.atomTypes[alpha]][7] )
@@ -682,28 +702,49 @@ class Hamiltonian:
         return NLmatf
 
 
-    def calcEigValsAtK(self, kidx, pointerName_SOmats, SOmats_shape, SOmats_dtype, pointerName_NLmats, NLmats_shape, NLmats_dtype):
+    def calcEigValsAtK(self, kidx, iSystem, cachedMats_info, requires_grad=True):
         '''
         This function builds the Htot at a certain kpoint that is given as the input, 
         digonalizes the Htot, and obtains the eigenvalues at this kpoint. 
         '''
-        print("INSIDE THE PARALLEL: calcEigValsAtK, 1 kpt")
         nbands = self.system.nBands
         eigVals = torch.zeros(nbands)
 
+        # if cachedMats_info = None and SOC=False: proceed as normal. Won't even go into buildSO or buildNL. 
+        #       Need to pass None into buildSO and buildNL
+        # if cachedMats_info = None and SOC=True: find SOmats and NLmats from self.xxx
+        #       Need to pass self.SOmats[kidx] and self.NLmats[kidx]
+        # else: load from the shared memory (cachedMats_info is only filled when SOC=True, para=True)
+        if (cachedMats_info is None) and (self.SObool==False): 
+            preComp_SOmats_kidx = None
+            preComp_NLmats_kidx = None
+        elif (cachedMats_info is None) and (self.SObool==True): 
+            if (self.SOmats is None) or (self.NLmats is None):
+                raise ValueError("SObool is True, but the ham instance doesn't have initialized SOmats or NLmats. ")
+            preComp_SOmats_kidx = self.SOmats[kidx]
+            preComp_NLmats_kidx = self.NLmats[kidx]
+        elif (cachedMats_info is not None): 
+            start_time = time.time()
+            shm_SOmats = shared_memory.SharedMemory(name=f"SOmats_{iSystem}_{kidx}")
+            preComp_SOmats_kidx = np.ndarray(cachedMats_info[f"SO_{iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{iSystem}_{kidx}"]['dtype'], buffer=shm_SOmats.buf)
+
+            shm_NLmats = shared_memory.SharedMemory(name=f"NLmats_{iSystem}_{kidx}")
+            preComp_NLmats_kidx = np.ndarray(cachedMats_info[f"NL_{iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{iSystem}_{kidx}"]['dtype'], buffer=shm_NLmats.buf)
+            end_time = time.time()
+            print(f"Loading shared memory, elapsed time: {(end_time - start_time):.2f} seconds")
+        else: 
+            raise ValueError("Error in calcEigValsAtK. ")
+
         start_time = time.time()
-        shm_SOmats = shared_memory.SharedMemory(name=pointerName_SOmats)
-        shared_SOmats = np.ndarray(SOmats_shape, dtype=SOmats_dtype, buffer=shm_SOmats.buf)
-        shm_NLmats = shared_memory.SharedMemory(name=pointerName_NLmats)
-        shared_NLmats = np.ndarray(NLmats_shape, dtype=NLmats_dtype, buffer=shm_NLmats.buf)
+        print_memory_usage()
+        H = self.buildHtot(kidx, preComp_SOmats_kidx, preComp_NLmats_kidx, requires_grad)
+        if not requires_grad: 
+            H = H.detach()
+        print_memory_usage()
         end_time = time.time()
-        print(f"Loading shared memory, elapsed time: {(end_time - start_time):.2f} seconds")
+        print(f"Building Htot, elapsed time: {(end_time - start_time):.2f} seconds")
 
         start_time = time.time()
-        print_memory_usage()
-        H = self.buildHtot(kidx, shared_SOmats, shared_NLmats)
-        print_memory_usage()
-
         if not self.coupling:
             print_memory_usage() 
             energies = torch.linalg.eigvalsh(H)
@@ -730,78 +771,48 @@ class Hamiltonian:
         eigVals[:] = energiesEV[:nbands]
         print_memory_usage()
         end_time = time.time()
-        print(f"Other operations, elapsed time: {(end_time - start_time):.2f} seconds")
-        return eigVals
-    
+        print(f"eigvalsh and storing energies, elapsed time: {(end_time - start_time):.2f} seconds")
+        if requires_grad: 
+            return eigVals
+        else: 
+            return eigVals.detach()
 
-    def calcEigValsAtK_detach(self, kidx, pointerName_SOmats, SOmats_shape, SOmats_dtype, pointerName_NLmats, NLmats_shape, NLmats_dtype):
-        eig_vals = self.calcEigValsAtK(kidx, pointerName_SOmats, SOmats_shape, SOmats_dtype, pointerName_NLmats, NLmats_shape, NLmats_dtype)
-        eig_vals_detach = eig_vals.detach()
-        return eig_vals_detach
-
-
-    def calcBandStruct_withGrad(self, pointerName_SOmats, SOmats_shape, SOmats_dtype, pointerName_NLmats, NLmats_shape, NLmats_dtype):
-        print("This function is calcBandStruct_withGrad, and no multiprocessing is implemented due to the requirement to keep gradients. ")
+    def calcBandStruct_withGrad(self, iSystem, cachedMats_info):
+        '''
+        Multiprocessing is not implemented due to the requirement to keep gradients.
+        '''
         
         nbands = self.system.nBands
         nkpt = self.system.getNKpts()
         bandStruct = torch.zeros([nkpt, nbands])
         for kidx in range(nkpt):
-            eigValsAtK = self.calcEigValsAtK(self, kidx, pointerName_SOmats, SOmats_shape, SOmats_dtype, pointerName_NLmats, NLmats_shape, NLmats_dtype)
+            eigValsAtK = self.calcEigValsAtK(self, kidx, iSystem, cachedMats_info, requires_grad=True)
             bandStruct[kidx,:] = eigValsAtK
         
         print_memory_usage()
         return bandStruct
 
 
-    def calcBandStruct_noGrad(self, NNConfig, pointerName_SOmats, SOmats_shape, SOmats_dtype, pointerName_NLmats, NLmats_shape, NLmats_dtype):
-        print("This function is calcBandStruct_noGrad. Multiprocessing is implemented. However, the returned bandStruct doesn't have gradients.")
+    def calcBandStruct_noGrad(self, NNConfig, iSystem, cachedMats_info):
+        '''
+        Multiprocessing is implemented. However, the returned bandStruct doesn't have gradients.
+        '''
         
         nbands = self.system.nBands
         nkpt = self.system.getNKpts()
 
-        bandStruct = torch.zeros([nkpt, nbands], requires_grad=False)   # We no longer need the gradients in this function
-
+        bandStruct = torch.zeros([nkpt, nbands], requires_grad=False)
         if ('num_cores' not in NNConfig): # or (NNConfig['num_cores']==1): Commented out for fast testing.
-            print("We are not doing multiprocessing. ")
+            # No multiprocessing
             for kidx in range(nkpt):
-                eigValsAtK = self.calcEigValsAtK_detach(kidx, pointerName_SOmats, SOmats_shape, SOmats_dtype, pointerName_NLmats, NLmats_shape, NLmats_dtype)
+                eigValsAtK = self.calcEigValsAtK(kidx, iSystem, cachedMats_info, requires_grad=False)
                 bandStruct[kidx,:] = eigValsAtK
         else: # multiprocessing
-            print("STARTING PARALLELIZATION: ")
             print(f"Total num_cores available = {mp.cpu_count()}. We are using num_cores = {NNConfig['num_cores']}.")
             with mp.Pool(NNConfig['num_cores']) as pool:
-                # passing numertical data is going to be the same. Should pass it with pointers: shared_SOmatsReal, ... 
-                eigValsList = pool.map(partial(self.calcEigValsAtK_detach, pointerName_SOmats=pointerName_SOmats, SOmats_shape=SOmats_shape, SOmats_dtype=SOmats_dtype, pointerName_NLmats=pointerName_NLmats, NLmats_shape=NLmats_shape, NLmats_dtype=NLmats_dtype)
+                eigValsList = pool.map(partial(self.calcEigValsAtK, iSystem=iSystem, cachedMats_info=cachedMats_info, requires_grad=False)
                                        , range(nkpt))
             bandStruct = torch.stack(eigValsList)
-            ''' 
-            # Manually splitting up the workload and use Process
-            # Error about connection ... 
-            # Now I have nkpt processes
-            print(f"Total num_cores available = {mp.cpu_count()}. We are using num_cores = {NNConfig['num_cores']}.")
-            q = Queue()
-            processes = []
-
-            def worker(kidx, q):
-                eigValsAtK = self.calcEigValsAtK_detach(kidx)
-                q.put(eigValsAtK.clone().numpy())
-
-            for kidx in range(nkpt):
-                p = Process(target=worker, args=(kidx,q,))
-                p.daemon = True
-                p.start()
-                processes.append(p)
-
-            # Wait for all processes to finish
-            for p in processes:
-                p.join()
-
-            # Retrieve results from the queue
-            for _ in range(nkpt):
-                eigValsAtK = torch.tensor(q.get(), requires_grad=False)
-                bandStruct[_, :] = eigValsAtK
-            '''
         print_memory_usage()
         return bandStruct
 

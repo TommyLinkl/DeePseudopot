@@ -3,6 +3,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt 
 mpl.rcParams['lines.markersize'] = 3
 import torch
+import time
 from torch.utils.data import Dataset, DataLoader
 import torch.nn as nn
 import torch.nn.init as init
@@ -12,7 +13,6 @@ import multiprocessing as mp
 from functools import partial
 
 from utils.pp_func import *
-# from utils.bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
 from utils.memory import print_memory_usage
 torch.set_default_dtype(torch.float32)
 torch.manual_seed(24)
@@ -48,16 +48,19 @@ def weighted_mse_energiesAtKpt(calcEnergiesAtKpt, bulkSystem, kidx):
     MSE = torch.sum((calcEnergiesAtKpt-bulkSystem.expBandStruct[kidx])**2 * bandWeights)
     return MSE
 
-def calcGradSingleKpt_parallel(kidx, ham, bulkSystem, criterion_singleKpt, optimizer, model, pointerName_SOmats, SOmats_shape, SOmats_dtype, pointerName_NLmats, NLmats_shape, NLmats_dtype):
+def calcGradSingleKpt_parallel(kidx, ham, iSystem, bulkSystem, criterion_singleKpt, optimizer, model, cachedMats_info):
     # loop over kidx
     # The rest of the arguments are "constants" / "constant functions" for a single kidx
     # For performance, it is recommended that the ham in the argument doesn't have SOmat and NLmat initialized. 
     singleKptGradients = {}
-    calcEnergies = ham.calcEigValsAtK(kidx, pointerName_SOmats, SOmats_shape, SOmats_dtype, pointerName_NLmats, NLmats_shape, NLmats_dtype)
+    calcEnergies = ham.calcEigValsAtK(kidx, iSystem, cachedMats_info, requires_grad=True)
 
     systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem, kidx)
+    start_time = time.time()
     optimizer.zero_grad()
     systemKptLoss.backward()
+    end_time = time.time()
+    print(f"loss_backward + optimizer.step, elapsed time: {(end_time - start_time):.2f} seconds")
     for name, param in model.named_parameters():
         if param.grad is not None:
             if name not in singleKptGradients:
@@ -69,7 +72,7 @@ def calcGradSingleKpt_parallel(kidx, ham, bulkSystem, criterion_singleKpt, optim
     gc.collect()
     return singleKptGradients, trainLoss_systemKpt
 
-def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, atomPPOrder, totalParams, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, val_dataset, resultsFolder, cached_SOmats_shape_list, cached_SOmats_dtype_list, cached_NLmats_shape_list, cached_NLmats_dtype_list):
+def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, atomPPOrder, totalParams, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, val_dataset, resultsFolder, cachedMats_info):
     training_COST=[]
     validation_COST=[]
     file_trainCost = open(resultsFolder + 'final_training_cost.dat', "w")
@@ -88,12 +91,7 @@ def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, ato
                 ham_list[iSystem].NN_locbool = True
                 ham_list[iSystem].set_NNmodel(model)
                 print_memory_usage()
-                NN_outputs = ham_list[iSystem].calcBandStruct_withGrad(f"SOmats_{iSystem}", 
-                                                                       cached_SOmats_shape_list[iSystem], 
-                                                                       cached_SOmats_dtype_list[iSystem], 
-                                                                       f"NLmats_{iSystem}", 
-                                                                       cached_NLmats_shape_list[iSystem], 
-                                                                       cached_NLmats_dtype_list[iSystem])
+                NN_outputs = ham_list[iSystem].calcBandStruct_withGrad(iSystem, cachedMats_info)
                 # NN_outputs = calcBandStruct_GPU(True, model, bulkSystem_list[iSystem], atomPPOrder, totalParams, device)
                 print_memory_usage()
                 systemLoss = criterion_singleSystem(NN_outputs, bulkSystem_list[iSystem])
@@ -101,12 +99,15 @@ def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, ato
                 loss += systemLoss
             print_memory_usage()
             training_COST.append(loss.item())
+            start_time = time.time()
             optimizer.zero_grad()
             print_memory_usage()
             loss.backward()
             # print_and_inspect_gradients(model)
             print_memory_usage()
             optimizer.step()
+            end_time = time.time()
+            print(f"loss_backward + optimizer.step, elapsed time: {(end_time - start_time):.2f} seconds")
             print_memory_usage()
             file_trainCost.write(f"{epoch+1}  {loss.item()}\n")
             torch.cuda.empty_cache()
@@ -121,18 +122,15 @@ def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, ato
                 print_memory_usage()
 
                 if ('num_cores' not in NNConfig): # or (NNConfig['num_cores']==1): 
-                    print("We are not doing multiprocessing. ")
+                    # No multiprocessing
                     for kidx in range(bulkSystem_list[iSystem].getNKpts()): 
-                        calcEnergies = ham_list[iSystem].calcEigValsAtK(kidx, 
-                                                                        f"SOmats_{iSystem}", 
-                                                                        cached_SOmats_shape_list[iSystem], 
-                                                                        cached_SOmats_dtype_list[iSystem], 
-                                                                        f"NLmats_{iSystem}", 
-                                                                        cached_NLmats_shape_list[iSystem], 
-                                                                        cached_NLmats_dtype_list[iSystem])
+                        calcEnergies = ham_list[iSystem].calcEigValsAtK(kidx, iSystem, cachedMats_info, requires_grad=True)
                         systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem_list[iSystem], kidx)
+                        start_time = time.time()
                         optimizer.zero_grad()
                         systemKptLoss.backward()
+                        end_time = time.time()
+                        print(f"loss_backward + optimizer.step, elapsed time: {(end_time - start_time):.2f} seconds")
                         for name, param in model.named_parameters():
                             if param.grad is not None:
                                 if name not in total_gradients:
@@ -149,21 +147,17 @@ def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, ato
                             for key in d:
                                 merged_dict[key] = merged_dict.get(key, 0) + d[key]
                         return merged_dict
-                    print("STARTING PARALLELIZATION: ")
                     print(f"Total num_cores available = {mp.cpu_count()}. We are using num_cores = {NNConfig['num_cores']}.")
                     pool = mp.Pool(NNConfig['num_cores'])
                     results_systemKpt = pool.map(partial(calcGradSingleKpt_parallel, 
                                                          ham=ham_list[iSystem], 
+                                                         iSystem=iSystem, 
                                                          bulkSystem=bulkSystem_list[iSystem], 
                                                          criterion_singleKpt=criterion_singleKpt, 
                                                          optimizer=optimizer, 
                                                          model=model, 
-                                                         pointerName_SOmats=f"SOmats_{iSystem}", 
-                                                         SOmats_shape=cached_SOmats_shape_list[iSystem], 
-                                                         SOmats_dtype=cached_SOmats_dtype_list[iSystem], 
-                                                         pointerName_NLmats=f"NLmats_{iSystem}", 
-                                                         NLmats_shape=cached_NLmats_shape_list[iSystem], 
-                                                         NLmats_dtype=cached_NLmats_dtype_list[iSystem]), range(bulkSystem_list[iSystem].getNKpts()))
+                                                         cachedMats_info=cachedMats_info), 
+                                                         range(bulkSystem_list[iSystem].getNKpts()))
 
                     gradients_systemKpt, trainLoss_systemKpt = zip(*results_systemKpt)
                     gc.collect()
@@ -185,9 +179,6 @@ def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, ato
             print_memory_usage()
             print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], training cost: {trainLoss:.4f}")
             # print_and_inspect_gradients(model)
-            '''
-            Manual gradient accumulation is validated against the non-separated version def bandStruct_train_GPU. 
-            '''
 
         if epoch > 0 and epoch % NNConfig['schedulerStep'] == 0:
             scheduler.step()
@@ -201,13 +192,7 @@ def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, ato
             for iSystem in range(len(bulkSystem_list)):
                 ham_list[iSystem].set_NNmodel(model)
                 with torch.no_grad():
-                    NN_outputs = ham_list[iSystem].calcBandStruct_noGrad(NNConfig, 
-                                                                         f"SOmats_{iSystem}", 
-                                                                         cached_SOmats_shape_list[iSystem], 
-                                                                         cached_SOmats_dtype_list[iSystem], 
-                                                                         f"NLmats_{iSystem}", 
-                                                                         cached_NLmats_shape_list[iSystem], 
-                                                                         cached_NLmats_dtype_list[iSystem])
+                    NN_outputs = ham_list[iSystem].calcBandStruct_noGrad(NNConfig, iSystem, cachedMats_info)
                 # NN_outputs = calcBandStruct_GPU(True, model, bulkSystem_list[iSystem], atomPPOrder, totalParams, device)
                 systemLoss = criterion_singleSystem(NN_outputs, bulkSystem_list[iSystem])
                 val_loss += systemLoss.item()

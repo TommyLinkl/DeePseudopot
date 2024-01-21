@@ -1,0 +1,21 @@
+SHOWPLOTS = 0
+nSystem = 1
+memory_flag = 0   # num_cores = 3
+PPmodel = Net_relu_xavier_decayGaussian  # Net_relu_xavier_decay   
+PPmodel_decay_rate = 1.5
+PPmodel_decay_center = 5.0
+PPmodel_gaussian_std = 3.0
+hiddenLayers = 20 20 20
+separateKptGrad = 1
+checkpoint = 0
+SObool = 0
+init_Zunger_optimizer_lr = 0.1
+init_Zunger_scheduler_gamma = 0.90
+init_Zunger_num_epochs = 1000
+init_Zunger_plotEvery = 500
+optimizer_lr = 0.005
+scheduler_gamma = 0.90
+max_num_epochs = 1
+plotEvery = 1
+schedulerStep = 80
+patience = 500
