@@ -1,0 +1,2140 @@
+############################################
+# Using separateKptGrad. This can decrease the peak memory load during the fitting code. 
+############################################
+
+Setting OMP_NUM_THREADS = 7, MKL_NUM_THREADS = 1
+########################################
+Reading and setting up the BulkSystems.
+There are 3 atomic pseudopotentials. They are in the order of: ['Cs' 'I' 'Pb']
+
+Initializing the ham class for each BulkSystem. 
+initializing SO: kpt 1/21
+initializing SO: kpt 2/21
+initializing SO: kpt 3/21
+initializing SO: kpt 4/21
+initializing SO: kpt 5/21
+initializing SO: kpt 6/21
+initializing SO: kpt 7/21
+initializing SO: kpt 8/21
+initializing SO: kpt 9/21
+initializing SO: kpt 10/21
+initializing SO: kpt 11/21
+initializing SO: kpt 12/21
+initializing SO: kpt 13/21
+initializing SO: kpt 14/21
+initializing SO: kpt 15/21
+initializing SO: kpt 16/21
+initializing SO: kpt 17/21
+initializing SO: kpt 18/21
+initializing SO: kpt 19/21
+initializing SO: kpt 20/21
+initializing SO: kpt 21/21
+initializing NL pots: kpt 1/21
+time int1: 1.0607762336730957
+int2 est. maxerr: 2.0416036630588064e-05
+time int2: 0.6449627876281738
+initializing NL pots: kpt 2/21
+time int1: 1.0604279041290283
+int2 est. maxerr: 2.2291546466000964e-05
+time int2: 0.5321266651153564
+initializing NL pots: kpt 3/21
+time int1: 1.0685768127441406
+int2 est. maxerr: 2.0926220158582373e-05
+time int2: 0.6004340648651123
+initializing NL pots: kpt 4/21
+time int1: 1.0605785846710205
+int2 est. maxerr: 2.1182533090253925e-05
+time int2: 0.6049809455871582
+initializing NL pots: kpt 5/21
+time int1: 1.0383362770080566
+int2 est. maxerr: 2.0960583997374205e-05
+time int2: 0.5206043720245361
+initializing NL pots: kpt 6/21
+time int1: 1.041041374206543
+int2 est. maxerr: 2.0965638089328283e-05
+time int2: 0.49589014053344727
+initializing NL pots: kpt 7/21
+time int1: 1.0309062004089355
+int2 est. maxerr: 2.2455726478169232e-05
+time int2: 0.516610860824585
+initializing NL pots: kpt 8/21
+time int1: 1.028944730758667
+int2 est. maxerr: 2.0584497190110424e-05
+time int2: 0.5181608200073242
+initializing NL pots: kpt 9/21
+time int1: 1.0184063911437988
+int2 est. maxerr: 2.0478640699961858e-05
+time int2: 0.4553995132446289
+initializing NL pots: kpt 10/21
+time int1: 0.9534783363342285
+int2 est. maxerr: 2.046874259162016e-05
+time int2: 0.46588683128356934
+initializing NL pots: kpt 11/21
+time int1: 0.9505064487457275
+int2 est. maxerr: 2.0239096485337065e-05
+time int2: 0.49941253662109375
+initializing NL pots: kpt 12/21
+time int1: 0.9986481666564941
+int2 est. maxerr: 2.017797797623261e-05
+time int2: 0.6015725135803223
+initializing NL pots: kpt 13/21
+time int1: 1.0059795379638672
+int2 est. maxerr: 2.1211863400955434e-05
+time int2: 0.5536758899688721
+initializing NL pots: kpt 14/21
+time int1: 1.0041401386260986
+int2 est. maxerr: 2.1128695557118163e-05
+time int2: 0.5794615745544434
+initializing NL pots: kpt 15/21
+time int1: 1.0242648124694824
+int2 est. maxerr: 2.058289945687214e-05
+time int2: 0.48228001594543457
+initializing NL pots: kpt 16/21
+time int1: 1.008655071258545
+int2 est. maxerr: 2.0929129727562567e-05
+time int2: 0.5079319477081299
+initializing NL pots: kpt 17/21
+time int1: 1.0321025848388672
+int2 est. maxerr: 2.0782519073690614e-05
+time int2: 0.5009670257568359
+initializing NL pots: kpt 18/21
+time int1: 1.0028116703033447
+int2 est. maxerr: 2.2609814677466357e-05
+time int2: 0.4925251007080078
+initializing NL pots: kpt 19/21
+time int1: 1.0434067249298096
+int2 est. maxerr: 2.0644539838727673e-05
+time int2: 0.4704604148864746
+initializing NL pots: kpt 20/21
+time int1: 1.0276730060577393
+int2 est. maxerr: 2.0837431461689805e-05
+time int2: 0.48414182662963867
+initializing NL pots: kpt 21/21
+time int1: 1.005770206451416
+int2 est. maxerr: 2.1201308988386065e-05
+time int2: 0.41866087913513184
+Finished putting the cached SO and NLmats into shared memory ...
+Elapsed time: 102.52 seconds
+
+Total num_cores available = 256. We are using num_cores = 7.
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 1.12 seconds
+Building SOmat, elapsed time: 0.65 seconds
+Building NLmat, elapsed time: 1.11 seconds
+Building Htot, elapsed time: 3.19 seconds
+eigvalsh and storing energies, elapsed time: 8.91 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 0.62 seconds
+Building SOmat, elapsed time: 0.43 seconds
+Building NLmat, elapsed time: 0.96 seconds
+Building Htot, elapsed time: 2.18 seconds
+eigvalsh and storing energies, elapsed time: 8.68 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 0.51 seconds
+Building SOmat, elapsed time: 0.41 seconds
+Building NLmat, elapsed time: 0.94 seconds
+Building Htot, elapsed time: 2.21 seconds
+eigvalsh and storing energies, elapsed time: 8.30 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 1.00 seconds
+Building SOmat, elapsed time: 0.68 seconds
+Building NLmat, elapsed time: 1.13 seconds
+Building Htot, elapsed time: 3.24 seconds
+eigvalsh and storing energies, elapsed time: 8.81 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 0.63 seconds
+Building SOmat, elapsed time: 0.48 seconds
+Building NLmat, elapsed time: 1.09 seconds
+Building Htot, elapsed time: 2.45 seconds
+eigvalsh and storing energies, elapsed time: 8.33 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 0.63 seconds
+Building SOmat, elapsed time: 0.33 seconds
+Building NLmat, elapsed time: 0.97 seconds
+Building Htot, elapsed time: 2.18 seconds
+eigvalsh and storing energies, elapsed time: 8.19 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 0.96 seconds
+Building SOmat, elapsed time: 0.56 seconds
+Building NLmat, elapsed time: 1.13 seconds
+Building Htot, elapsed time: 3.19 seconds
+eigvalsh and storing energies, elapsed time: 8.86 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 0.65 seconds
+Building SOmat, elapsed time: 0.56 seconds
+Building NLmat, elapsed time: 1.03 seconds
+Building Htot, elapsed time: 2.63 seconds
+eigvalsh and storing energies, elapsed time: 8.64 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 0.58 seconds
+Building SOmat, elapsed time: 0.52 seconds
+Building NLmat, elapsed time: 0.92 seconds
+Building Htot, elapsed time: 2.19 seconds
+eigvalsh and storing energies, elapsed time: 8.26 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 1.04 seconds
+Building SOmat, elapsed time: 0.60 seconds
+Building NLmat, elapsed time: 1.12 seconds
+Building Htot, elapsed time: 3.26 seconds
+eigvalsh and storing energies, elapsed time: 8.64 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 0.67 seconds
+Building SOmat, elapsed time: 0.56 seconds
+Building NLmat, elapsed time: 1.06 seconds
+Building Htot, elapsed time: 2.74 seconds
+eigvalsh and storing energies, elapsed time: 8.28 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 0.80 seconds
+Building SOmat, elapsed time: 0.54 seconds
+Building NLmat, elapsed time: 1.00 seconds
+Building Htot, elapsed time: 2.71 seconds
+eigvalsh and storing energies, elapsed time: 8.46 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 1.00 seconds
+Building SOmat, elapsed time: 0.60 seconds
+Building NLmat, elapsed time: 1.11 seconds
+Building Htot, elapsed time: 3.23 seconds
+eigvalsh and storing energies, elapsed time: 9.00 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 0.59 seconds
+Building SOmat, elapsed time: 0.56 seconds
+Building NLmat, elapsed time: 1.06 seconds
+Building Htot, elapsed time: 2.42 seconds
+eigvalsh and storing energies, elapsed time: 8.63 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 0.76 seconds
+Building SOmat, elapsed time: 0.58 seconds
+Building NLmat, elapsed time: 0.79 seconds
+Building Htot, elapsed time: 2.52 seconds
+eigvalsh and storing energies, elapsed time: 8.27 seconds
+Old Zunger BS: Finished calculating 0-th band structure in the Zunger function form ... Elapsed time: 34.81 seconds
+The total bandStruct MSE = 6.029890e+02 
+
+########################################
+Initializing the NN with file CALCS/CsPbI3_21kpts_8dec/inputs/init_PPmodel.pth.
+Done with NN initialization to the file CALCS/CsPbI3_21kpts_8dec/inputs/init_PPmodel.pth.
+Plotting and write pseudopotentials in the real and reciprocal space.
+
+Evaluating band structures using the initialized pseudopotentials. 
+Total num_cores available = 256. We are using num_cores = 7.
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.48 seconds
+Building SOmat, elapsed time: 0.51 seconds
+Building NLmat, elapsed time: 1.08 seconds
+Building Htot, elapsed time: 5.53 seconds
+eigvalsh and storing energies, elapsed time: 8.51 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.17 seconds
+Building SOmat, elapsed time: 0.49 seconds
+Building NLmat, elapsed time: 1.05 seconds
+Building Htot, elapsed time: 5.18 seconds
+eigvalsh and storing energies, elapsed time: 7.91 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.65 seconds
+Building SOmat, elapsed time: 0.38 seconds
+Building NLmat, elapsed time: 0.87 seconds
+Building Htot, elapsed time: 4.24 seconds
+eigvalsh and storing energies, elapsed time: 9.57 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.47 seconds
+Building SOmat, elapsed time: 0.59 seconds
+Building NLmat, elapsed time: 1.08 seconds
+Building Htot, elapsed time: 5.79 seconds
+eigvalsh and storing energies, elapsed time: 8.72 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.48 seconds
+Building SOmat, elapsed time: 0.62 seconds
+Building NLmat, elapsed time: 0.88 seconds
+Building Htot, elapsed time: 5.32 seconds
+eigvalsh and storing energies, elapsed time: 8.29 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.39 seconds
+Building SOmat, elapsed time: 0.50 seconds
+Building NLmat, elapsed time: 0.87 seconds
+Building Htot, elapsed time: 5.00 seconds
+eigvalsh and storing energies, elapsed time: 7.84 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.42 seconds
+Building SOmat, elapsed time: 0.57 seconds
+Building NLmat, elapsed time: 1.09 seconds
+Building Htot, elapsed time: 5.60 seconds
+eigvalsh and storing energies, elapsed time: 9.35 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.34 seconds
+Building SOmat, elapsed time: 0.56 seconds
+Building NLmat, elapsed time: 0.92 seconds
+Building Htot, elapsed time: 5.12 seconds
+eigvalsh and storing energies, elapsed time: 8.18 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.45 seconds
+Building SOmat, elapsed time: 0.43 seconds
+Building NLmat, elapsed time: 0.90 seconds
+Building Htot, elapsed time: 5.19 seconds
+eigvalsh and storing energies, elapsed time: 8.29 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.48 seconds
+Building SOmat, elapsed time: 0.58 seconds
+Building NLmat, elapsed time: 1.09 seconds
+Building Htot, elapsed time: 5.73 seconds
+eigvalsh and storing energies, elapsed time: 8.71 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.00 seconds
+Building SOmat, elapsed time: 0.37 seconds
+Building NLmat, elapsed time: 1.08 seconds
+Building Htot, elapsed time: 4.86 seconds
+eigvalsh and storing energies, elapsed time: 8.73 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.54 seconds
+Building SOmat, elapsed time: 0.44 seconds
+Building NLmat, elapsed time: 1.03 seconds
+Building Htot, elapsed time: 5.36 seconds
+eigvalsh and storing energies, elapsed time: 8.60 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.26 seconds
+Building SOmat, elapsed time: 0.44 seconds
+Building NLmat, elapsed time: 1.10 seconds
+Building Htot, elapsed time: 5.33 seconds
+eigvalsh and storing energies, elapsed time: 8.70 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.16 seconds
+Building SOmat, elapsed time: 0.49 seconds
+Building NLmat, elapsed time: 1.10 seconds
+Building Htot, elapsed time: 5.18 seconds
+eigvalsh and storing energies, elapsed time: 8.72 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.33 seconds
+Building SOmat, elapsed time: 0.48 seconds
+Building NLmat, elapsed time: 0.97 seconds
+Building Htot, elapsed time: 5.15 seconds
+eigvalsh and storing energies, elapsed time: 8.70 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.50 seconds
+Building SOmat, elapsed time: 0.59 seconds
+Building NLmat, elapsed time: 1.02 seconds
+Building Htot, elapsed time: 5.72 seconds
+eigvalsh and storing energies, elapsed time: 8.92 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.30 seconds
+Building SOmat, elapsed time: 0.61 seconds
+Building NLmat, elapsed time: 0.92 seconds
+Building Htot, elapsed time: 5.21 seconds
+eigvalsh and storing energies, elapsed time: 8.55 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.44 seconds
+Building SOmat, elapsed time: 0.51 seconds
+Building NLmat, elapsed time: 0.79 seconds
+Building Htot, elapsed time: 5.03 seconds
+eigvalsh and storing energies, elapsed time: 8.41 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.32 seconds
+Building SOmat, elapsed time: 0.55 seconds
+Building NLmat, elapsed time: 1.14 seconds
+Building Htot, elapsed time: 5.47 seconds
+eigvalsh and storing energies, elapsed time: 9.03 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.28 seconds
+Building SOmat, elapsed time: 0.59 seconds
+Building NLmat, elapsed time: 0.92 seconds
+Building Htot, elapsed time: 5.21 seconds
+eigvalsh and storing energies, elapsed time: 8.77 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.48 seconds
+Building SOmat, elapsed time: 0.50 seconds
+Building NLmat, elapsed time: 0.75 seconds
+Building Htot, elapsed time: 5.20 seconds
+eigvalsh and storing energies, elapsed time: 8.24 seconds
+Finished calculating 0-th band structure in the initialized NN form... Elapsed time: 43.21 seconds
+The total bandStruct MSE = 1.618631e+03 
+
+########################################
+Start training of the NN to fit to band structures. 
+Total num_cores available = 256. We are using num_cores = 7.
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.36 seconds
+Building SOmat, elapsed time: 0.65 seconds
+Building NLmat, elapsed time: 1.16 seconds
+Building Htot, elapsed time: 5.66 seconds
+eigvalsh and storing energies, elapsed time: 16.31 seconds
+loss_backward + optimizer.step, elapsed time: 18.19 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.07 seconds
+Building SOmat, elapsed time: 0.44 seconds
+Building NLmat, elapsed time: 0.78 seconds
+Building Htot, elapsed time: 4.74 seconds
+eigvalsh and storing energies, elapsed time: 15.20 seconds
+loss_backward + optimizer.step, elapsed time: 16.81 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.95 seconds
+Building SOmat, elapsed time: 0.47 seconds
+Building NLmat, elapsed time: 0.77 seconds
+Building Htot, elapsed time: 4.28 seconds
+eigvalsh and storing energies, elapsed time: 17.00 seconds
+loss_backward + optimizer.step, elapsed time: 14.80 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.38 seconds
+Building SOmat, elapsed time: 0.57 seconds
+Building NLmat, elapsed time: 1.24 seconds
+Building Htot, elapsed time: 5.65 seconds
+eigvalsh and storing energies, elapsed time: 17.51 seconds
+loss_backward + optimizer.step, elapsed time: 18.15 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.41 seconds
+Building SOmat, elapsed time: 0.35 seconds
+Building NLmat, elapsed time: 0.63 seconds
+Building Htot, elapsed time: 4.81 seconds
+eigvalsh and storing energies, elapsed time: 18.63 seconds
+loss_backward + optimizer.step, elapsed time: 19.23 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.06 seconds
+Building SOmat, elapsed time: 0.32 seconds
+Building NLmat, elapsed time: 0.71 seconds
+Building Htot, elapsed time: 4.34 seconds
+eigvalsh and storing energies, elapsed time: 24.91 seconds
+loss_backward + optimizer.step, elapsed time: 7.18 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.30 seconds
+Building SOmat, elapsed time: 0.57 seconds
+Building NLmat, elapsed time: 1.20 seconds
+Building Htot, elapsed time: 5.58 seconds
+eigvalsh and storing energies, elapsed time: 15.44 seconds
+loss_backward + optimizer.step, elapsed time: 17.89 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.58 seconds
+Building SOmat, elapsed time: 0.34 seconds
+Building NLmat, elapsed time: 0.90 seconds
+Building Htot, elapsed time: 4.07 seconds
+eigvalsh and storing energies, elapsed time: 17.62 seconds
+loss_backward + optimizer.step, elapsed time: 17.37 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.14 seconds
+Building SOmat, elapsed time: 0.39 seconds
+Building NLmat, elapsed time: 0.78 seconds
+Building Htot, elapsed time: 4.73 seconds
+eigvalsh and storing energies, elapsed time: 17.28 seconds
+loss_backward + optimizer.step, elapsed time: 14.78 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.42 seconds
+Building SOmat, elapsed time: 0.57 seconds
+Building NLmat, elapsed time: 1.14 seconds
+Building Htot, elapsed time: 5.62 seconds
+eigvalsh and storing energies, elapsed time: 15.83 seconds
+loss_backward + optimizer.step, elapsed time: 18.09 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.91 seconds
+Building SOmat, elapsed time: 0.47 seconds
+Building NLmat, elapsed time: 0.93 seconds
+Building Htot, elapsed time: 4.66 seconds
+eigvalsh and storing energies, elapsed time: 17.26 seconds
+loss_backward + optimizer.step, elapsed time: 17.35 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.95 seconds
+Building SOmat, elapsed time: 0.38 seconds
+Building NLmat, elapsed time: 0.82 seconds
+Building Htot, elapsed time: 4.36 seconds
+eigvalsh and storing energies, elapsed time: 17.16 seconds
+loss_backward + optimizer.step, elapsed time: 14.82 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.42 seconds
+Building SOmat, elapsed time: 0.52 seconds
+Building NLmat, elapsed time: 1.17 seconds
+Building Htot, elapsed time: 5.48 seconds
+eigvalsh and storing energies, elapsed time: 16.33 seconds
+loss_backward + optimizer.step, elapsed time: 18.62 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.16 seconds
+Building SOmat, elapsed time: 0.42 seconds
+Building NLmat, elapsed time: 0.90 seconds
+Building Htot, elapsed time: 4.79 seconds
+eigvalsh and storing energies, elapsed time: 16.59 seconds
+loss_backward + optimizer.step, elapsed time: 18.78 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.02 seconds
+Building SOmat, elapsed time: 0.36 seconds
+Building NLmat, elapsed time: 0.80 seconds
+Building Htot, elapsed time: 4.65 seconds
+eigvalsh and storing energies, elapsed time: 18.54 seconds
+loss_backward + optimizer.step, elapsed time: 14.55 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.51 seconds
+Building SOmat, elapsed time: 0.61 seconds
+Building NLmat, elapsed time: 1.23 seconds
+Building Htot, elapsed time: 5.73 seconds
+eigvalsh and storing energies, elapsed time: 16.30 seconds
+loss_backward + optimizer.step, elapsed time: 18.37 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.21 seconds
+Building SOmat, elapsed time: 0.40 seconds
+Building NLmat, elapsed time: 0.83 seconds
+Building Htot, elapsed time: 4.70 seconds
+eigvalsh and storing energies, elapsed time: 16.57 seconds
+loss_backward + optimizer.step, elapsed time: 18.65 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.09 seconds
+Building SOmat, elapsed time: 0.39 seconds
+Building NLmat, elapsed time: 0.79 seconds
+Building Htot, elapsed time: 4.67 seconds
+eigvalsh and storing energies, elapsed time: 18.26 seconds
+loss_backward + optimizer.step, elapsed time: 15.39 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.86 seconds
+Building SOmat, elapsed time: 0.59 seconds
+Building NLmat, elapsed time: 0.95 seconds
+Building Htot, elapsed time: 5.83 seconds
+eigvalsh and storing energies, elapsed time: 15.53 seconds
+loss_backward + optimizer.step, elapsed time: 19.41 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.54 seconds
+Building SOmat, elapsed time: 0.41 seconds
+Building NLmat, elapsed time: 0.62 seconds
+Building Htot, elapsed time: 4.97 seconds
+eigvalsh and storing energies, elapsed time: 19.27 seconds
+loss_backward + optimizer.step, elapsed time: 16.96 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.98 seconds
+Building SOmat, elapsed time: 0.33 seconds
+Building NLmat, elapsed time: 0.65 seconds
+Building Htot, elapsed time: 4.27 seconds
+eigvalsh and storing energies, elapsed time: 20.85 seconds
+loss_backward + optimizer.step, elapsed time: 12.53 seconds
+Epoch [1/200], training cost: 5085.3159
+Total num_cores available = 256. We are using num_cores = 7.
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.61 seconds
+Building SOmat, elapsed time: 0.44 seconds
+Building NLmat, elapsed time: 1.09 seconds
+Building Htot, elapsed time: 5.60 seconds
+eigvalsh and storing energies, elapsed time: 17.76 seconds
+loss_backward + optimizer.step, elapsed time: 20.01 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.29 seconds
+Building SOmat, elapsed time: 0.48 seconds
+Building NLmat, elapsed time: 0.75 seconds
+Building Htot, elapsed time: 4.93 seconds
+eigvalsh and storing energies, elapsed time: 16.34 seconds
+loss_backward + optimizer.step, elapsed time: 14.98 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.89 seconds
+Building SOmat, elapsed time: 0.41 seconds
+Building NLmat, elapsed time: 1.02 seconds
+Building Htot, elapsed time: 4.57 seconds
+eigvalsh and storing energies, elapsed time: 17.12 seconds
+loss_backward + optimizer.step, elapsed time: 16.00 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 4.01 seconds
+Building SOmat, elapsed time: 0.47 seconds
+Building NLmat, elapsed time: 0.86 seconds
+Building Htot, elapsed time: 5.80 seconds
+eigvalsh and storing energies, elapsed time: 16.89 seconds
+loss_backward + optimizer.step, elapsed time: 15.00 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.17 seconds
+Building SOmat, elapsed time: 0.36 seconds
+Building NLmat, elapsed time: 0.81 seconds
+Building Htot, elapsed time: 4.46 seconds
+eigvalsh and storing energies, elapsed time: 19.75 seconds
+loss_backward + optimizer.step, elapsed time: 18.43 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.86 seconds
+Building SOmat, elapsed time: 0.44 seconds
+Building NLmat, elapsed time: 0.79 seconds
+Building Htot, elapsed time: 4.40 seconds
+eigvalsh and storing energies, elapsed time: 17.21 seconds
+loss_backward + optimizer.step, elapsed time: 14.57 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.64 seconds
+Building SOmat, elapsed time: 0.51 seconds
+Building NLmat, elapsed time: 1.15 seconds
+Building Htot, elapsed time: 5.53 seconds
+eigvalsh and storing energies, elapsed time: 17.31 seconds
+loss_backward + optimizer.step, elapsed time: 17.43 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.95 seconds
+Building SOmat, elapsed time: 0.19 seconds
+Building NLmat, elapsed time: 0.85 seconds
+Building Htot, elapsed time: 4.18 seconds
+eigvalsh and storing energies, elapsed time: 19.29 seconds
+loss_backward + optimizer.step, elapsed time: 18.84 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.97 seconds
+Building SOmat, elapsed time: 0.31 seconds
+Building NLmat, elapsed time: 0.76 seconds
+Building Htot, elapsed time: 4.40 seconds
+eigvalsh and storing energies, elapsed time: 17.59 seconds
+loss_backward + optimizer.step, elapsed time: 15.70 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.79 seconds
+Building SOmat, elapsed time: 0.49 seconds
+Building NLmat, elapsed time: 1.07 seconds
+Building Htot, elapsed time: 5.80 seconds
+eigvalsh and storing energies, elapsed time: 19.15 seconds
+loss_backward + optimizer.step, elapsed time: 18.01 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.21 seconds
+Building SOmat, elapsed time: 0.44 seconds
+Building NLmat, elapsed time: 0.99 seconds
+Building Htot, elapsed time: 5.01 seconds
+eigvalsh and storing energies, elapsed time: 17.94 seconds
+loss_backward + optimizer.step, elapsed time: 16.81 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.10 seconds
+Building SOmat, elapsed time: 0.35 seconds
+Building NLmat, elapsed time: 0.74 seconds
+Building Htot, elapsed time: 4.39 seconds
+eigvalsh and storing energies, elapsed time: 16.38 seconds
+loss_backward + optimizer.step, elapsed time: 18.12 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.77 seconds
+Building SOmat, elapsed time: 0.49 seconds
+Building NLmat, elapsed time: 1.11 seconds
+Building Htot, elapsed time: 5.89 seconds
+eigvalsh and storing energies, elapsed time: 17.08 seconds
+loss_backward + optimizer.step, elapsed time: 20.09 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.96 seconds
+Building SOmat, elapsed time: 0.41 seconds
+Building NLmat, elapsed time: 0.97 seconds
+Building Htot, elapsed time: 4.64 seconds
+eigvalsh and storing energies, elapsed time: 17.00 seconds
+loss_backward + optimizer.step, elapsed time: 19.18 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.07 seconds
+Building SOmat, elapsed time: 0.30 seconds
+Building NLmat, elapsed time: 0.66 seconds
+Building Htot, elapsed time: 4.36 seconds
+eigvalsh and storing energies, elapsed time: 20.37 seconds
+loss_backward + optimizer.step, elapsed time: 14.36 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.66 seconds
+Building SOmat, elapsed time: 0.37 seconds
+Building NLmat, elapsed time: 0.87 seconds
+Building Htot, elapsed time: 4.20 seconds
+eigvalsh and storing energies, elapsed time: 18.33 seconds
+loss_backward + optimizer.step, elapsed time: 20.34 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.27 seconds
+Building SOmat, elapsed time: 0.41 seconds
+Building NLmat, elapsed time: 0.95 seconds
+Building Htot, elapsed time: 5.00 seconds
+eigvalsh and storing energies, elapsed time: 18.52 seconds
+loss_backward + optimizer.step, elapsed time: 19.64 seconds
+Loading shared memory, elapsed time: 0.01 seconds
+Building VlocMat, elapsed time: 2.95 seconds
+Building SOmat, elapsed time: 0.25 seconds
+Building NLmat, elapsed time: 0.61 seconds
+Building Htot, elapsed time: 4.06 seconds
+eigvalsh and storing energies, elapsed time: 18.36 seconds
+loss_backward + optimizer.step, elapsed time: 14.45 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.89 seconds
+Building SOmat, elapsed time: 0.54 seconds
+Building NLmat, elapsed time: 0.97 seconds
+Building Htot, elapsed time: 5.91 seconds
+eigvalsh and storing energies, elapsed time: 16.82 seconds
+loss_backward + optimizer.step, elapsed time: 20.11 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.21 seconds
+Building SOmat, elapsed time: 0.44 seconds
+Building NLmat, elapsed time: 0.98 seconds
+Building Htot, elapsed time: 5.06 seconds
+eigvalsh and storing energies, elapsed time: 19.83 seconds
+loss_backward + optimizer.step, elapsed time: 17.04 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.00 seconds
+Building SOmat, elapsed time: 0.30 seconds
+Building NLmat, elapsed time: 0.62 seconds
+Building Htot, elapsed time: 4.28 seconds
+eigvalsh and storing energies, elapsed time: 19.46 seconds
+loss_backward + optimizer.step, elapsed time: 14.59 seconds
+Epoch [2/200], training cost: 48857.0234
+Total num_cores available = 256. We are using num_cores = 7.
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.80 seconds
+Building SOmat, elapsed time: 0.54 seconds
+Building NLmat, elapsed time: 0.88 seconds
+Building Htot, elapsed time: 5.78 seconds
+eigvalsh and storing energies, elapsed time: 16.68 seconds
+loss_backward + optimizer.step, elapsed time: 16.06 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.09 seconds
+Building SOmat, elapsed time: 0.38 seconds
+Building NLmat, elapsed time: 0.70 seconds
+Building Htot, elapsed time: 4.49 seconds
+eigvalsh and storing energies, elapsed time: 17.61 seconds
+loss_backward + optimizer.step, elapsed time: 16.39 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.06 seconds
+Building SOmat, elapsed time: 0.42 seconds
+Building NLmat, elapsed time: 0.80 seconds
+Building Htot, elapsed time: 4.54 seconds
+eigvalsh and storing energies, elapsed time: 18.59 seconds
+loss_backward + optimizer.step, elapsed time: 11.75 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.49 seconds
+Building SOmat, elapsed time: 0.54 seconds
+Building NLmat, elapsed time: 1.08 seconds
+Building Htot, elapsed time: 5.59 seconds
+eigvalsh and storing energies, elapsed time: 17.17 seconds
+loss_backward + optimizer.step, elapsed time: 19.22 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.97 seconds
+Building SOmat, elapsed time: 0.40 seconds
+Building NLmat, elapsed time: 0.80 seconds
+Building Htot, elapsed time: 4.47 seconds
+eigvalsh and storing energies, elapsed time: 19.84 seconds
+loss_backward + optimizer.step, elapsed time: 17.60 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.76 seconds
+Building SOmat, elapsed time: 0.28 seconds
+Building NLmat, elapsed time: 0.58 seconds
+Building Htot, elapsed time: 3.98 seconds
+eigvalsh and storing energies, elapsed time: 23.24 seconds
+loss_backward + optimizer.step, elapsed time: 9.85 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.14 seconds
+Building SOmat, elapsed time: 0.39 seconds
+Building NLmat, elapsed time: 1.01 seconds
+Building Htot, elapsed time: 4.73 seconds
+eigvalsh and storing energies, elapsed time: 17.40 seconds
+loss_backward + optimizer.step, elapsed time: 20.87 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.15 seconds
+Building SOmat, elapsed time: 0.29 seconds
+Building NLmat, elapsed time: 0.56 seconds
+Building Htot, elapsed time: 4.46 seconds
+eigvalsh and storing energies, elapsed time: 21.93 seconds
+loss_backward + optimizer.step, elapsed time: 17.20 seconds
+Loading shared memory, elapsed time: 0.01 seconds
+Building VlocMat, elapsed time: 2.58 seconds
+Building SOmat, elapsed time: 0.25 seconds
+Building NLmat, elapsed time: 0.66 seconds
+Building Htot, elapsed time: 3.87 seconds
+eigvalsh and storing energies, elapsed time: 24.59 seconds
+loss_backward + optimizer.step, elapsed time: 6.94 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.40 seconds
+Building SOmat, elapsed time: 0.58 seconds
+Building NLmat, elapsed time: 1.01 seconds
+Building Htot, elapsed time: 5.53 seconds
+eigvalsh and storing energies, elapsed time: 16.13 seconds
+loss_backward + optimizer.step, elapsed time: 15.08 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.02 seconds
+Building SOmat, elapsed time: 0.48 seconds
+Building NLmat, elapsed time: 0.90 seconds
+Building Htot, elapsed time: 4.65 seconds
+eigvalsh and storing energies, elapsed time: 18.10 seconds
+loss_backward + optimizer.step, elapsed time: 12.81 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.88 seconds
+Building SOmat, elapsed time: 0.53 seconds
+Building NLmat, elapsed time: 0.95 seconds
+Building Htot, elapsed time: 4.72 seconds
+eigvalsh and storing energies, elapsed time: 21.06 seconds
+loss_backward + optimizer.step, elapsed time: 14.37 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.57 seconds
+Building SOmat, elapsed time: 0.54 seconds
+Building NLmat, elapsed time: 1.05 seconds
+Building Htot, elapsed time: 5.63 seconds
+eigvalsh and storing energies, elapsed time: 16.22 seconds
+loss_backward + optimizer.step, elapsed time: 19.83 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.99 seconds
+Building SOmat, elapsed time: 0.39 seconds
+Building NLmat, elapsed time: 0.80 seconds
+Building Htot, elapsed time: 4.45 seconds
+eigvalsh and storing energies, elapsed time: 19.07 seconds
+loss_backward + optimizer.step, elapsed time: 16.51 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.61 seconds
+Building SOmat, elapsed time: 0.42 seconds
+Building NLmat, elapsed time: 0.78 seconds
+Building Htot, elapsed time: 4.11 seconds
+eigvalsh and storing energies, elapsed time: 20.81 seconds
+loss_backward + optimizer.step, elapsed time: 12.80 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.54 seconds
+Building SOmat, elapsed time: 0.55 seconds
+Building NLmat, elapsed time: 1.06 seconds
+Building Htot, elapsed time: 5.56 seconds
+eigvalsh and storing energies, elapsed time: 16.18 seconds
+loss_backward + optimizer.step, elapsed time: 20.14 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.11 seconds
+Building SOmat, elapsed time: 0.39 seconds
+Building NLmat, elapsed time: 0.79 seconds
+Building Htot, elapsed time: 4.62 seconds
+eigvalsh and storing energies, elapsed time: 17.48 seconds
+loss_backward + optimizer.step, elapsed time: 18.23 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.60 seconds
+Building SOmat, elapsed time: 0.42 seconds
+Building NLmat, elapsed time: 0.69 seconds
+Building Htot, elapsed time: 4.01 seconds
+eigvalsh and storing energies, elapsed time: 20.71 seconds
+loss_backward + optimizer.step, elapsed time: 13.12 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.50 seconds
+Building SOmat, elapsed time: 0.53 seconds
+Building NLmat, elapsed time: 1.05 seconds
+Building Htot, elapsed time: 5.52 seconds
+eigvalsh and storing energies, elapsed time: 16.47 seconds
+loss_backward + optimizer.step, elapsed time: 17.33 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.14 seconds
+Building SOmat, elapsed time: 0.35 seconds
+Building NLmat, elapsed time: 0.71 seconds
+Building Htot, elapsed time: 4.48 seconds
+eigvalsh and storing energies, elapsed time: 15.90 seconds
+loss_backward + optimizer.step, elapsed time: 17.67 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.97 seconds
+Building SOmat, elapsed time: 0.35 seconds
+Building NLmat, elapsed time: 0.75 seconds
+Building Htot, elapsed time: 4.36 seconds
+eigvalsh and storing energies, elapsed time: 19.01 seconds
+loss_backward + optimizer.step, elapsed time: 15.35 seconds
+Epoch [3/200], training cost: 2328.4158
+Total num_cores available = 256. We are using num_cores = 7.
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.55 seconds
+Building SOmat, elapsed time: 0.59 seconds
+Building NLmat, elapsed time: 1.07 seconds
+Building Htot, elapsed time: 5.69 seconds
+eigvalsh and storing energies, elapsed time: 16.06 seconds
+loss_backward + optimizer.step, elapsed time: 15.31 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.43 seconds
+Building SOmat, elapsed time: 0.15 seconds
+Building NLmat, elapsed time: 0.72 seconds
+Building Htot, elapsed time: 3.47 seconds
+eigvalsh and storing energies, elapsed time: 19.01 seconds
+loss_backward + optimizer.step, elapsed time: 14.98 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.29 seconds
+Building SOmat, elapsed time: 0.50 seconds
+Building NLmat, elapsed time: 0.72 seconds
+Building Htot, elapsed time: 4.63 seconds
+eigvalsh and storing energies, elapsed time: 18.79 seconds
+loss_backward + optimizer.step, elapsed time: 12.87 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.48 seconds
+Building SOmat, elapsed time: 0.49 seconds
+Building NLmat, elapsed time: 1.15 seconds
+Building Htot, elapsed time: 5.45 seconds
+eigvalsh and storing energies, elapsed time: 16.25 seconds
+loss_backward + optimizer.step, elapsed time: 20.24 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.91 seconds
+Building SOmat, elapsed time: 0.37 seconds
+Building NLmat, elapsed time: 0.72 seconds
+Building Htot, elapsed time: 4.41 seconds
+eigvalsh and storing energies, elapsed time: 18.86 seconds
+loss_backward + optimizer.step, elapsed time: 18.27 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.08 seconds
+Building SOmat, elapsed time: 0.31 seconds
+Building NLmat, elapsed time: 0.55 seconds
+Building Htot, elapsed time: 4.35 seconds
+eigvalsh and storing energies, elapsed time: 20.36 seconds
+loss_backward + optimizer.step, elapsed time: 13.49 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.39 seconds
+Building SOmat, elapsed time: 0.52 seconds
+Building NLmat, elapsed time: 1.19 seconds
+Building Htot, elapsed time: 5.54 seconds
+eigvalsh and storing energies, elapsed time: 16.24 seconds
+loss_backward + optimizer.step, elapsed time: 17.75 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.79 seconds
+Building SOmat, elapsed time: 0.32 seconds
+Building NLmat, elapsed time: 0.63 seconds
+Building Htot, elapsed time: 3.83 seconds
+eigvalsh and storing energies, elapsed time: 18.60 seconds
+loss_backward + optimizer.step, elapsed time: 18.26 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.08 seconds
+Building SOmat, elapsed time: 0.34 seconds
+Building NLmat, elapsed time: 0.79 seconds
+Building Htot, elapsed time: 4.44 seconds
+eigvalsh and storing energies, elapsed time: 18.30 seconds
+loss_backward + optimizer.step, elapsed time: 15.81 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.41 seconds
+Building SOmat, elapsed time: 0.62 seconds
+Building NLmat, elapsed time: 1.13 seconds
+Building Htot, elapsed time: 5.68 seconds
+eigvalsh and storing energies, elapsed time: 16.20 seconds
+loss_backward + optimizer.step, elapsed time: 18.96 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.82 seconds
+Building SOmat, elapsed time: 0.37 seconds
+Building NLmat, elapsed time: 0.65 seconds
+Building Htot, elapsed time: 4.13 seconds
+eigvalsh and storing energies, elapsed time: 16.36 seconds
+loss_backward + optimizer.step, elapsed time: 19.28 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.21 seconds
+Building SOmat, elapsed time: 0.33 seconds
+Building NLmat, elapsed time: 0.75 seconds
+Building Htot, elapsed time: 4.72 seconds
+eigvalsh and storing energies, elapsed time: 17.46 seconds
+loss_backward + optimizer.step, elapsed time: 16.64 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.48 seconds
+Building SOmat, elapsed time: 0.57 seconds
+Building NLmat, elapsed time: 1.15 seconds
+Building Htot, elapsed time: 5.68 seconds
+eigvalsh and storing energies, elapsed time: 16.02 seconds
+loss_backward + optimizer.step, elapsed time: 20.31 seconds
+Loading shared memory, elapsed time: 0.01 seconds
+Building VlocMat, elapsed time: 2.96 seconds
+Building SOmat, elapsed time: 0.36 seconds
+Building NLmat, elapsed time: 0.69 seconds
+Building Htot, elapsed time: 4.52 seconds
+eigvalsh and storing energies, elapsed time: 20.98 seconds
+loss_backward + optimizer.step, elapsed time: 17.08 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.16 seconds
+Building SOmat, elapsed time: 0.29 seconds
+Building NLmat, elapsed time: 0.63 seconds
+Building Htot, elapsed time: 4.51 seconds
+eigvalsh and storing energies, elapsed time: 21.53 seconds
+loss_backward + optimizer.step, elapsed time: 12.39 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.40 seconds
+Building SOmat, elapsed time: 0.55 seconds
+Building NLmat, elapsed time: 1.13 seconds
+Building Htot, elapsed time: 5.58 seconds
+eigvalsh and storing energies, elapsed time: 16.09 seconds
+loss_backward + optimizer.step, elapsed time: 20.15 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.09 seconds
+Building SOmat, elapsed time: 0.36 seconds
+Building NLmat, elapsed time: 0.81 seconds
+Building Htot, elapsed time: 4.47 seconds
+eigvalsh and storing energies, elapsed time: 18.28 seconds
+loss_backward + optimizer.step, elapsed time: 17.89 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.07 seconds
+Building SOmat, elapsed time: 0.40 seconds
+Building NLmat, elapsed time: 0.65 seconds
+Building Htot, elapsed time: 4.53 seconds
+eigvalsh and storing energies, elapsed time: 18.44 seconds
+loss_backward + optimizer.step, elapsed time: 15.18 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.48 seconds
+Building SOmat, elapsed time: 0.58 seconds
+Building NLmat, elapsed time: 1.14 seconds
+Building Htot, elapsed time: 5.66 seconds
+eigvalsh and storing energies, elapsed time: 16.62 seconds
+loss_backward + optimizer.step, elapsed time: 20.65 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.01 seconds
+Building SOmat, elapsed time: 0.27 seconds
+Building NLmat, elapsed time: 0.49 seconds
+Building Htot, elapsed time: 4.20 seconds
+eigvalsh and storing energies, elapsed time: 21.45 seconds
+loss_backward + optimizer.step, elapsed time: 18.52 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.83 seconds
+Building SOmat, elapsed time: 0.31 seconds
+Building NLmat, elapsed time: 0.59 seconds
+Building Htot, elapsed time: 4.18 seconds
+eigvalsh and storing energies, elapsed time: 20.62 seconds
+loss_backward + optimizer.step, elapsed time: 11.00 seconds
+Epoch [4/200], training cost: 10441.7979
+Total num_cores available = 256. We are using num_cores = 7.
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.23 seconds
+Building SOmat, elapsed time: 0.50 seconds
+Building NLmat, elapsed time: 1.23 seconds
+Building Htot, elapsed time: 5.42 seconds
+eigvalsh and storing energies, elapsed time: 16.01 seconds
+loss_backward + optimizer.step, elapsed time: 14.82 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.71 seconds
+Building SOmat, elapsed time: 0.37 seconds
+Building NLmat, elapsed time: 0.81 seconds
+Building Htot, elapsed time: 4.04 seconds
+eigvalsh and storing energies, elapsed time: 18.16 seconds
+loss_backward + optimizer.step, elapsed time: 12.88 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.00 seconds
+Building SOmat, elapsed time: 0.52 seconds
+Building NLmat, elapsed time: 0.85 seconds
+Building Htot, elapsed time: 4.62 seconds
+eigvalsh and storing energies, elapsed time: 20.41 seconds
+loss_backward + optimizer.step, elapsed time: 13.37 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.53 seconds
+Building SOmat, elapsed time: 0.64 seconds
+Building NLmat, elapsed time: 1.24 seconds
+Building Htot, elapsed time: 5.83 seconds
+eigvalsh and storing energies, elapsed time: 15.67 seconds
+loss_backward + optimizer.step, elapsed time: 18.92 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.70 seconds
+Building SOmat, elapsed time: 0.35 seconds
+Building NLmat, elapsed time: 0.75 seconds
+Building Htot, elapsed time: 4.16 seconds
+eigvalsh and storing energies, elapsed time: 17.34 seconds
+loss_backward + optimizer.step, elapsed time: 13.73 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.98 seconds
+Building SOmat, elapsed time: 0.38 seconds
+Building NLmat, elapsed time: 0.88 seconds
+Building Htot, elapsed time: 4.53 seconds
+eigvalsh and storing energies, elapsed time: 18.41 seconds
+loss_backward + optimizer.step, elapsed time: 14.29 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.44 seconds
+Building SOmat, elapsed time: 0.56 seconds
+Building NLmat, elapsed time: 1.26 seconds
+Building Htot, elapsed time: 5.75 seconds
+eigvalsh and storing energies, elapsed time: 15.84 seconds
+loss_backward + optimizer.step, elapsed time: 14.76 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.15 seconds
+Building SOmat, elapsed time: 0.40 seconds
+Building NLmat, elapsed time: 0.68 seconds
+Building Htot, elapsed time: 4.58 seconds
+eigvalsh and storing energies, elapsed time: 18.03 seconds
+loss_backward + optimizer.step, elapsed time: 17.24 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.00 seconds
+Building SOmat, elapsed time: 0.47 seconds
+Building NLmat, elapsed time: 0.80 seconds
+Building Htot, elapsed time: 4.61 seconds
+eigvalsh and storing energies, elapsed time: 18.63 seconds
+loss_backward + optimizer.step, elapsed time: 12.50 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.50 seconds
+Building SOmat, elapsed time: 0.63 seconds
+Building NLmat, elapsed time: 1.17 seconds
+Building Htot, elapsed time: 5.72 seconds
+eigvalsh and storing energies, elapsed time: 16.65 seconds
+loss_backward + optimizer.step, elapsed time: 18.92 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.10 seconds
+Building SOmat, elapsed time: 0.35 seconds
+Building NLmat, elapsed time: 0.82 seconds
+Building Htot, elapsed time: 4.67 seconds
+eigvalsh and storing energies, elapsed time: 18.58 seconds
+loss_backward + optimizer.step, elapsed time: 17.26 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.70 seconds
+Building SOmat, elapsed time: 0.37 seconds
+Building NLmat, elapsed time: 0.66 seconds
+Building Htot, elapsed time: 4.04 seconds
+eigvalsh and storing energies, elapsed time: 20.05 seconds
+loss_backward + optimizer.step, elapsed time: 10.98 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.43 seconds
+Building SOmat, elapsed time: 0.58 seconds
+Building NLmat, elapsed time: 1.21 seconds
+Building Htot, elapsed time: 5.71 seconds
+eigvalsh and storing energies, elapsed time: 15.78 seconds
+loss_backward + optimizer.step, elapsed time: 19.49 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.01 seconds
+Building SOmat, elapsed time: 0.36 seconds
+Building NLmat, elapsed time: 0.82 seconds
+Building Htot, elapsed time: 4.44 seconds
+eigvalsh and storing energies, elapsed time: 15.31 seconds
+loss_backward + optimizer.step, elapsed time: 18.18 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.88 seconds
+Building SOmat, elapsed time: 0.35 seconds
+Building NLmat, elapsed time: 0.73 seconds
+Building Htot, elapsed time: 4.26 seconds
+eigvalsh and storing energies, elapsed time: 18.60 seconds
+loss_backward + optimizer.step, elapsed time: 13.02 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.40 seconds
+Building SOmat, elapsed time: 0.58 seconds
+Building NLmat, elapsed time: 1.21 seconds
+Building Htot, elapsed time: 5.74 seconds
+eigvalsh and storing energies, elapsed time: 16.23 seconds
+loss_backward + optimizer.step, elapsed time: 20.24 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.37 seconds
+Building SOmat, elapsed time: 0.37 seconds
+Building NLmat, elapsed time: 0.67 seconds
+Building Htot, elapsed time: 4.71 seconds
+eigvalsh and storing energies, elapsed time: 19.25 seconds
+loss_backward + optimizer.step, elapsed time: 18.28 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.71 seconds
+Building SOmat, elapsed time: 0.30 seconds
+Building NLmat, elapsed time: 0.60 seconds
+Building Htot, elapsed time: 3.96 seconds
+eigvalsh and storing energies, elapsed time: 21.30 seconds
+loss_backward + optimizer.step, elapsed time: 8.95 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.36 seconds
+Building SOmat, elapsed time: 0.53 seconds
+Building NLmat, elapsed time: 1.25 seconds
+Building Htot, elapsed time: 5.60 seconds
+eigvalsh and storing energies, elapsed time: 17.12 seconds
+loss_backward + optimizer.step, elapsed time: 19.87 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.30 seconds
+Building SOmat, elapsed time: 0.37 seconds
+Building NLmat, elapsed time: 0.69 seconds
+Building Htot, elapsed time: 4.71 seconds
+eigvalsh and storing energies, elapsed time: 22.69 seconds
+loss_backward + optimizer.step, elapsed time: 16.24 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.67 seconds
+Building SOmat, elapsed time: 0.29 seconds
+Building NLmat, elapsed time: 0.53 seconds
+Building Htot, elapsed time: 3.92 seconds
+eigvalsh and storing energies, elapsed time: 22.85 seconds
+loss_backward + optimizer.step, elapsed time: 6.22 seconds
+Epoch [5/200], training cost: 23967.9629
+Total num_cores available = 256. We are using num_cores = 7.
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.06 seconds
+Building SOmat, elapsed time: 0.43 seconds
+Building NLmat, elapsed time: 1.04 seconds
+Building Htot, elapsed time: 4.93 seconds
+eigvalsh and storing energies, elapsed time: 16.86 seconds
+loss_backward + optimizer.step, elapsed time: 17.45 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.71 seconds
+Building SOmat, elapsed time: 0.47 seconds
+Building NLmat, elapsed time: 0.88 seconds
+Building Htot, elapsed time: 4.23 seconds
+eigvalsh and storing energies, elapsed time: 17.35 seconds
+loss_backward + optimizer.step, elapsed time: 19.20 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.74 seconds
+Building SOmat, elapsed time: 0.32 seconds
+Building NLmat, elapsed time: 0.64 seconds
+Building Htot, elapsed time: 3.87 seconds
+eigvalsh and storing energies, elapsed time: 18.40 seconds
+loss_backward + optimizer.step, elapsed time: 10.67 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.50 seconds
+Building SOmat, elapsed time: 0.54 seconds
+Building NLmat, elapsed time: 1.02 seconds
+Building Htot, elapsed time: 5.56 seconds
+eigvalsh and storing energies, elapsed time: 15.64 seconds
+loss_backward + optimizer.step, elapsed time: 20.12 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.25 seconds
+Building SOmat, elapsed time: 0.42 seconds
+Building NLmat, elapsed time: 0.87 seconds
+Building Htot, elapsed time: 4.93 seconds
+eigvalsh and storing energies, elapsed time: 18.52 seconds
+loss_backward + optimizer.step, elapsed time: 17.13 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.92 seconds
+Building SOmat, elapsed time: 0.42 seconds
+Building NLmat, elapsed time: 0.82 seconds
+Building Htot, elapsed time: 4.54 seconds
+eigvalsh and storing energies, elapsed time: 17.01 seconds
+loss_backward + optimizer.step, elapsed time: 15.04 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.47 seconds
+Building SOmat, elapsed time: 0.53 seconds
+Building NLmat, elapsed time: 1.05 seconds
+Building Htot, elapsed time: 5.46 seconds
+eigvalsh and storing energies, elapsed time: 16.35 seconds
+loss_backward + optimizer.step, elapsed time: 18.64 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.67 seconds
+Building SOmat, elapsed time: 0.41 seconds
+Building NLmat, elapsed time: 0.78 seconds
+Building Htot, elapsed time: 4.01 seconds
+eigvalsh and storing energies, elapsed time: 16.67 seconds
+loss_backward + optimizer.step, elapsed time: 14.03 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.15 seconds
+Building SOmat, elapsed time: 0.44 seconds
+Building NLmat, elapsed time: 0.86 seconds
+Building Htot, elapsed time: 4.64 seconds
+eigvalsh and storing energies, elapsed time: 17.99 seconds
+loss_backward + optimizer.step, elapsed time: 16.32 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.62 seconds
+Building SOmat, elapsed time: 0.56 seconds
+Building NLmat, elapsed time: 1.03 seconds
+Building Htot, elapsed time: 5.66 seconds
+eigvalsh and storing energies, elapsed time: 16.01 seconds
+loss_backward + optimizer.step, elapsed time: 16.01 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.13 seconds
+Building SOmat, elapsed time: 0.21 seconds
+Building NLmat, elapsed time: 0.71 seconds
+Building Htot, elapsed time: 4.34 seconds
+eigvalsh and storing energies, elapsed time: 17.41 seconds
+loss_backward + optimizer.step, elapsed time: 16.40 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.38 seconds
+Building SOmat, elapsed time: 0.36 seconds
+Building NLmat, elapsed time: 0.79 seconds
+Building Htot, elapsed time: 4.93 seconds
+eigvalsh and storing energies, elapsed time: 19.10 seconds
+loss_backward + optimizer.step, elapsed time: 17.38 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.82 seconds
+Building SOmat, elapsed time: 0.59 seconds
+Building NLmat, elapsed time: 0.88 seconds
+Building Htot, elapsed time: 5.86 seconds
+eigvalsh and storing energies, elapsed time: 16.78 seconds
+loss_backward + optimizer.step, elapsed time: 18.63 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.25 seconds
+Building SOmat, elapsed time: 0.42 seconds
+Building NLmat, elapsed time: 0.81 seconds
+Building Htot, elapsed time: 4.78 seconds
+eigvalsh and storing energies, elapsed time: 18.71 seconds
+loss_backward + optimizer.step, elapsed time: 18.10 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.32 seconds
+Building SOmat, elapsed time: 0.33 seconds
+Building NLmat, elapsed time: 0.64 seconds
+Building Htot, elapsed time: 4.73 seconds
+eigvalsh and storing energies, elapsed time: 19.57 seconds
+loss_backward + optimizer.step, elapsed time: 13.62 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.55 seconds
+Building SOmat, elapsed time: 0.59 seconds
+Building NLmat, elapsed time: 1.01 seconds
+Building Htot, elapsed time: 5.67 seconds
+eigvalsh and storing energies, elapsed time: 16.48 seconds
+loss_backward + optimizer.step, elapsed time: 19.35 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.32 seconds
+Building SOmat, elapsed time: 0.42 seconds
+Building NLmat, elapsed time: 0.87 seconds
+Building Htot, elapsed time: 4.98 seconds
+eigvalsh and storing energies, elapsed time: 15.58 seconds
+loss_backward + optimizer.step, elapsed time: 20.05 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.06 seconds
+Building SOmat, elapsed time: 0.44 seconds
+Building NLmat, elapsed time: 0.84 seconds
+Building Htot, elapsed time: 4.72 seconds
+eigvalsh and storing energies, elapsed time: 18.00 seconds
+loss_backward + optimizer.step, elapsed time: 14.87 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.49 seconds
+Building SOmat, elapsed time: 0.62 seconds
+Building NLmat, elapsed time: 1.12 seconds
+Building Htot, elapsed time: 5.78 seconds
+eigvalsh and storing energies, elapsed time: 15.52 seconds
+loss_backward + optimizer.step, elapsed time: 19.95 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.25 seconds
+Building SOmat, elapsed time: 0.44 seconds
+Building NLmat, elapsed time: 0.82 seconds
+Building Htot, elapsed time: 4.92 seconds
+eigvalsh and storing energies, elapsed time: 17.93 seconds
+loss_backward + optimizer.step, elapsed time: 19.37 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.24 seconds
+Building SOmat, elapsed time: 0.34 seconds
+Building NLmat, elapsed time: 0.59 seconds
+Building Htot, elapsed time: 4.54 seconds
+eigvalsh and storing energies, elapsed time: 22.42 seconds
+loss_backward + optimizer.step, elapsed time: 10.42 seconds
+Epoch [6/200], training cost: 22550.1738
+Total num_cores available = 256. We are using num_cores = 7.
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.41 seconds
+Building SOmat, elapsed time: 0.58 seconds
+Building NLmat, elapsed time: 1.08 seconds
+Building Htot, elapsed time: 5.63 seconds
+eigvalsh and storing energies, elapsed time: 16.66 seconds
+loss_backward + optimizer.step, elapsed time: 15.49 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.17 seconds
+Building SOmat, elapsed time: 0.27 seconds
+Building NLmat, elapsed time: 0.80 seconds
+Building Htot, elapsed time: 3.38 seconds
+eigvalsh and storing energies, elapsed time: 17.39 seconds
+loss_backward + optimizer.step, elapsed time: 12.35 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.78 seconds
+Building SOmat, elapsed time: 0.48 seconds
+Building NLmat, elapsed time: 0.85 seconds
+Building Htot, elapsed time: 4.36 seconds
+eigvalsh and storing energies, elapsed time: 24.24 seconds
+loss_backward + optimizer.step, elapsed time: 15.95 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.33 seconds
+Building SOmat, elapsed time: 0.53 seconds
+Building NLmat, elapsed time: 1.26 seconds
+Building Htot, elapsed time: 5.60 seconds
+eigvalsh and storing energies, elapsed time: 16.89 seconds
+loss_backward + optimizer.step, elapsed time: 17.79 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.59 seconds
+Building SOmat, elapsed time: 0.36 seconds
+Building NLmat, elapsed time: 0.78 seconds
+Building Htot, elapsed time: 4.12 seconds
+eigvalsh and storing energies, elapsed time: 19.32 seconds
+loss_backward + optimizer.step, elapsed time: 19.12 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.11 seconds
+Building SOmat, elapsed time: 0.31 seconds
+Building NLmat, elapsed time: 0.68 seconds
+Building Htot, elapsed time: 4.48 seconds
+eigvalsh and storing energies, elapsed time: 18.43 seconds
+loss_backward + optimizer.step, elapsed time: 15.83 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.32 seconds
+Building SOmat, elapsed time: 0.58 seconds
+Building NLmat, elapsed time: 1.27 seconds
+Building Htot, elapsed time: 5.59 seconds
+eigvalsh and storing energies, elapsed time: 16.89 seconds
+loss_backward + optimizer.step, elapsed time: 20.19 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.16 seconds
+Building SOmat, elapsed time: 0.39 seconds
+Building NLmat, elapsed time: 0.84 seconds
+Building Htot, elapsed time: 4.78 seconds
+eigvalsh and storing energies, elapsed time: 19.37 seconds
+loss_backward + optimizer.step, elapsed time: 19.02 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.90 seconds
+Building SOmat, elapsed time: 0.34 seconds
+Building NLmat, elapsed time: 0.58 seconds
+Building Htot, elapsed time: 4.19 seconds
+eigvalsh and storing energies, elapsed time: 15.87 seconds
+loss_backward + optimizer.step, elapsed time: 15.79 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.33 seconds
+Building SOmat, elapsed time: 0.61 seconds
+Building NLmat, elapsed time: 1.25 seconds
+Building Htot, elapsed time: 5.56 seconds
+eigvalsh and storing energies, elapsed time: 17.04 seconds
+loss_backward + optimizer.step, elapsed time: 20.55 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.21 seconds
+Building SOmat, elapsed time: 0.34 seconds
+Building NLmat, elapsed time: 0.75 seconds
+Building Htot, elapsed time: 4.64 seconds
+eigvalsh and storing energies, elapsed time: 20.47 seconds
+loss_backward + optimizer.step, elapsed time: 17.38 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.75 seconds
+Building SOmat, elapsed time: 0.35 seconds
+Building NLmat, elapsed time: 0.86 seconds
+Building Htot, elapsed time: 4.38 seconds
+eigvalsh and storing energies, elapsed time: 21.36 seconds
+loss_backward + optimizer.step, elapsed time: 11.78 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.43 seconds
+Building SOmat, elapsed time: 0.56 seconds
+Building NLmat, elapsed time: 1.25 seconds
+Building Htot, elapsed time: 5.53 seconds
+eigvalsh and storing energies, elapsed time: 17.87 seconds
+loss_backward + optimizer.step, elapsed time: 19.75 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.25 seconds
+Building SOmat, elapsed time: 0.31 seconds
+Building NLmat, elapsed time: 0.77 seconds
+Building Htot, elapsed time: 4.74 seconds
+eigvalsh and storing energies, elapsed time: 20.10 seconds
+loss_backward + optimizer.step, elapsed time: 17.56 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.97 seconds
+Building SOmat, elapsed time: 0.39 seconds
+Building NLmat, elapsed time: 0.82 seconds
+Building Htot, elapsed time: 4.61 seconds
+eigvalsh and storing energies, elapsed time: 22.07 seconds
+loss_backward + optimizer.step, elapsed time: 11.65 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.56 seconds
+Building SOmat, elapsed time: 0.64 seconds
+Building NLmat, elapsed time: 1.10 seconds
+Building Htot, elapsed time: 5.87 seconds
+eigvalsh and storing energies, elapsed time: 17.35 seconds
+loss_backward + optimizer.step, elapsed time: 19.05 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.86 seconds
+Building SOmat, elapsed time: 0.35 seconds
+Building NLmat, elapsed time: 0.85 seconds
+Building Htot, elapsed time: 4.33 seconds
+eigvalsh and storing energies, elapsed time: 18.51 seconds
+loss_backward + optimizer.step, elapsed time: 17.01 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.86 seconds
+Building SOmat, elapsed time: 0.31 seconds
+Building NLmat, elapsed time: 0.66 seconds
+Building Htot, elapsed time: 4.26 seconds
+eigvalsh and storing energies, elapsed time: 18.52 seconds
+loss_backward + optimizer.step, elapsed time: 15.81 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.28 seconds
+Building SOmat, elapsed time: 0.54 seconds
+Building NLmat, elapsed time: 1.25 seconds
+Building Htot, elapsed time: 5.50 seconds
+eigvalsh and storing energies, elapsed time: 16.97 seconds
+loss_backward + optimizer.step, elapsed time: 19.81 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.93 seconds
+Building SOmat, elapsed time: 0.37 seconds
+Building NLmat, elapsed time: 0.89 seconds
+Building Htot, elapsed time: 4.57 seconds
+eigvalsh and storing energies, elapsed time: 18.18 seconds
+loss_backward + optimizer.step, elapsed time: 12.26 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.95 seconds
+Building SOmat, elapsed time: 0.43 seconds
+Building NLmat, elapsed time: 0.93 seconds
+Building Htot, elapsed time: 4.70 seconds
+eigvalsh and storing energies, elapsed time: 20.60 seconds
+loss_backward + optimizer.step, elapsed time: 12.97 seconds
+Epoch [7/200], training cost: 15581.2832
+Total num_cores available = 256. We are using num_cores = 7.
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.38 seconds
+Building SOmat, elapsed time: 0.56 seconds
+Building NLmat, elapsed time: 1.16 seconds
+Building Htot, elapsed time: 5.46 seconds
+eigvalsh and storing energies, elapsed time: 16.09 seconds
+loss_backward + optimizer.step, elapsed time: 18.88 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.81 seconds
+Building SOmat, elapsed time: 0.43 seconds
+Building NLmat, elapsed time: 0.75 seconds
+Building Htot, elapsed time: 4.16 seconds
+eigvalsh and storing energies, elapsed time: 18.44 seconds
+loss_backward + optimizer.step, elapsed time: 19.24 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.82 seconds
+Building SOmat, elapsed time: 0.30 seconds
+Building NLmat, elapsed time: 0.67 seconds
+Building Htot, elapsed time: 3.91 seconds
+eigvalsh and storing energies, elapsed time: 17.27 seconds
+loss_backward + optimizer.step, elapsed time: 13.79 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.18 seconds
+Building SOmat, elapsed time: 0.40 seconds
+Building NLmat, elapsed time: 1.20 seconds
+Building Htot, elapsed time: 5.20 seconds
+eigvalsh and storing energies, elapsed time: 16.37 seconds
+loss_backward + optimizer.step, elapsed time: 15.86 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.30 seconds
+Building SOmat, elapsed time: 0.38 seconds
+Building NLmat, elapsed time: 0.85 seconds
+Building Htot, elapsed time: 3.63 seconds
+eigvalsh and storing energies, elapsed time: 16.93 seconds
+loss_backward + optimizer.step, elapsed time: 9.98 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.61 seconds
+Building SOmat, elapsed time: 0.22 seconds
+Building NLmat, elapsed time: 0.76 seconds
+Building Htot, elapsed time: 3.70 seconds
+eigvalsh and storing energies, elapsed time: 24.45 seconds
+loss_backward + optimizer.step, elapsed time: 13.59 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.49 seconds
+Building SOmat, elapsed time: 0.52 seconds
+Building NLmat, elapsed time: 1.12 seconds
+Building Htot, elapsed time: 5.66 seconds
+eigvalsh and storing energies, elapsed time: 15.43 seconds
+loss_backward + optimizer.step, elapsed time: 17.33 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.44 seconds
+Building SOmat, elapsed time: 0.45 seconds
+Building NLmat, elapsed time: 0.66 seconds
+Building Htot, elapsed time: 3.81 seconds
+eigvalsh and storing energies, elapsed time: 17.63 seconds
+loss_backward + optimizer.step, elapsed time: 18.13 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.15 seconds
+Building SOmat, elapsed time: 0.36 seconds
+Building NLmat, elapsed time: 0.83 seconds
+Building Htot, elapsed time: 4.55 seconds
+eigvalsh and storing energies, elapsed time: 19.61 seconds
+loss_backward + optimizer.step, elapsed time: 15.45 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.64 seconds
+Building SOmat, elapsed time: 0.58 seconds
+Building NLmat, elapsed time: 1.01 seconds
+Building Htot, elapsed time: 5.78 seconds
+eigvalsh and storing energies, elapsed time: 16.68 seconds
+loss_backward + optimizer.step, elapsed time: 20.48 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.35 seconds
+Building SOmat, elapsed time: 0.33 seconds
+Building NLmat, elapsed time: 0.65 seconds
+Building Htot, elapsed time: 4.72 seconds
+eigvalsh and storing energies, elapsed time: 20.20 seconds
+loss_backward + optimizer.step, elapsed time: 17.55 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.10 seconds
+Building SOmat, elapsed time: 0.31 seconds
+Building NLmat, elapsed time: 0.78 seconds
+Building Htot, elapsed time: 4.45 seconds
+eigvalsh and storing energies, elapsed time: 19.83 seconds
+loss_backward + optimizer.step, elapsed time: 12.50 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.21 seconds
+Building SOmat, elapsed time: 0.45 seconds
+Building NLmat, elapsed time: 1.25 seconds
+Building Htot, elapsed time: 5.22 seconds
+eigvalsh and storing energies, elapsed time: 16.39 seconds
+loss_backward + optimizer.step, elapsed time: 20.57 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.12 seconds
+Building SOmat, elapsed time: 0.35 seconds
+Building NLmat, elapsed time: 0.71 seconds
+Building Htot, elapsed time: 4.56 seconds
+eigvalsh and storing energies, elapsed time: 18.78 seconds
+loss_backward + optimizer.step, elapsed time: 18.67 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.07 seconds
+Building SOmat, elapsed time: 0.39 seconds
+Building NLmat, elapsed time: 0.85 seconds
+Building Htot, elapsed time: 4.68 seconds
+eigvalsh and storing energies, elapsed time: 19.97 seconds
+loss_backward + optimizer.step, elapsed time: 14.21 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.66 seconds
+Building SOmat, elapsed time: 0.60 seconds
+Building NLmat, elapsed time: 0.95 seconds
+Building Htot, elapsed time: 5.73 seconds
+eigvalsh and storing energies, elapsed time: 16.85 seconds
+loss_backward + optimizer.step, elapsed time: 19.59 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.15 seconds
+Building SOmat, elapsed time: 0.38 seconds
+Building NLmat, elapsed time: 0.81 seconds
+Building Htot, elapsed time: 4.65 seconds
+eigvalsh and storing energies, elapsed time: 18.02 seconds
+loss_backward + optimizer.step, elapsed time: 19.35 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.01 seconds
+Building SOmat, elapsed time: 0.34 seconds
+Building NLmat, elapsed time: 0.84 seconds
+Building Htot, elapsed time: 4.56 seconds
+eigvalsh and storing energies, elapsed time: 19.53 seconds
+loss_backward + optimizer.step, elapsed time: 14.94 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.49 seconds
+Building SOmat, elapsed time: 0.59 seconds
+Building NLmat, elapsed time: 1.13 seconds
+Building Htot, elapsed time: 5.66 seconds
+eigvalsh and storing energies, elapsed time: 17.97 seconds
+loss_backward + optimizer.step, elapsed time: 19.26 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.29 seconds
+Building SOmat, elapsed time: 0.35 seconds
+Building NLmat, elapsed time: 0.69 seconds
+Building Htot, elapsed time: 4.52 seconds
+eigvalsh and storing energies, elapsed time: 20.64 seconds
+loss_backward + optimizer.step, elapsed time: 17.28 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.15 seconds
+Building SOmat, elapsed time: 0.33 seconds
+Building NLmat, elapsed time: 0.79 seconds
+Building Htot, elapsed time: 4.68 seconds
+eigvalsh and storing energies, elapsed time: 21.38 seconds
+loss_backward + optimizer.step, elapsed time: 12.15 seconds
+Epoch [8/200], training cost: 11213.8389
+Total num_cores available = 256. We are using num_cores = 7.
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.68 seconds
+Building SOmat, elapsed time: 0.58 seconds
+Building NLmat, elapsed time: 1.16 seconds
+Building Htot, elapsed time: 5.92 seconds
+eigvalsh and storing energies, elapsed time: 16.31 seconds
+loss_backward + optimizer.step, elapsed time: 19.23 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.97 seconds
+Building SOmat, elapsed time: 0.36 seconds
+Building NLmat, elapsed time: 0.90 seconds
+Building Htot, elapsed time: 4.34 seconds
+eigvalsh and storing energies, elapsed time: 16.72 seconds
+loss_backward + optimizer.step, elapsed time: 17.06 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.21 seconds
+Building SOmat, elapsed time: 0.45 seconds
+Building NLmat, elapsed time: 0.71 seconds
+Building Htot, elapsed time: 4.63 seconds
+eigvalsh and storing energies, elapsed time: 19.08 seconds
+loss_backward + optimizer.step, elapsed time: 13.36 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.40 seconds
+Building SOmat, elapsed time: 0.46 seconds
+Building NLmat, elapsed time: 1.13 seconds
+Building Htot, elapsed time: 5.34 seconds
+eigvalsh and storing energies, elapsed time: 16.43 seconds
+loss_backward + optimizer.step, elapsed time: 18.45 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.01 seconds
+Building SOmat, elapsed time: 0.42 seconds
+Building NLmat, elapsed time: 0.89 seconds
+Building Htot, elapsed time: 4.54 seconds
+eigvalsh and storing energies, elapsed time: 17.06 seconds
+loss_backward + optimizer.step, elapsed time: 16.83 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.08 seconds
+Building SOmat, elapsed time: 0.34 seconds
+Building NLmat, elapsed time: 0.72 seconds
+Building Htot, elapsed time: 4.36 seconds
+eigvalsh and storing energies, elapsed time: 17.68 seconds
+loss_backward + optimizer.step, elapsed time: 15.54 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.59 seconds
+Building SOmat, elapsed time: 0.65 seconds
+Building NLmat, elapsed time: 1.13 seconds
+Building Htot, elapsed time: 5.96 seconds
+eigvalsh and storing energies, elapsed time: 16.45 seconds
+loss_backward + optimizer.step, elapsed time: 19.93 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.57 seconds
+Building SOmat, elapsed time: 0.39 seconds
+Building NLmat, elapsed time: 0.68 seconds
+Building Htot, elapsed time: 5.08 seconds
+eigvalsh and storing energies, elapsed time: 16.36 seconds
+loss_backward + optimizer.step, elapsed time: 13.91 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.00 seconds
+Building SOmat, elapsed time: 0.53 seconds
+Building NLmat, elapsed time: 0.86 seconds
+Building Htot, elapsed time: 4.59 seconds
+eigvalsh and storing energies, elapsed time: 19.88 seconds
+loss_backward + optimizer.step, elapsed time: 15.56 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.46 seconds
+Building SOmat, elapsed time: 0.47 seconds
+Building NLmat, elapsed time: 1.20 seconds
+Building Htot, elapsed time: 5.54 seconds
+eigvalsh and storing energies, elapsed time: 16.31 seconds
+loss_backward + optimizer.step, elapsed time: 16.04 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.75 seconds
+Building SOmat, elapsed time: 0.33 seconds
+Building NLmat, elapsed time: 0.65 seconds
+Building Htot, elapsed time: 3.84 seconds
+eigvalsh and storing energies, elapsed time: 19.19 seconds
+loss_backward + optimizer.step, elapsed time: 21.11 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.02 seconds
+Building SOmat, elapsed time: 0.35 seconds
+Building NLmat, elapsed time: 0.70 seconds
+Building Htot, elapsed time: 4.44 seconds
+eigvalsh and storing energies, elapsed time: 16.68 seconds
+loss_backward + optimizer.step, elapsed time: 15.67 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.55 seconds
+Building SOmat, elapsed time: 0.57 seconds
+Building NLmat, elapsed time: 1.22 seconds
+Building Htot, elapsed time: 5.91 seconds
+eigvalsh and storing energies, elapsed time: 16.35 seconds
+loss_backward + optimizer.step, elapsed time: 18.84 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.40 seconds
+Building SOmat, elapsed time: 0.40 seconds
+Building NLmat, elapsed time: 0.94 seconds
+Building Htot, elapsed time: 5.16 seconds
+eigvalsh and storing energies, elapsed time: 17.45 seconds
+loss_backward + optimizer.step, elapsed time: 18.62 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.99 seconds
+Building SOmat, elapsed time: 0.46 seconds
+Building NLmat, elapsed time: 0.82 seconds
+Building Htot, elapsed time: 4.45 seconds
+eigvalsh and storing energies, elapsed time: 21.49 seconds
+loss_backward + optimizer.step, elapsed time: 12.79 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.35 seconds
+Building SOmat, elapsed time: 0.47 seconds
+Building NLmat, elapsed time: 1.28 seconds
+Building Htot, elapsed time: 5.41 seconds
+eigvalsh and storing energies, elapsed time: 16.69 seconds
+loss_backward + optimizer.step, elapsed time: 18.86 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.32 seconds
+Building SOmat, elapsed time: 0.42 seconds
+Building NLmat, elapsed time: 0.90 seconds
+Building Htot, elapsed time: 5.09 seconds
+eigvalsh and storing energies, elapsed time: 18.76 seconds
+loss_backward + optimizer.step, elapsed time: 19.52 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.88 seconds
+Building SOmat, elapsed time: 0.29 seconds
+Building NLmat, elapsed time: 0.67 seconds
+Building Htot, elapsed time: 4.20 seconds
+eigvalsh and storing energies, elapsed time: 22.98 seconds
+loss_backward + optimizer.step, elapsed time: 10.49 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.69 seconds
+Building SOmat, elapsed time: 0.62 seconds
+Building NLmat, elapsed time: 1.13 seconds
+Building Htot, elapsed time: 6.02 seconds
+eigvalsh and storing energies, elapsed time: 16.56 seconds
+loss_backward + optimizer.step, elapsed time: 19.70 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.37 seconds
+Building SOmat, elapsed time: 0.37 seconds
+Building NLmat, elapsed time: 0.71 seconds
+Building Htot, elapsed time: 4.67 seconds
+eigvalsh and storing energies, elapsed time: 23.20 seconds
+loss_backward + optimizer.step, elapsed time: 19.37 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.60 seconds
+Building SOmat, elapsed time: 0.29 seconds
+Building NLmat, elapsed time: 0.68 seconds
+Building Htot, elapsed time: 3.88 seconds
+eigvalsh and storing energies, elapsed time: 26.22 seconds
+loss_backward + optimizer.step, elapsed time: 4.62 seconds
+Epoch [9/200], training cost: 5136.6943
+Total num_cores available = 256. We are using num_cores = 7.
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.38 seconds
+Building SOmat, elapsed time: 0.36 seconds
+Building NLmat, elapsed time: 1.05 seconds
+Building Htot, elapsed time: 5.21 seconds
+eigvalsh and storing energies, elapsed time: 17.88 seconds
+loss_backward + optimizer.step, elapsed time: 20.62 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.31 seconds
+Building SOmat, elapsed time: 0.48 seconds
+Building NLmat, elapsed time: 0.84 seconds
+Building Htot, elapsed time: 4.93 seconds
+eigvalsh and storing energies, elapsed time: 16.14 seconds
+loss_backward + optimizer.step, elapsed time: 16.64 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.97 seconds
+Building SOmat, elapsed time: 0.40 seconds
+Building NLmat, elapsed time: 0.80 seconds
+Building Htot, elapsed time: 4.68 seconds
+eigvalsh and storing energies, elapsed time: 19.65 seconds
+loss_backward + optimizer.step, elapsed time: 16.96 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.59 seconds
+Building SOmat, elapsed time: 0.61 seconds
+Building NLmat, elapsed time: 1.07 seconds
+Building Htot, elapsed time: 5.84 seconds
+eigvalsh and storing energies, elapsed time: 17.95 seconds
+loss_backward + optimizer.step, elapsed time: 13.62 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.08 seconds
+Building SOmat, elapsed time: 0.43 seconds
+Building NLmat, elapsed time: 0.85 seconds
+Building Htot, elapsed time: 4.61 seconds
+eigvalsh and storing energies, elapsed time: 19.23 seconds
+loss_backward + optimizer.step, elapsed time: 20.54 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.03 seconds
+Building SOmat, elapsed time: 0.47 seconds
+Building NLmat, elapsed time: 0.90 seconds
+Building Htot, elapsed time: 4.76 seconds
+eigvalsh and storing energies, elapsed time: 19.41 seconds
+loss_backward + optimizer.step, elapsed time: 17.63 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.54 seconds
+Building SOmat, elapsed time: 0.63 seconds
+Building NLmat, elapsed time: 1.08 seconds
+Building Htot, elapsed time: 5.70 seconds
+eigvalsh and storing energies, elapsed time: 17.31 seconds
+loss_backward + optimizer.step, elapsed time: 20.19 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.78 seconds
+Building SOmat, elapsed time: 0.43 seconds
+Building NLmat, elapsed time: 0.86 seconds
+Building Htot, elapsed time: 4.39 seconds
+eigvalsh and storing energies, elapsed time: 17.53 seconds
+loss_backward + optimizer.step, elapsed time: 16.81 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.91 seconds
+Building SOmat, elapsed time: 0.42 seconds
+Building NLmat, elapsed time: 0.95 seconds
+Building Htot, elapsed time: 4.65 seconds
+eigvalsh and storing energies, elapsed time: 20.29 seconds
+loss_backward + optimizer.step, elapsed time: 18.05 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.44 seconds
+Building SOmat, elapsed time: 0.57 seconds
+Building NLmat, elapsed time: 1.18 seconds
+Building Htot, elapsed time: 5.66 seconds
+eigvalsh and storing energies, elapsed time: 17.74 seconds
+loss_backward + optimizer.step, elapsed time: 20.04 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.30 seconds
+Building SOmat, elapsed time: 0.49 seconds
+Building NLmat, elapsed time: 0.92 seconds
+Building Htot, elapsed time: 5.06 seconds
+eigvalsh and storing energies, elapsed time: 17.92 seconds
+loss_backward + optimizer.step, elapsed time: 19.37 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.79 seconds
+Building SOmat, elapsed time: 0.42 seconds
+Building NLmat, elapsed time: 0.87 seconds
+Building Htot, elapsed time: 4.38 seconds
+eigvalsh and storing energies, elapsed time: 19.96 seconds
+loss_backward + optimizer.step, elapsed time: 15.06 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.57 seconds
+Building SOmat, elapsed time: 0.58 seconds
+Building NLmat, elapsed time: 1.21 seconds
+Building Htot, elapsed time: 5.81 seconds
+eigvalsh and storing energies, elapsed time: 18.09 seconds
+loss_backward + optimizer.step, elapsed time: 19.93 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.87 seconds
+Building SOmat, elapsed time: 0.47 seconds
+Building NLmat, elapsed time: 0.95 seconds
+Building Htot, elapsed time: 4.59 seconds
+eigvalsh and storing energies, elapsed time: 18.02 seconds
+loss_backward + optimizer.step, elapsed time: 19.41 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.84 seconds
+Building SOmat, elapsed time: 0.42 seconds
+Building NLmat, elapsed time: 0.78 seconds
+Building Htot, elapsed time: 4.36 seconds
+eigvalsh and storing energies, elapsed time: 17.66 seconds
+loss_backward + optimizer.step, elapsed time: 17.68 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.30 seconds
+Building SOmat, elapsed time: 0.51 seconds
+Building NLmat, elapsed time: 1.18 seconds
+Building Htot, elapsed time: 5.46 seconds
+eigvalsh and storing energies, elapsed time: 17.73 seconds
+loss_backward + optimizer.step, elapsed time: 20.80 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.14 seconds
+Building SOmat, elapsed time: 0.48 seconds
+Building NLmat, elapsed time: 0.99 seconds
+Building Htot, elapsed time: 4.78 seconds
+eigvalsh and storing energies, elapsed time: 18.09 seconds
+loss_backward + optimizer.step, elapsed time: 20.05 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.04 seconds
+Building SOmat, elapsed time: 0.39 seconds
+Building NLmat, elapsed time: 0.76 seconds
+Building Htot, elapsed time: 4.48 seconds
+eigvalsh and storing energies, elapsed time: 20.76 seconds
+loss_backward + optimizer.step, elapsed time: 14.95 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.47 seconds
+Building SOmat, elapsed time: 0.61 seconds
+Building NLmat, elapsed time: 1.14 seconds
+Building Htot, elapsed time: 5.74 seconds
+eigvalsh and storing energies, elapsed time: 17.36 seconds
+loss_backward + optimizer.step, elapsed time: 20.82 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.30 seconds
+Building SOmat, elapsed time: 0.48 seconds
+Building NLmat, elapsed time: 0.72 seconds
+Building Htot, elapsed time: 4.93 seconds
+eigvalsh and storing energies, elapsed time: 18.08 seconds
+loss_backward + optimizer.step, elapsed time: 20.87 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.21 seconds
+Building SOmat, elapsed time: 0.31 seconds
+Building NLmat, elapsed time: 0.72 seconds
+Building Htot, elapsed time: 4.51 seconds
+eigvalsh and storing energies, elapsed time: 25.02 seconds
+loss_backward + optimizer.step, elapsed time: 10.18 seconds
+Epoch [10/200], training cost: 4751.2905
+Total num_cores available = 256. We are using num_cores = 7.
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.47 seconds
+Building SOmat, elapsed time: 0.60 seconds
+Building NLmat, elapsed time: 1.26 seconds
+Building Htot, elapsed time: 5.89 seconds
+eigvalsh and storing energies, elapsed time: 16.49 seconds
+loss_backward + optimizer.step, elapsed time: 17.86 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.83 seconds
+Building SOmat, elapsed time: 0.40 seconds
+Building NLmat, elapsed time: 0.91 seconds
+Building Htot, elapsed time: 4.42 seconds
+eigvalsh and storing energies, elapsed time: 16.86 seconds
+loss_backward + optimizer.step, elapsed time: 12.64 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.24 seconds
+Building SOmat, elapsed time: 0.51 seconds
+Building NLmat, elapsed time: 1.06 seconds
+Building Htot, elapsed time: 5.01 seconds
+eigvalsh and storing energies, elapsed time: 19.49 seconds
+loss_backward + optimizer.step, elapsed time: 14.55 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.49 seconds
+Building SOmat, elapsed time: 0.57 seconds
+Building NLmat, elapsed time: 1.30 seconds
+Building Htot, elapsed time: 5.77 seconds
+eigvalsh and storing energies, elapsed time: 16.04 seconds
+loss_backward + optimizer.step, elapsed time: 20.05 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.08 seconds
+Building SOmat, elapsed time: 0.34 seconds
+Building NLmat, elapsed time: 0.77 seconds
+Building Htot, elapsed time: 4.37 seconds
+eigvalsh and storing energies, elapsed time: 17.85 seconds
+loss_backward + optimizer.step, elapsed time: 15.12 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.12 seconds
+Building SOmat, elapsed time: 0.33 seconds
+Building NLmat, elapsed time: 0.78 seconds
+Building Htot, elapsed time: 4.40 seconds
+eigvalsh and storing energies, elapsed time: 17.49 seconds
+loss_backward + optimizer.step, elapsed time: 14.51 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.56 seconds
+Building SOmat, elapsed time: 0.65 seconds
+Building NLmat, elapsed time: 1.21 seconds
+Building Htot, elapsed time: 5.87 seconds
+eigvalsh and storing energies, elapsed time: 15.66 seconds
+loss_backward + optimizer.step, elapsed time: 13.93 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.89 seconds
+Building SOmat, elapsed time: 0.45 seconds
+Building NLmat, elapsed time: 0.81 seconds
+Building Htot, elapsed time: 4.33 seconds
+eigvalsh and storing energies, elapsed time: 19.11 seconds
+loss_backward + optimizer.step, elapsed time: 17.48 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.06 seconds
+Building SOmat, elapsed time: 0.48 seconds
+Building NLmat, elapsed time: 0.86 seconds
+Building Htot, elapsed time: 4.72 seconds
+eigvalsh and storing energies, elapsed time: 21.96 seconds
+loss_backward + optimizer.step, elapsed time: 14.02 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.46 seconds
+Building SOmat, elapsed time: 0.58 seconds
+Building NLmat, elapsed time: 1.37 seconds
+Building Htot, elapsed time: 5.80 seconds
+eigvalsh and storing energies, elapsed time: 16.37 seconds
+loss_backward + optimizer.step, elapsed time: 20.09 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.12 seconds
+Building SOmat, elapsed time: 0.44 seconds
+Building NLmat, elapsed time: 0.84 seconds
+Building Htot, elapsed time: 4.83 seconds
+eigvalsh and storing energies, elapsed time: 18.64 seconds
+loss_backward + optimizer.step, elapsed time: 17.68 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.80 seconds
+Building SOmat, elapsed time: 0.34 seconds
+Building NLmat, elapsed time: 0.62 seconds
+Building Htot, elapsed time: 4.19 seconds
+eigvalsh and storing energies, elapsed time: 23.07 seconds
+loss_backward + optimizer.step, elapsed time: 10.33 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.48 seconds
+Building SOmat, elapsed time: 0.58 seconds
+Building NLmat, elapsed time: 1.21 seconds
+Building Htot, elapsed time: 5.69 seconds
+eigvalsh and storing energies, elapsed time: 15.50 seconds
+loss_backward + optimizer.step, elapsed time: 19.38 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.87 seconds
+Building SOmat, elapsed time: 0.38 seconds
+Building NLmat, elapsed time: 1.03 seconds
+Building Htot, elapsed time: 4.44 seconds
+eigvalsh and storing energies, elapsed time: 17.39 seconds
+loss_backward + optimizer.step, elapsed time: 19.35 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.94 seconds
+Building SOmat, elapsed time: 0.37 seconds
+Building NLmat, elapsed time: 0.74 seconds
+Building Htot, elapsed time: 4.48 seconds
+eigvalsh and storing energies, elapsed time: 23.53 seconds
+loss_backward + optimizer.step, elapsed time: 12.25 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.53 seconds
+Building SOmat, elapsed time: 0.53 seconds
+Building NLmat, elapsed time: 1.28 seconds
+Building Htot, elapsed time: 5.89 seconds
+eigvalsh and storing energies, elapsed time: 16.47 seconds
+loss_backward + optimizer.step, elapsed time: 20.23 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.46 seconds
+Building SOmat, elapsed time: 0.35 seconds
+Building NLmat, elapsed time: 0.80 seconds
+Building Htot, elapsed time: 4.96 seconds
+eigvalsh and storing energies, elapsed time: 20.49 seconds
+loss_backward + optimizer.step, elapsed time: 19.36 seconds
+Loading shared memory, elapsed time: 0.01 seconds
+Building VlocMat, elapsed time: 2.99 seconds
+Building SOmat, elapsed time: 0.30 seconds
+Building NLmat, elapsed time: 0.65 seconds
+Building Htot, elapsed time: 4.37 seconds
+eigvalsh and storing energies, elapsed time: 23.78 seconds
+loss_backward + optimizer.step, elapsed time: 8.67 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.34 seconds
+Building SOmat, elapsed time: 0.63 seconds
+Building NLmat, elapsed time: 1.32 seconds
+Building Htot, elapsed time: 5.81 seconds
+eigvalsh and storing energies, elapsed time: 17.75 seconds
+loss_backward + optimizer.step, elapsed time: 19.88 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.41 seconds
+Building SOmat, elapsed time: 0.38 seconds
+Building NLmat, elapsed time: 0.70 seconds
+Building Htot, elapsed time: 4.77 seconds
+eigvalsh and storing energies, elapsed time: 23.52 seconds
+loss_backward + optimizer.step, elapsed time: 17.56 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.96 seconds
+Building SOmat, elapsed time: 0.33 seconds
+Building NLmat, elapsed time: 0.64 seconds
+Building Htot, elapsed time: 4.30 seconds
+eigvalsh and storing energies, elapsed time: 23.22 seconds
+loss_backward + optimizer.step, elapsed time: 7.79 seconds
+Epoch [11/200], training cost: 6687.1504
+Total num_cores available = 256. We are using num_cores = 7.
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.54 seconds
+Building SOmat, elapsed time: 0.62 seconds
+Building NLmat, elapsed time: 1.28 seconds
+Building Htot, elapsed time: 5.93 seconds
+eigvalsh and storing energies, elapsed time: 16.07 seconds
+loss_backward + optimizer.step, elapsed time: 19.49 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.32 seconds
+Building SOmat, elapsed time: 0.55 seconds
+Building NLmat, elapsed time: 1.15 seconds
+Building Htot, elapsed time: 5.26 seconds
+eigvalsh and storing energies, elapsed time: 16.83 seconds
+loss_backward + optimizer.step, elapsed time: 20.25 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.96 seconds
+Building SOmat, elapsed time: 0.36 seconds
+Building NLmat, elapsed time: 0.82 seconds
+Building Htot, elapsed time: 4.58 seconds
+eigvalsh and storing energies, elapsed time: 16.89 seconds
+loss_backward + optimizer.step, elapsed time: 16.40 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.71 seconds
+Building SOmat, elapsed time: 0.64 seconds
+Building NLmat, elapsed time: 1.23 seconds
+Building Htot, elapsed time: 5.97 seconds
+eigvalsh and storing energies, elapsed time: 16.91 seconds
+loss_backward + optimizer.step, elapsed time: 18.75 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.01 seconds
+Building SOmat, elapsed time: 0.41 seconds
+Building NLmat, elapsed time: 0.96 seconds
+Building Htot, elapsed time: 4.62 seconds
+eigvalsh and storing energies, elapsed time: 17.08 seconds
+loss_backward + optimizer.step, elapsed time: 17.01 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.51 seconds
+Building SOmat, elapsed time: 0.43 seconds
+Building NLmat, elapsed time: 0.84 seconds
+Building Htot, elapsed time: 3.89 seconds
+eigvalsh and storing energies, elapsed time: 19.60 seconds
+loss_backward + optimizer.step, elapsed time: 12.08 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.38 seconds
+Building SOmat, elapsed time: 0.48 seconds
+Building NLmat, elapsed time: 1.36 seconds
+Building Htot, elapsed time: 5.59 seconds
+eigvalsh and storing energies, elapsed time: 15.93 seconds
+loss_backward + optimizer.step, elapsed time: 17.81 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.76 seconds
+Building SOmat, elapsed time: 0.38 seconds
+Building NLmat, elapsed time: 0.91 seconds
+Building Htot, elapsed time: 4.17 seconds
+eigvalsh and storing energies, elapsed time: 17.16 seconds
+loss_backward + optimizer.step, elapsed time: 20.40 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.85 seconds
+Building SOmat, elapsed time: 0.35 seconds
+Building NLmat, elapsed time: 0.79 seconds
+Building Htot, elapsed time: 4.28 seconds
+eigvalsh and storing energies, elapsed time: 19.17 seconds
+loss_backward + optimizer.step, elapsed time: 18.72 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.54 seconds
+Building SOmat, elapsed time: 0.60 seconds
+Building NLmat, elapsed time: 1.28 seconds
+Building Htot, elapsed time: 5.93 seconds
+eigvalsh and storing energies, elapsed time: 16.71 seconds
+loss_backward + optimizer.step, elapsed time: 19.04 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.53 seconds
+Building SOmat, elapsed time: 0.46 seconds
+Building NLmat, elapsed time: 0.93 seconds
+Building Htot, elapsed time: 5.38 seconds
+eigvalsh and storing energies, elapsed time: 18.92 seconds
+loss_backward + optimizer.step, elapsed time: 18.15 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.15 seconds
+Building SOmat, elapsed time: 0.44 seconds
+Building NLmat, elapsed time: 0.85 seconds
+Building Htot, elapsed time: 4.70 seconds
+eigvalsh and storing energies, elapsed time: 16.83 seconds
+loss_backward + optimizer.step, elapsed time: 18.40 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.71 seconds
+Building SOmat, elapsed time: 0.60 seconds
+Building NLmat, elapsed time: 1.22 seconds
+Building Htot, elapsed time: 5.99 seconds
+eigvalsh and storing energies, elapsed time: 16.01 seconds
+loss_backward + optimizer.step, elapsed time: 19.27 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 2.80 seconds
+Building SOmat, elapsed time: 0.43 seconds
+Building NLmat, elapsed time: 0.94 seconds
+Building Htot, elapsed time: 4.52 seconds
+eigvalsh and storing energies, elapsed time: 17.70 seconds
+loss_backward + optimizer.step, elapsed time: 19.33 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.14 seconds
+Building SOmat, elapsed time: 0.46 seconds
+Building NLmat, elapsed time: 0.82 seconds
+Building Htot, elapsed time: 4.84 seconds
+eigvalsh and storing energies, elapsed time: 18.47 seconds
+loss_backward + optimizer.step, elapsed time: 19.13 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.59 seconds
+Building SOmat, elapsed time: 0.61 seconds
+Building NLmat, elapsed time: 1.26 seconds
+Building Htot, elapsed time: 6.01 seconds
+eigvalsh and storing energies, elapsed time: 16.59 seconds
+loss_backward + optimizer.step, elapsed time: 18.78 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.38 seconds
+Building SOmat, elapsed time: 0.50 seconds
+Building NLmat, elapsed time: 1.05 seconds
+Building Htot, elapsed time: 5.44 seconds
+eigvalsh and storing energies, elapsed time: 17.25 seconds
+loss_backward + optimizer.step, elapsed time: 20.18 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.26 seconds
+Building SOmat, elapsed time: 0.43 seconds
+Building NLmat, elapsed time: 0.79 seconds
+Building Htot, elapsed time: 4.88 seconds
+eigvalsh and storing energies, elapsed time: 18.17 seconds
+loss_backward + optimizer.step, elapsed time: 17.48 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.52 seconds
+Building SOmat, elapsed time: 0.52 seconds
+Building NLmat, elapsed time: 1.27 seconds
+Building Htot, elapsed time: 5.67 seconds
+eigvalsh and storing energies, elapsed time: 16.81 seconds
+loss_backward + optimizer.step, elapsed time: 19.53 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.47 seconds
+Building SOmat, elapsed time: 0.52 seconds
+Building NLmat, elapsed time: 0.78 seconds
+Building Htot, elapsed time: 5.12 seconds
+eigvalsh and storing energies, elapsed time: 17.73 seconds
+loss_backward + optimizer.step, elapsed time: 20.56 seconds
+Loading shared memory, elapsed time: 0.00 seconds
+Building VlocMat, elapsed time: 3.13 seconds
+Building SOmat, elapsed time: 0.30 seconds
+Building NLmat, elapsed time: 0.67 seconds
+Building Htot, elapsed time: 4.41 seconds
+eigvalsh and storing energies, elapsed time: 20.80 seconds
+loss_backward + optimizer.step, elapsed time: 14.48 seconds
+Epoch [12/200], training cost: 5376.0327
+Total num_cores available = 256. We are using num_cores = 7.
+slurmstepd: error: *** JOB 20771730 ON nid004114 CANCELLED AT 2024-01-25T01:05:48 DUE TO TIME LIMIT ***

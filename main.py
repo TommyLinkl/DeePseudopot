@@ -43,7 +43,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     if 'memory_flag' in NNConfig:
         set_debug_memory_flag(NNConfig['memory_flag'])
     if 'num_cores' in NNConfig: 
-        omp_num_threads = str(NNConfig['num_cores'])     # Accelerate numpy-related operations (eigh) through OpenMP
+        omp_num_threads = str(NNConfig['num_cores'])     # Accelerate numpy-related operations (eigh) through OpenMP. Individual setting. 
         mkl_num_threads = "1"     # maybe use str(NNConfig['num_cores'])? 
     else: 
         omp_num_threads = str(os.cpu_count())  # "1"
@@ -276,4 +276,4 @@ if __name__ == "__main__":
     if MEMORY_FLAG:
         main = profile(main)
 
-    main("CALCS/CsPbI3_test/inputs/", "CALCS/CsPbI3_test/results/")
+    main("CALCS/CsPbI3_21kpts_8dec/inputs/", "CALCS/CsPbI3_21kpts_8dec/results/")
