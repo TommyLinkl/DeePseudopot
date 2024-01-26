@@ -1,8 +1,6 @@
 import torch
 import torch.nn as nn
 
-torch.set_default_dtype(torch.float32)
-
 # this model accepts a vector for the layers, i.e. [inp, hidden1, hidden2,...hiddenM,out]
 # with sigmoid activation
 class Net_sig(nn.Module):

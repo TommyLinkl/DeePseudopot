@@ -9,8 +9,6 @@ import torch.nn.init as init
 
 from utils.pp_func import *
 from utils.memory import print_memory_usage
-torch.set_default_dtype(torch.float32)
-torch.manual_seed(24)
 
 class init_Zunger_data(Dataset):
     def __init__(self, atomPPOrder, totalParams, train=True, trainDataSize=4000, valDataSize=NQGRID):

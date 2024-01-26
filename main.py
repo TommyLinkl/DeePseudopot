@@ -20,7 +20,7 @@ from utils.memory import print_memory_usage, plot_memory_usage, set_debug_memory
 
 def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
 
-    torch.set_default_dtype(torch.float32)
+    torch.set_default_dtype(torch.float64)
     torch.manual_seed(24)
 
     '''
@@ -276,4 +276,4 @@ if __name__ == "__main__":
     if MEMORY_FLAG:
         main = profile(main)
 
-    main("CALCS/CsPbI3_21kpts_8dec/inputs/", "CALCS/CsPbI3_21kpts_8dec/results/")
+    main("CALCS/CsPbI3_21kpts_float32/inputs/", "CALCS/CsPbI3_21kpts_float32/results/")

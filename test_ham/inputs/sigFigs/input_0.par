@@ -1,0 +1,4 @@
+nBands = 32
+maxKE = 6.0
+BS_plot_center = -5
+systemName = CsPbI3

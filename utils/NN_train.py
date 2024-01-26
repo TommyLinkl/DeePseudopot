@@ -14,8 +14,6 @@ from functools import partial
 
 from utils.pp_func import *
 from utils.memory import print_memory_usage
-torch.set_default_dtype(torch.float32)
-torch.manual_seed(24)
 
 def print_and_inspect_gradients(model): 
     for name, param in model.named_parameters():
