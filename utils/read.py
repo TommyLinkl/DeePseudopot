@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 
-from constants.constants import *
+from ..constants.constants import *
 
 torch.set_default_dtype(torch.float64)
 torch.manual_seed(24)

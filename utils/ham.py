@@ -6,8 +6,8 @@ import time
 import sys
 import copy
 
-from constants.constants import *
-from utils.pp_func import pot_func
+from ..constants.constants import *
+from .pp_func import pot_func, pot_funcLR
 
 
 class Hamiltonian:
@@ -50,6 +50,8 @@ class Hamiltonian:
         self.model = model
         self.coupling = coupling   # fit the e-ph couplings? boolean
 
+        self.LRgamma = 0.2   # erf attenuation parameter for long-range 
+                             # component of potential. This is a good value
 
         # if spin orbit, do a bunch of caching to speed up the inner loop 
         # of the optimization. This uses more memory (storing natom * nkpt
@@ -60,15 +62,15 @@ class Hamiltonian:
             self.SOmats = self.initSOmat_fast()
             self.SOmats_def = None
             # check if nonlocal potentials are included, if so, cache them
-            checknl = False
+            self.checknl = False
             for alpha in range(system.getNAtomTypes()):
                 if abs(self.PPparams[self.system.atomTypes[alpha]][6]) > 1e-8:
-                    checknl = True
+                    self.checknl = True
                     break
                 elif abs(self.PPparams[self.system.atomTypes[alpha]][7]) > 1e-8:
-                    checknl = True
+                    self.checknl = True
                     break
-            if checknl:
+            if self.checknl:
                 #self.NLmats = self.initNLmat()
                 self.NLmats = self.initNLmat_fast()
                 self.NLmats_def = None
@@ -124,7 +126,8 @@ class Hamiltonian:
 
         if self.SObool:
             Htot = self.buildSOmat(kidx, addMat=Htot)
-            Htot = self.buildNLmat(kidx, addMat=Htot)
+            if self.checknl:
+                Htot = self.buildNLmat(kidx, addMat=Htot)
 
         if self.device.type == "cuda":
             # !!! is this sufficient to match previous performance?
@@ -184,7 +187,8 @@ class Hamiltonian:
 
         if self.SObool:
             store_SOmats = self.SOmats
-            store_NLmats = self.NLmats
+            if self.checknl:
+                store_NLmats = self.NLmats
             # only compute the SO integrals for the kpt corresponding to the gap (assuming direct gap).
             # check if we cached them from the first call...
             if self.SOmats_def is not None:
@@ -192,9 +196,9 @@ class Hamiltonian:
             else:
                 self.SOmats_def = self.initSOmat_fast(defbool=True, idxGap=kidx)
                 self.SOmats = self.SOmats_def
-            if self.NLmats_def is not None:
+            if self.NLmats_def is not None and self.checknl:
                 self.NLmats = self.NLmats_def
-            else:
+            elif self.checknl:
                 self.NLmats_def = self.initNLmat_fast(defbool=True, idxGap=kidx)
                 self.NLmats = self.NLmats_def
 
@@ -203,7 +207,8 @@ class Hamiltonian:
             # self.system.kpts[kidx] in these functions, so it does not cause any
             # issues.
             Htot = self.buildSOmat(0, addMat=Htot)
-            Htot = self.buildNLmat(0, addMat=Htot)
+            if self.checknl:
+                Htot = self.buildNLmat(0, addMat=Htot)
 
         
 
@@ -214,7 +219,8 @@ class Hamiltonian:
         self.system.atomPos *= (self.system.scale / self.defscale)
         if self.SObool:
             self.SOmats = store_SOmats
-            self.NLmats = store_NLmats
+            if self.checknl:
+                self.NLmats = store_NLmats
 
         return Htot
 
@@ -255,7 +261,8 @@ class Hamiltonian:
                 atomFF = self.model(torch.norm(gdiff, dim=2).view(-1,1))
                 atomFF = atomFF[:, thisAtomIndex].view(nbv, nbv)
             else:
-                atomFF = pot_func(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
+                #atomFF = pot_func(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
+                atomFF = pot_funcLR(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]], self.LRgamma)
 
             if self.SObool:
                 # local potential has delta function on spin --> block diagonal
@@ -742,7 +749,7 @@ class Hamiltonian:
         return NLmatf
 
 
-    def calcBandStruct(self):
+    def calcBandStruct(self, verbosity=0):
         nbands = self.system.nBands
         nkpt = self.system.getNKpts()
 
@@ -773,22 +780,32 @@ class Hamiltonian:
                 # in the coupling calculation.
                 ctr = 1
                 for idx in range(self.idx_vb-1, 0, -1):
-                    if abs(ens[self.idx_vb] - ens[idx]) < 1e-15:
+                    if abs(ens[self.idx_vb] - ens[idx]) < 1e-10:
                         self.vb_vecs[kidx, :] += vecs[:, idx]
                         ctr += 1
                     else:
                         break
                 self.vb_vecs[kidx, :] *= 1/(np.sqrt(ctr))
+
+                if ctr == 1 and self.SObool and verbosity >= 2:
+                    print(f"\nWARNING: spin-orbit calc but vb spin states are not degenerate to 1e-10, kidx={kidx}\n")
+                if verbosity >= 3:
+                    print(f"kidx={kidx}, vb_vec[0:5]= {self.vb_vecs[kidx, :5]}")
+
                 ctr = 1
                 for idx in range(self.idx_cb+1, self.system.nBands):
-                    if abs(ens[self.idx_cb] - ens[idx]) < 1e-15:
+                    if abs(ens[self.idx_cb] - ens[idx]) < 1e-10:
                         self.cb_vecs[kidx, :] += vecs[:, idx]
                         ctr += 1
                     else:
                         break
                 self.cb_vecs[kidx, :] *= 1/(np.sqrt(ctr))
 
-
+                if ctr == 1 and self.SObool and verbosity >= 2:
+                    print(f"\nWARNING: spin-orbit calc but cb spin states are not degenerate to 1e-10, kidx={kidx}\n")
+                if verbosity >= 3:
+                    print(f"kidx={kidx}, cb_vec[0:5]= {self.cb_vecs[kidx, :5]}")
+                
             if not self.SObool:
                 # 2-fold degeneracy for spin. Not sure why this is necessary, but
                 # it is included in Tommy's code...
@@ -1003,7 +1020,8 @@ class Hamiltonian:
                 atomFF = self.model(torch.norm(gqDiff, dim=2).view(-1,1))
                 atomFF = atomFF[:, thisAtomIndex].view(nbv, nbv)
             else:
-                atomFF = pot_func(torch.norm(gqDiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
+                #atomFF = pot_func(torch.norm(gqDiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
+                atomFF = pot_funcLR(torch.norm(gqDiff, dim=2), self.PPparams[self.system.atomTypes[alpha]], self.LRgamma)
 
             dV[:nbv, :nbv] = prefactor * structFact * atomFF
 

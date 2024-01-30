@@ -1,6 +1,6 @@
 import numpy as np
 import torch.linalg
-from constants.constants import *
+from ..constants.constants import *
 import time
 import os
 
@@ -17,7 +17,8 @@ class MonteCarloFit:
                  fitCoupling=False,
                  fitEffMass=False,
                  optGaps=False,
-                 defPotWeight=1.0):
+                 defPotWeight=1.0,
+                 couplingOpts=None):
         
         """
         This class runs Monte Carlo optimization on non-neural net 
@@ -45,6 +46,8 @@ class MonteCarloFit:
         If optGaps is True, the cost function we try to minimize uses the
         gaps between bands, rather than their absolute energies.
         If fitDefPot, then the MSE of the defpots will be multiplied by defWeight.
+        couplingOpts should ba a kwarg dictionary that can be passed to
+        ham.calcCouplings(**couplingOpts).
         """        
         
         self.ham = ham
@@ -60,6 +63,10 @@ class MonteCarloFit:
         self.fitEffMass = fitEffMass
         self.optGaps = optGaps
         self.defPotWeight = defPotWeight
+        if couplingOpts is None:
+            self.couplingOpts = {}
+        else:
+            self.couplingOpts = couplingOpts
         if fitEffMass is True:
             raise RuntimeError("We don't actually support this right now. should be simple to add in.")
 
@@ -79,6 +86,8 @@ class MonteCarloFit:
 
         self.expBS = ham.system.expBandStruct
         self.bndWeight = ham.system.bandWeights
+        if self.bndWeight is None:
+            self.bndWeight = torch.ones(ham.system.nBands)
         if fitCoupling:
             self.expCpl = ham.system.expCouplingBands
             #self.cplBndWeight = ham.system.couplingBandWeights
@@ -103,7 +112,7 @@ class MonteCarloFit:
         else:
             defpots = None
         if self.fitCoupling:
-            cpl_dict = self.ham.calcCouplings()
+            cpl_dict = self.ham.calcCouplings(**self.couplingOpts)
             self.writeCoupling(cpl_dict)
         else:
             cpl_dict = None
@@ -140,7 +149,7 @@ class MonteCarloFit:
             if self.fitDefPot:
                 defpots = self.calcDefPots(bs[self.idx_gap, self.idx_vb], bs[self.idx_gap, self.idx_cb])
             if self.fitCoupling:
-                cpl_dict = self.ham.calcCouplings()
+                cpl_dict = self.ham.calcCouplings(**self.couplingOpts)
 
             self.newMSE = self.__evalCostFn(bs, defpots, cpl_dict)
 
@@ -173,6 +182,7 @@ class MonteCarloFit:
                 self.bestMSE = self.currentMSE = self.newMSE
                 # in this case we want to retain updated PPparams
                 bestPP = self.ham.get_PPparams()
+                self.saveParams(bestPP)
                 self.writeBands(bs, stub="/bestBandStruct_0.dat")
                 sinceLastAccept = 0
                 if self.fitCoupling:
@@ -223,23 +233,28 @@ class MonteCarloFit:
     def calcIndivMSE(self, bs):
         # this can be sped up with array operations rather than for loops
         mse = 0.0
+        ctr = 0
         for kidx in range(self.kpts.shape[0]):
             tmp = 0.0
             for bidx in range(bs.shape[1]):
-                tmp += (bs[kidx, bidx] - self.expBS[kidx,bidx])**2 * self.bndWeight[bidx]
+                if abs(self.expBS[kidx, bidx]) > 1e-15:
+                    ctr += 1
+                    tmp += (bs[kidx, bidx] - self.expBS[kidx,bidx])**2 * self.bndWeight[bidx]
             mse += tmp * self.kptWeights[kidx]
-        return mse / (bs.shape[0] * bs.shape[1]) 
+        return mse / ctr 
 
     def calcIndivMSEgaps(self, bs):
         # this can be sped up with array operations rather than for loops
         mse = 0.0
+        ctr = 0
         for kidx in range(self.kpts.shape[0]):
             tmp = 0.0
             for bidx in range(bs.shape[1] - 1):
                 if abs(self.expBS[kidx, bidx+1]) > 1e-15 and abs(self.expBS[kidx, bidx]) > 1e-15:
+                    ctr += 1
                     dgap = bs[kidx, bidx+1] - bs[kidx, bidx]
                     egap = self.expBS[kidx, bidx+1] - self.expBS[kidx, bidx]
-                    tmp += (dgap - egap)**2
+                    tmp += (dgap - egap)**2 * (self.bndWeight[bidx] + self.bndWeight[bidx+1])/2
                     # ^^ should we normalize this by expected gap value?
                     # so if two bands are close in the ref data, deviations are
                     # measured on a relative scale. this is different than how the
@@ -247,7 +262,7 @@ class MonteCarloFit:
                     # and it would more equally weight the different bands.
                     # PROBLEMS WOULD HAPPEN FOR DEGENERATE BANDS!
             mse += tmp * self.kptWeights[kidx]
-        return mse / (bs.shape[0] * (bs.shape[1]-1))
+        return mse / ctr
     
     def calcNonLocalWeighting(self):
         """
@@ -255,7 +270,7 @@ class MonteCarloFit:
         """
         weight = 0
         for atom, params in self.ham.PPparams.items(): 
-            if params[5] > 8.0: weight += params - 8
+            if params[5] > 8.0: weight += (params[5] - 8) * 10
         
         return weight
     
@@ -269,6 +284,8 @@ class MonteCarloFit:
         mse = 0
         count = 0
         for key, cpl in cpl_dict.items():
+            # only compare the couplings that are computed, not necessarily all
+            # reference data
             qidx = key[2]
             mse += (cpl - self.expCpl[key])**2 * self.qptWeights[qidx]
             count += 1
@@ -294,7 +311,55 @@ class MonteCarloFit:
         for atom, params in self.ham.PPparams.items():
             for j in range(len(params)):
                 self.ham.PPparams[atom][j] += np.random.uniform(low=-1.0,high=1.0) * steps[atom][j] * self.tempStepSizeMod[tempIdx]
+
+        self.enforceParamConstraints()
+        return
+
     
+    def enforceParamConstraints(self):
+        """
+        This enforces that the sum of all the long-range potentials sum
+        to 0 at q=0, which is rigorously required for a charge neutral system.
+        The implementation for multiple band structures is tricky, and not
+        yet resolved.
+
+        It also forces the SOC constant to be positive, which is physical.
+        """
+        
+        # to make multiple bandstructures work, we need to implement a global inspection of all the different bandstructure systems to see which have
+        # common sets of atoms. Then figure out which atoms are simultaneously constrained across all bandstructures (i.e. same atom 
+        # type(s) have to be constrained across all band structures).
+
+        ctr = {}
+        constrainLbl = None
+        for i in range(self.ham.system.getNAtoms()):
+            atom = self.ham.system.atomTypes[i]
+            self.ham.PPparams[atom][5] = abs(self.ham.PPparams[atom][5]) # SOC must be positive
+            # count the number of each atom type
+            if atom in ctr:
+                ctr[atom] += 1
+            else:
+                ctr[atom] = 1
+                # find which atom to constrain for long-range sum.
+                # Ignore atoms with LR param = 0
+                if abs(self.ham.PPparams[atom][4]) > 1e-10:
+                    constrainLbl = atom
+            
+        if constrainLbl is None:
+            # there are no long-range potentials, nothing more to do
+            return
+        sumLR = 0.0
+        for i in range(self.ham.system.getNAtoms()):
+            # add LR param for all atoms that are not constrained
+            atom = self.ham.system.atomTypes[i]
+            if atom != constrainLbl:
+                sumLR += self.ham.PPparams[atom][4] 
+
+        cparam = -1 * sumLR / ctr[constrainLbl]  # this makes the total sum to 0
+        self.ham.PPparams[constrainLbl][4] = cparam
+
+        return
+            
 
     def calcDefPots(self, vbm_reg, cbm_reg, verbosity=2):
         """
@@ -352,8 +417,12 @@ class MonteCarloFit:
                             print("polarization of derivative = z", file=fwrite)
                         
                         for qidx in range(self.qpts.shape[0]):
-                            print(f"{cpl_dict[(atomidx, gamma, qidx, band)]:.6e}   ", file=fwrite, end="")
+                            if (atomidx, gamma, qidx, band) in cpl_dict:
+                                print(f"{cpl_dict[(atomidx, gamma, qidx, band)]:.6e}   ", file=fwrite, end="")
+                            else:
+                                print("Not-fit   ", file=fwrite, end="")
                         print("\n", file=fwrite, end="")
+                    print("\n", file=fwrite, end="")
                 print("\n\n", file=fwrite, end="")
 
 
@@ -374,18 +443,23 @@ class MonteCarloFit:
             print(f"{self.newMSE:.6g}\t {self.currentMSE:.6g}\t {self.bestMSE:.6g}\t {perAccept:.5g}\t ", file=fwrite, end="")
             for atom, params in self.ham.PPparams.items():
                 for j in range(len(params)):
-                    print(f"{params[j]:.6g}\t", file=fwrite, end="")
+                    print(f"{params[j]:.14f}\t", file=fwrite, end="")
             print("\n", file=fwrite, end="")
         
         if self.firstIter:
             self.firstIter = False
 
 
+    def saveParams(self, params, stub="bestParams.pt"):
+        for atom, lst in params.items():
+            torch.save(lst, self.writeDir + f"/{atom}" + stub)
+
+
     def writeBestPPparams(self, param_dict):
         for atom, params in param_dict.items():
             with open(self.writeDir + f"/best_{atom}Params.dat", 'w') as fwrite:
                 for j in range(len(params)):
-                    print(f"{params[j]:.6f}", file=fwrite)
+                    print(f"{params[j]:.14f}", file=fwrite)
                 
 
 

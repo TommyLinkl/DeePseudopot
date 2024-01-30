@@ -361,3 +361,14 @@ class Net_relu_xavier_decay2(nn.Module):
         decay = 1 - 1 / (1 + torch.exp(-1.5 * (x - 6)))
         output = self.neural_network(x) * decay
         return output
+    
+class Net_relu_xavier_decayGaussian(nn.Module):
+    def __init__(self, Layers, gaussian_std):
+        super(Net_relu_xavier_decayGaussian, self).__init__()
+        self.neural_network = Net_relu_xavier(Layers)
+        self.gaussian_std = torch.tensor(gaussian_std, requires_grad=False)
+    
+    def forward(self, x):
+        gaussian = torch.exp(-x**2/(2*self.gaussian_std**2))
+        output = self.neural_network(x) * gaussian
+        return output

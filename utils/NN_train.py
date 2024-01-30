@@ -8,8 +8,8 @@ import torch.nn as nn
 import torch.nn.init as init
 from torch.optim.lr_scheduler import ExponentialLR
 
-from utils.pp_func import *
-from utils.bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
+from .pp_func import *
+from .bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
 torch.set_default_dtype(torch.float64)
 torch.manual_seed(24)
 

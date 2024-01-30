@@ -6,12 +6,18 @@ mpl.rcParams['lines.markersize'] = 3
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-from constants.constants import * 
+from ..constants.constants import * 
 torch.set_default_dtype(torch.float64)
 torch.manual_seed(24)
 
 def pot_func(x, params): 
     pot = (params[0]*(x*x - params[1]) / (params[2] * torch.exp(params[3]*x*x) - 1.0))
+    return pot
+
+def pot_funcLR(x, params, gamma):
+    pot = params[0]*(x*x - params[1]) / (params[2] * torch.exp(params[3]*x*x) - 1.0)
+    nzid = torch.nonzero(x > 1e-4, as_tuple=True) # x is batched, but want to avoid division by 0
+    pot[nzid] -= params[4] * 4 * np.pi / (x[nzid]**2) * torch.exp(-1 * x[nzid]**2 / (4*gamma**2))
     return pot
 
 def realSpacePot(vq, qSpacePot, nRGrid, rmax=25): 

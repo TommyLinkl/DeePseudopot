@@ -72,5 +72,5 @@ for i in range(5):
                             else:
                                 print(f"{cpl_dict[(i, gamma, qidx, band)]:.6g}   ", end="")
                         print("\n", end="")
-                    print("\n", end="")
+                    print("\n\n", end="")
 
