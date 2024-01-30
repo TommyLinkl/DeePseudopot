@@ -79,10 +79,12 @@ class Hamiltonian:
         
         if self.coupling:
             nkpt = self.system.getNKpts()
-            nbv = self.basis.shape[0]
-            if SObool: nbv *= 2
-            self.vb_vecs = torch.zeros([nkpt, nbv], dtype=torch.complex128)
-            self.cb_vecs = torch.zeros([nkpt, nbv], dtype=torch.complex128)
+            #nbv = self.basis.shape[0]
+            #if SObool: nbv *= 2
+            #self.vb_vecs = torch.zeros([nkpt, nbv, 1], dtype=torch.complex128)
+            #self.cb_vecs = torch.zeros([nkpt, nbv, 1], dtype=torch.complex128)
+            self.vb_vecs = {k : [] for k in range(nkpt)}
+            self.cb_vecs = {k : [] for k in range(nkpt)}
 
             if not isinstance(self.system.idx_vb, int):
                 raise ValueError("need to specify vb, cb indices for coupling")
@@ -772,20 +774,24 @@ class Hamiltonian:
                 # diagonalization algorithms (e.g. the ?heevr driver).
                 ens, vecs = torch.linalg.eigh(H)
                 energiesEV = ens * AUTOEV
-                self.vb_vecs[kidx, :] = vecs[:, self.idx_vb]
-                self.cb_vecs[kidx, :] = vecs[:, self.idx_cb]
+                self.vb_vecs[kidx].append(vecs[:, self.idx_vb])
+                self.cb_vecs[kidx].append(vecs[:, self.idx_cb])
                 # NOTE!!! that using the eigenvectors with torch autodiff can result in non-uniqueness
-                # and instability if there are degenerate eigenvalues. Here we just
-                # do a simple average over degenerate eigenvectors for gauge-invariance
-                # in the coupling calculation.
+                # an instability if there are degenerate eigenvalues. 
+                
+                # To avoid gauge phase-dependent values of the coupling when we
+                # have degenerate electronic states, we collect all degenerate bands,
+                # to compute their couplings and THEN average the couplings. This is
+                # different than doing an average over degenerate eigenvectors first, 
+                # which is wrong (results will depend on arbitrary phase in degenerate subspace).
                 ctr = 1
                 for idx in range(self.idx_vb-1, 0, -1):
-                    if abs(ens[self.idx_vb] - ens[idx]) < 1e-10:
-                        self.vb_vecs[kidx, :] += vecs[:, idx]
+                    if abs(ens[self.idx_vb] - ens[idx]) < 1e-5:
+                        # this describes a degenerate state as begin within .01 meV (adopted from EPW source)
+                        self.vb_vecs[kidx].append(vecs[:, idx])
                         ctr += 1
                     else:
                         break
-                self.vb_vecs[kidx, :] *= 1/(np.sqrt(ctr))
 
                 if ctr == 1 and self.SObool and verbosity >= 2:
                     print(f"\nWARNING: spin-orbit calc but vb spin states are not degenerate to 1e-10, kidx={kidx}\n")
@@ -794,12 +800,12 @@ class Hamiltonian:
 
                 ctr = 1
                 for idx in range(self.idx_cb+1, self.system.nBands):
-                    if abs(ens[self.idx_cb] - ens[idx]) < 1e-10:
-                        self.cb_vecs[kidx, :] += vecs[:, idx]
+                    if abs(ens[self.idx_cb] - ens[idx]) < 1e-5:
+                        # this describes a degenerate state as begin within .01 meV (adopted from EPW source)
+                        self.cb_vecs[kidx].append(vecs[:, idx])
                         ctr += 1
                     else:
                         break
-                self.cb_vecs[kidx, :] *= 1/(np.sqrt(ctr))
 
                 if ctr == 1 and self.SObool and verbosity >= 2:
                     print(f"\nWARNING: spin-orbit calc but cb spin states are not degenerate to 1e-10, kidx={kidx}\n")
@@ -1138,6 +1144,9 @@ class Hamiltonian:
             symm_equiv_compat = {}
             avg_couple = {}
             if symm_equiv is not None:
+                print("\nWARNING: This feature is no longer necessary for atomic derivs.")
+                print("Degeneracy of electronic bands is now handled automatically.")
+                print("This feature should only be necessary for explicit phonons.\n")
                 for key in symm_equiv:
                     avg_couple[(key, 'cb')] = torch.zeros([1,], dtype=torch.complex128)
                     avg_couple[(key, 'vb')] = torch.zeros([1,], dtype=torch.complex128)
@@ -1153,44 +1162,79 @@ class Hamiltonian:
                             symm_equiv_compat[key].append(2) 
 
                 for key in dV_dict:
-                    # this assumes degenerate bands have already been averaged over
-                    # and normalized properly in the calcBandStruct() call.
                     if key[0] in symm_equiv:
                         if key[1] in symm_equiv_compat[key[0]]:
-                            tmp = torch.matmul(dV_dict[key], self.cb_vecs[needKidx])
-                            tmp = torch.dot(torch.conj(self.cb_vecs[self.idx_gap]), tmp)
-                            avg_couple[(key[0], 'cb')] += tmp / len(symm_equiv[key[0]])
+                            n_right = len(self.cb_vecs[needKidx])
+                            n_left = len(self.cb_vecs[self.idx_gap])
+                            if n_right > 1:
+                                right_vecs = torch.stack(self.cb_vecs[needKidx], dim=-1)
+                            else:
+                                right_vecs = self.cb_vecs[needKidx].view(-1,1)
+                            if n_left > 1:
+                                left_vecs = torch.stack(self.cb_vecs[self.idx_gap], dim=0)
+                            else:
+                                left_vecs = self.cb_vecs[self.idx_gap].view(1,-1)
+                            tmp = torch.matmul(dV_dict[key], right_vecs)   # batched multiplication of all degenerate bands
+                            tmp = torch.matmul(torch.conj(left_vecs), tmp) # n_right * n_left dot products in the elements of a matrix
+                            mag = torch.sum(torch.sqrt(tmp.conj() * tmp)).real
+                            avg_couple[(key[0], 'cb')] += mag / (len(symm_equiv[key[0]]) * n_right * n_left)
 
-                            tmp2 = torch.matmul(dV_dict[key], self.vb_vecs[needKidx])
-                            tmp2 = torch.dot(torch.conj(self.vb_vecs[self.idx_gap]), tmp2)
-                            avg_couple[(key[0], 'vb')] += tmp2 / len(symm_equiv[key[0]])
+                            n_right = len(self.vb_vecs[needKidx])
+                            n_left = len(self.vb_vecs[self.idx_gap])
+                            if n_right > 1:
+                                right_vecs = torch.stack(self.vb_vecs[needKidx], dim=-1)
+                            else:
+                                right_vecs = self.vb_vecs[needKidx].view(-1,1)
+                            if n_left > 1:
+                                left_vecs = torch.stack(self.vb_vecs[self.idx_gap], dim=0)
+                            else:
+                                left_vecs = self.vb_vecs[self.idx_gap].view(1,-1)
+                            tmp2 = torch.matmul(dV_dict[key], right_vecs) # batched multiplication of all degenerate bands
+                            tmp2 = torch.matmul(torch.conj(left_vecs), tmp2) # n_right * n_left dot products in the elements of a matrix
+                            mag2 = torch.sum(torch.sqrt(tmp2.conj() * tmp2)).real
+                            avg_couple[(key[0], 'vb')] += mag2 / (len(symm_equiv[key[0]]) * n_right * n_left)
 
             # build ret_dict 
             for key in dV_dict:
                 if key[0] in symm_equiv_compat:
                     if key[1] in symm_equiv_compat[key[0]]:
-                        avg_cb = avg_couple[(key[0], 'cb')]
-                        avg_vb = avg_couple[(key[0], 'vb')]
-                        ret_dict[key+(qid,'cb')] = torch.sqrt(avg_cb.conj() * avg_cb).real * AUTOEV
-                        ret_dict[key+(qid,'vb')] = torch.sqrt(avg_vb.conj() * avg_vb).real * AUTOEV
+                        #avg_cb = avg_couple[(key[0], 'cb')]
+                        #avg_vb = avg_couple[(key[0], 'vb')]
+                        #ret_dict[key+(qid,'cb')] = torch.sqrt(avg_cb.conj() * avg_cb).real * AUTOEV
+                        #ret_dict[key+(qid,'vb')] = torch.sqrt(avg_vb.conj() * avg_vb).real * AUTOEV
+                        ret_dict[key + (qid,'cb')] = avg_couple[(key[0], 'cb')]
+                        ret_dict[key + (qid,'vb')] = avg_couple[(key[0], 'vb')]
 
-                    else:
-                        cpl = torch.matmul(dV_dict[key], self.cb_vecs[needKidx])
-                        cpl = torch.dot(torch.conj(self.cb_vecs[self.idx_gap]), cpl)
-                        ret_dict[key + (qid,'cb')] = torch.sqrt(cpl.conj() * cpl).real * AUTOEV
-
-                        cpl = torch.matmul(dV_dict[key], self.vb_vecs[needKidx])
-                        cpl = torch.dot(torch.conj(self.vb_vecs[self.idx_gap]), cpl)
-                        ret_dict[key + (qid,'vb')] = torch.sqrt(cpl.conj() * cpl).real * AUTOEV
                 else:
-                    # need to repeat the code block here.. a bit awkward logic
-                    cpl = torch.matmul(dV_dict[key], self.cb_vecs[needKidx])
-                    cpl = torch.dot(torch.conj(self.cb_vecs[self.idx_gap]), cpl)
-                    ret_dict[key + (qid,'cb')] = torch.sqrt(cpl.conj() * cpl).real * AUTOEV
+                    n_right = len(self.cb_vecs[needKidx])
+                    n_left = len(self.cb_vecs[self.idx_gap])
+                    if n_right > 1:
+                        right_vecs = torch.stack(self.cb_vecs[needKidx], dim=-1)
+                    else:
+                        right_vecs = self.cb_vecs[needKidx].view(-1,1)
+                    if n_left > 1:
+                        left_vecs = torch.stack(self.cb_vecs[self.idx_gap], dim=0)
+                    else:
+                        left_vecs = self.cb_vecs[self.idx_gap].view(1,-1)
+                    cpl = torch.matmul(dV_dict[key], right_vecs) # batched multiplication of all degenerate bands
+                    cpl = torch.matmul(torch.conj(left_vecs), cpl) # n_right * n_left dot products in the elements of a matrix
+                    cpl_mag = torch.sum(torch.sqrt(cpl.conj() * cpl)).real
+                    ret_dict[key + (qid,'cb')] = (cpl_mag / (n_right * n_left)) * AUTOEV
 
-                    cpl = torch.matmul(dV_dict[key], self.vb_vecs[needKidx])
-                    cpl = torch.dot(torch.conj(self.vb_vecs[self.idx_gap]), cpl)
-                    ret_dict[key + (qid,'vb')] = torch.sqrt(cpl.conj() * cpl).real * AUTOEV
+                    n_right = len(self.vb_vecs[needKidx])
+                    n_left = len(self.vb_vecs[self.idx_gap])
+                    if n_right > 1:
+                        right_vecs = torch.stack(self.vb_vecs[needKidx], dim=-1)
+                    else:
+                        right_vecs = self.vb_vecs[needKidx].view(-1,1)
+                    if n_left > 1:
+                        left_vecs = torch.stack(self.vb_vecs[self.idx_gap], dim=0)
+                    else:
+                        left_vecs = self.vb_vecs[self.idx_gap].view(1,-1)
+                    cpl = torch.matmul(dV_dict[key], right_vecs) # batched multiplication of all degenerate bands
+                    cpl = torch.matmul(torch.conj(left_vecs), cpl) # n_right * n_left dot products in the elements of a matrix
+                    cpl_mag = torch.sum(torch.sqrt(cpl.conj() * cpl)).real
+                    ret_dict[key + (qid,'vb')] = (cpl_mag / (n_right * n_left)) * AUTOEV
 
         return ret_dict
 
