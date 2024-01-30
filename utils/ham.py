@@ -1219,7 +1219,7 @@ class Hamiltonian:
                     cpl = torch.matmul(dV_dict[key], right_vecs) # batched multiplication of all degenerate bands
                     cpl = torch.matmul(torch.conj(left_vecs), cpl) # n_right * n_left dot products in the elements of a matrix
                     cpl_mag = torch.sum(torch.sqrt(cpl.conj() * cpl)).real
-                    ret_dict[key + (qid,'cb')] = (cpl_mag / (n_right * n_left)) * AUTOEV
+                    ret_dict[key + (qid,'cb')] = (cpl_mag / (n_right * n_left)) * AUTOEV # average coupling from degenerate subspace
 
                     n_right = len(self.vb_vecs[needKidx])
                     n_left = len(self.vb_vecs[self.idx_gap])
