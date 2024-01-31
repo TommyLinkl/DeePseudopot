@@ -42,12 +42,16 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     nSystem = NNConfig['nSystem']
     if 'memory_flag' in NNConfig:
         set_debug_memory_flag(NNConfig['memory_flag'])
+    '''
     if 'num_cores' in NNConfig: 
         omp_num_threads = str(NNConfig['num_cores'])     # Accelerate numpy-related operations (eigh) through OpenMP. Individual setting. 
         mkl_num_threads = "1"     # maybe use str(NNConfig['num_cores'])? 
     else: 
         omp_num_threads = str(os.cpu_count())  # "1"
         mkl_num_threads = str(os.cpu_count())  # "1"
+    '''
+    omp_num_threads = "1"
+    mkl_num_threads = "1"
     os.environ["OMP_NUM_THREADS"] = omp_num_threads
     os.environ["MKL_NUM_THREADS"] = mkl_num_threads
     print(f"Setting OMP_NUM_THREADS = {omp_num_threads}, MKL_NUM_THREADS = {mkl_num_threads}")
