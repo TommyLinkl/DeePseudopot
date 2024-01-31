@@ -6,4 +6,4 @@ CALCS/*
 .vscode/*
 custom_torch/*
 pytorch/*
-test_parallel/results*
+test_parallel/results*/*
