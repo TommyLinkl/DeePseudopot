@@ -2,11 +2,7 @@ import sys
 from main import main
 
 if __name__ == "__main__":
-    testCases_list = ['noSOC_noPara', 'noSOC_para1', 'noSOC_para3', 'SOC_noPara', 'SOC_para1', 'SOC_para3']
-    testCases_list = ['noSOC_noPara', 'SOC_noPara']
-    testCases_list = ['noSOC_para1', 'noSOC_para3', 'SOC_para1', 'SOC_para3']
-    # testCases_list = ['noSOC_noPara', 'noSOC_para3', 'SOC_noPara', 'SOC_para3']
-    testCases_list = ['SOC_para3']
+    testCases_list = ['SOC_noPara', 'SOC_para1', 'SOC_para2', 'SOC_para4', 'SOC_para8']
 
     for testCase in testCases_list: 
         print(f"Testing case: {testCase}")
@@ -18,3 +14,4 @@ if __name__ == "__main__":
         sys.stdout = sys.__stdout__
         '''
         main(f"test_parallel/inputs_{testCase}/", f"test_parallel/results_{testCase}/")
+        print("\n"*10)

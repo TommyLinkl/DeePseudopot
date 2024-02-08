@@ -19,9 +19,14 @@ from utils.ham import Hamiltonian
 from utils.memory import print_memory_usage, plot_memory_usage, set_debug_memory_flag
 
 def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
-
+    torch.set_num_threads(1)
     torch.set_default_dtype(torch.float64)
     torch.manual_seed(24)
+    omp_num_threads = "1"
+    mkl_num_threads = "1"
+    os.environ["OMP_NUM_THREADS"] = omp_num_threads
+    os.environ["MKL_NUM_THREADS"] = mkl_num_threads
+    print(f"Setting OMP_NUM_THREADS = {omp_num_threads}, MKL_NUM_THREADS = {mkl_num_threads}")
 
     '''
     if torch.cuda.is_available():
@@ -42,20 +47,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     nSystem = NNConfig['nSystem']
     if 'memory_flag' in NNConfig:
         set_debug_memory_flag(NNConfig['memory_flag'])
-    '''
-    if 'num_cores' in NNConfig: 
-        omp_num_threads = str(NNConfig['num_cores'])     # Accelerate numpy-related operations (eigh) through OpenMP. Individual setting. 
-        mkl_num_threads = "1"     # maybe use str(NNConfig['num_cores'])? 
-    else: 
-        omp_num_threads = str(os.cpu_count())  # "1"
-        mkl_num_threads = str(os.cpu_count())  # "1"
-    '''
-    omp_num_threads = "1"
-    mkl_num_threads = "1"
-    os.environ["OMP_NUM_THREADS"] = omp_num_threads
-    os.environ["MKL_NUM_THREADS"] = mkl_num_threads
-    print(f"Setting OMP_NUM_THREADS = {omp_num_threads}, MKL_NUM_THREADS = {mkl_num_threads}")
-
+    
     # Read and set up systems
     print(f"{'#' * 40}\nReading and setting up the BulkSystems.")
     atomPPOrder = []
@@ -100,7 +92,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     for iSys in range(nSystem): 
         start_time = time.time()
 
-        # Here I should separate: 
+        # Here I separate: 
         # 1. SObool = False --> Just initialize ham. No storage / moving is needed. 
         # 2. SObool = True, no parallel --> Initialize ham with cache. No storage / moving is needed.
         # 3. SObool = True, yes parallel --> Do the complicated storage / moving. 
@@ -280,4 +272,4 @@ if __name__ == "__main__":
     if MEMORY_FLAG:
         main = profile(main)
 
-    main("CALCS/CsPbI3_21kpts_float32/inputs/", "CALCS/CsPbI3_21kpts_float32/results/")
+    main("CALCS/CsPbI3_21kpts/inputs/", "CALCS/CsPbI3_21kpts/results/")

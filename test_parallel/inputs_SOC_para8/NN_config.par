@@ -1,7 +1,7 @@
 SHOWPLOTS = 0
 nSystem = 1
-memory_flag = 0  
-num_cores = 1
+memory_flag = 0
+num_cores = 8
 PPmodel = Net_relu_xavier_decayGaussian
 PPmodel_decay_rate = 1.5
 PPmodel_decay_center = 5.0

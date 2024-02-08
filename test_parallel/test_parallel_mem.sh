@@ -1,6 +1,6 @@
 #!/bin/bash
 
-testCases_list=('noSOC_noPara' 'noSOC_para1' 'noSOC_para3' 'SOC_noPara' 'SOC_para1' 'SOC_para3')
+testCases_list=('SOC_noPara' 'SOC_para1' 'SOC_para2' 'SOC_para4' 'SOC_para8')
 
 for testCase in "${testCases_list[@]}"; do
     output_file="mprofile_output_${testCase}.dat"

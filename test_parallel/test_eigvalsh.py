@@ -35,6 +35,8 @@ def generate_and_diagonalize_matrix(matrix_size=2000, num_processes=None):
     return eigenvalues
 
 if __name__ == "__main__":
+    # torch.set_num_interop_threads(1)
+    torch.set_num_threads(1)
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1"
     print(psutil.cpu_count(logical=False))
