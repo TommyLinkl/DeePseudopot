@@ -1,4 +1,6 @@
 import os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 import numpy as np
 import time
 import torch
@@ -8,6 +10,7 @@ import matplotlib.pyplot as plt
 import gc
 from multiprocessing import shared_memory
 from memory_profiler import profile
+torch.set_num_threads(1)
 
 from constants.constants import *
 from utils.nn_models import *
@@ -77,6 +80,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
             PPmodel = globals()[NNConfig['PPmodel']](layers)
     else:
         raise ValueError(f"Function {NNConfig['PPmodel']} does not exist.")
+    PPmodel.share_memory_()
     print_memory_usage()
 
     # Initialize the ham class for each BulkSystem. 
@@ -268,8 +272,12 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
 
 
 if __name__ == "__main__":
+    torch.set_num_threads(1)
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
+
     MEMORY_FLAG = False
     if MEMORY_FLAG:
         main = profile(main)
 
-    main("CALCS/CsPbI3_21kpts/inputs/", "CALCS/CsPbI3_21kpts/results/")
+    main("CALCS/CsPbI3_test/inputs/", "CALCS/CsPbI3_test/results/")

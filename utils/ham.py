@@ -1,9 +1,12 @@
+import sys, os
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 import numpy as np
 import torch
+torch.set_num_threads(1)
 from scipy.special import erf
 from scipy.integrate import quad, quadrature, quad_vec
 import time
-import sys
 from torch.utils.checkpoint import checkpoint
 import multiprocessing as mp
 from multiprocessing import Process, Queue, Pool, shared_memory
@@ -701,15 +704,19 @@ class Hamiltonian:
 
         return NLmatf
 
-
     def calcEigValsAtK(self, kidx, iSystem, cachedMats_info, requires_grad=True):
         '''
         This function builds the Htot at a certain kpoint that is given as the input, 
         digonalizes the Htot, and obtains the eigenvalues at this kpoint. 
         '''
+        torch.set_num_threads(1)
+        os.environ["OMP_NUM_THREADS"] = "1"
+        os.environ["MKL_NUM_THREADS"] = "1"
+
         nbands = self.system.nBands
         eigVals = torch.zeros(nbands)
 
+        '''
         # if cachedMats_info = None and SOC=False: proceed as normal. Won't even go into buildSO or buildNL. 
         #       Need to pass None into buildSO and buildNL
         # if cachedMats_info = None and SOC=True: find SOmats and NLmats from self.xxx
@@ -772,6 +779,17 @@ class Hamiltonian:
         print_memory_usage()
         end_time = time.time()
         print(f"eigvalsh and storing energies, elapsed time: {(end_time - start_time):.2f} seconds")
+        '''
+
+        # Testing with random matrix
+        start_time = time.time()
+        test_H = torch.randn(2000, 2000, dtype=torch.complex128)
+        eigenvalues = torch.linalg.eigvalsh(test_H)
+        end_time = time.time()
+        total_time = end_time - start_time
+        print(f"Generating and diagonalizing a random 2000x2000 matrix. Time: {total_time:.2f} seconds")
+        return eigenvalues
+
         if requires_grad: 
             return eigVals
         else: 
@@ -808,10 +826,14 @@ class Hamiltonian:
                 eigValsAtK = self.calcEigValsAtK(kidx, iSystem, cachedMats_info, requires_grad=False)
                 bandStruct[kidx,:] = eigValsAtK
         else: # multiprocessing
+            torch.set_num_threads(1)
+            os.environ["OMP_NUM_THREADS"] = "1"
+            os.environ["MKL_NUM_THREADS"] = "1"
             print(f"Total num_cores available = {mp.cpu_count()}. We are using num_cores = {NNConfig['num_cores']}.")
+            print(f"The size of cachedMats_info is: {sys.getsizeof(cachedMats_info)/1024} KB")
             with mp.Pool(NNConfig['num_cores']) as pool:
-                eigValsList = pool.map(partial(self.calcEigValsAtK, iSystem=iSystem, cachedMats_info=cachedMats_info, requires_grad=False)
-                                       , range(nkpt))
+                args_list = [(kidx, iSystem, cachedMats_info, False) for kidx in range(nkpt)]
+                eigValsList = pool.starmap(self.calcEigValsAtK, args_list)
             bandStruct = torch.stack(eigValsList)
         print_memory_usage()
         return bandStruct
