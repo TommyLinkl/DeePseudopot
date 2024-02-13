@@ -6,9 +6,8 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt 
 mpl.rcParams['lines.markersize'] = 3
 
-from constants.constants import * 
-from utils.pp_func import pot_func, plotBandStruct, plotPP, plot_training_validation_cost, FT_converge_and_write_pp
-from utils.NN_train import weighted_mse_bandStruct
+from constants.constants import MASS, HBAR, AUTOEV, AUTONM, NQGRID
+from utils.pp_func import pot_func, plotPP, plot_training_validation_cost
 
 class init_Zunger_data(Dataset):
 
@@ -42,7 +41,6 @@ class init_Zunger_data(Dataset):
         return self.len
 
 
-# Initialize the NN parameters to fit the current Zunger form
 def init_Zunger_weighted_mse(yhat,y,weight):
     return torch.mean(weight*(yhat-y)**2)
 
@@ -132,58 +130,3 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
 
     return PPmodel, ZungerPPFunc_val
 
-
-def calcOldFuncBS(systems, hams, NNConfig, cachedMats_info, resultsFolder):
-    """
-    Calculate band structures with the old Zunger function form 
-    using the parameters given in PPparams
-    """
-    oldFunc_plot_bandStruct_list = []
-    oldFunc_totalMSE = 0
-    for iSys, sys in enumerate(systems):
-        start_time = time.time()
-        oldFunc_bandStruct = hams[iSys].calcBandStruct_noGrad(NNConfig, iSys, cachedMats_info if cachedMats_info is not None else None)
-        oldFunc_bandStruct.detach_()
-        end_time = time.time()
-        print(f"Old Zunger BS: Finished calculating {iSys}-th band structure in the Zunger function form ... Elapsed time: {(end_time - start_time):.2f} seconds")
-        oldFunc_plot_bandStruct_list.append(sys.expBandStruct)
-        oldFunc_plot_bandStruct_list.append(oldFunc_bandStruct)
-        oldFunc_totalMSE += weighted_mse_bandStruct(oldFunc_bandStruct, sys)
-    fig = plotBandStruct(systems, oldFunc_plot_bandStruct_list, NNConfig['SHOWPLOTS'])
-    print("oldFunc_totalMSE = %e " % oldFunc_totalMSE)
-    fig.suptitle("oldFunc_totalMSE = %e " % oldFunc_totalMSE)
-    fig.savefig(resultsFolder + 'oldFunc_plotBS.png')
-    plt.close('all')
-
-    return oldFunc_totalMSE
-
-
-def evalBS_convergePP(PPmodel, qmax, nQGrid, nRGrid):
-    print("Evaluate the band structures and converge the pseudopotentials for the initialized NN. ")
-
-    print("Plotting and write pseudopotentials in the real and reciprocal space.")
-    torch.cuda.empty_cache()
-    PPmodel.eval()
-    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, f'{resultsFolder}initZunger_plotPP', f'{resultsFolder}initZunger_pot', NNConfig['SHOWPLOTS'])
-
-    print("\nEvaluating band structures using the initialized pseudopotentials. ")
-    plot_bandStruct_list = []
-    init_totalMSE = 0
-    for iSystem in range(nSystem): 
-        hams[iSystem].NN_locbool = True
-        hams[iSystem].set_NNmodel(PPmodel)
-        start_time = time.time()
-        init_bandStruct = hams[iSystem].calcBandStruct_noGrad(NNConfig, iSystem, cachedMats_info if cachedMats_info is not None else None)
-        init_bandStruct.detach_()
-        end_time = time.time()
-        print(f"Finished calculating {iSystem}-th band structure in the initialized NN form... Elapsed time: {(end_time - start_time):.2f} seconds")
-        plot_bandStruct_list.append(systems[iSystem].expBandStruct)
-        plot_bandStruct_list.append(init_bandStruct)
-        init_totalMSE += weighted_mse_bandStruct(init_bandStruct, systems[iSystem])
-    fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
-    print("The total bandStruct MSE = %e " % init_totalMSE)
-    fig.suptitle("The total bandStruct MSE = %e " % init_totalMSE)
-    fig.savefig(resultsFolder + 'initZunger_plotBS.png')
-    plt.close('all')
-    torch.cuda.empty_cache()
-    return

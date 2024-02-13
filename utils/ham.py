@@ -9,9 +9,9 @@ import multiprocessing as mp
 from multiprocessing import Process, Queue, Pool, shared_memory
 import gc
 
-from constants.constants import *
+import constants.constants
+from constants.constants import MASS, HBAR, AUTOEV
 from utils.pp_func import pot_func
-from utils.read import RUNTIME_FLAG
 
 class Hamiltonian:
     def __init__(
@@ -118,29 +118,29 @@ class Hamiltonian:
             Htot[i,i] = HBAR**2 / (2*MASS) * torch.norm(self.basis[i%nbv] + self.system.kpts[kidx])**2
 
         # local potential
-        start_time = time.time() if RUNTIME_FLAG else None
+        start_time = time.time() if constants.constants.RUNTIME_FLAG else None
         Htot = self.buildVlocMat(defbool=defbool, addMat=Htot)
         if not requires_grad: 
             Htot = Htot.detach()
-        end_time = time.time() if RUNTIME_FLAG else None
-        print(f"Building VlocMat, elapsed time: {(end_time - start_time):.2f} seconds") if RUNTIME_FLAG else None
+        end_time = time.time() if constants.constants.RUNTIME_FLAG else None
+        print(f"Building VlocMat, elapsed time: {(end_time - start_time):.2f} seconds") if constants.constants.RUNTIME_FLAG else None
 
         if self.SObool:
-            start_time = time.time() if RUNTIME_FLAG else None
+            start_time = time.time() if constants.constants.RUNTIME_FLAG else None
             if preComp_SOmats_kidx is None: 
                 raise ValueError("SObool is True, but preComp_SOmats_kidx isn't passed. ")
             else: 
                 Htot = self.buildSOmat(preComp_SOmats_kidx, addMat=Htot)
-            end_time = time.time() if RUNTIME_FLAG else None
-            print(f"Building SOmat, elapsed time: {(end_time - start_time):.2f} seconds") if RUNTIME_FLAG else None
+            end_time = time.time() if constants.constants.RUNTIME_FLAG else None
+            print(f"Building SOmat, elapsed time: {(end_time - start_time):.2f} seconds") if constants.constants.RUNTIME_FLAG else None
 
-            start_time = time.time() if RUNTIME_FLAG else None
+            start_time = time.time() if constants.constants.RUNTIME_FLAG else None
             if preComp_NLmats_kidx is None: 
                 raise ValueError("Trying to buildNLmat, but preComp_NLmats_kidx is not pre-computed. ")
             else: 
                 Htot = self.buildNLmat(preComp_NLmats_kidx, addMat=Htot)
-            end_time = time.time() if RUNTIME_FLAG else None
-            print(f"Building NLmat, elapsed time: {(end_time - start_time):.2f} seconds") if RUNTIME_FLAG else None
+            end_time = time.time() if constants.constants.RUNTIME_FLAG else None
+            print(f"Building NLmat, elapsed time: {(end_time - start_time):.2f} seconds") if constants.constants.RUNTIME_FLAG else None
 
         if self.device.type == "cuda":
             # !!! is this sufficient to match previous performance?
@@ -592,11 +592,11 @@ class Hamiltonian:
             isum1 = self._soIntegral_vect(inm, jnm, rcut, width1)
             #isum1 = self._soIntegral_dan(inm, jnm, width1)  # for testing only
             t2 = time.time()
-            print(f"time int1: {t2-t1}")
+            # print(f"time int1: {t2-t1}")
             isum2 = self._nlIntegral_vect(inm, jnm, rcut, width2, shift)
             #isum2 = self._nlIntegral_dan(inm, jnm, width2, shift)  # for testing
             t3 = time.time()
-            print(f"time int2: {t3-t2}")
+            # print(f"time int2: {t3-t2}")
 
             #gdot = torch.dot(gikp, gjkp)
             # this tensordot call is like mat[i,j] = sum_k gikp[i,k] * gjkp[j,k]
@@ -723,24 +723,24 @@ class Hamiltonian:
             preComp_SOmats_kidx = self.SOmats[kidx]
             preComp_NLmats_kidx = self.NLmats[kidx]
         elif (cachedMats_info is not None): 
-            start_time = time.time() if RUNTIME_FLAG else None
+            start_time = time.time() if constants.constants.RUNTIME_FLAG else None
             shm_SOmats = shared_memory.SharedMemory(name=f"SOmats_{iSystem}_{kidx}")
             preComp_SOmats_kidx = np.ndarray(cachedMats_info[f"SO_{iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{iSystem}_{kidx}"]['dtype'], buffer=shm_SOmats.buf)
             shm_NLmats = shared_memory.SharedMemory(name=f"NLmats_{iSystem}_{kidx}")
             preComp_NLmats_kidx = np.ndarray(cachedMats_info[f"NL_{iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{iSystem}_{kidx}"]['dtype'], buffer=shm_NLmats.buf)
-            end_time = time.time() if RUNTIME_FLAG else None
-            print(f"Loading shared memory, elapsed time: {(end_time - start_time):.2f} seconds") if RUNTIME_FLAG else None
+            end_time = time.time() if constants.constants.RUNTIME_FLAG else None
+            print(f"Loading shared memory, elapsed time: {(end_time - start_time):.2f} seconds") if constants.constants.RUNTIME_FLAG else None
         else: 
             raise ValueError("Error in calcEigValsAtK. ")
 
-        start_time = time.time() if RUNTIME_FLAG else None
+        start_time = time.time() if constants.constants.RUNTIME_FLAG else None
         H = self.buildHtot(kidx, preComp_SOmats_kidx, preComp_NLmats_kidx, requires_grad)
         if not requires_grad: 
             H = H.detach()
-        end_time = time.time() if RUNTIME_FLAG else None
-        print(f"Building Htot, elapsed time: {(end_time - start_time):.2f} seconds") if RUNTIME_FLAG else None
+        end_time = time.time() if constants.constants.RUNTIME_FLAG else None
+        print(f"Building Htot, elapsed time: {(end_time - start_time):.2f} seconds") if constants.constants.RUNTIME_FLAG else None
 
-        start_time = time.time() if RUNTIME_FLAG else None
+        start_time = time.time() if constants.constants.RUNTIME_FLAG else None
         if not self.coupling:
             energies = torch.linalg.eigvalsh(H)
             energiesEV = energies * AUTOEV
@@ -763,17 +763,17 @@ class Hamiltonian:
             # dont need to interleave eigenvecs (if stored) since we only
             # store the vb and cb anyways.
         eigVals[:] = energiesEV[:nbands]
-        end_time = time.time() if RUNTIME_FLAG else None
-        print(f"eigvalsh and storing energies, elapsed time: {(end_time - start_time):.2f} seconds") if RUNTIME_FLAG else None
+        end_time = time.time() if constants.constants.RUNTIME_FLAG else None
+        print(f"eigvalsh and storing energies, elapsed time: {(end_time - start_time):.2f} seconds") if constants.constants.RUNTIME_FLAG else None
 
         '''
         # Testing with random matrix
-        start_time = time.time() if RUNTIME_FLAG else None
+        start_time = time.time() if constants.constants.RUNTIME_FLAG else None
         test_H = torch.randn(2000, 2000, dtype=torch.complex128)
         eigenvalues = torch.linalg.eigvalsh(test_H)
-        end_time = time.time() if RUNTIME_FLAG else None
+        end_time = time.time() if constants.constants.RUNTIME_FLAG else None
         total_time = end_time - start_time
-        print(f"Generating and diagonalizing a random 2000x2000 matrix. Time: {total_time:.2f} seconds") if RUNTIME_FLAG else None
+        print(f"Generating and diagonalizing a random 2000x2000 matrix. Time: {total_time:.2f} seconds") if constants.constants.RUNTIME_FLAG else None
         '''
         
         if requires_grad: 
@@ -955,7 +955,7 @@ class Hamiltonian:
         
         ret, err = quad_vec(integrand, 1e-10, shift+rcut, epsabs=1e-20, epsrel=1e-5, quadrature="gk21")
         ret = ret.reshape(len(k), len(kp))
-        print(f"int2 est. maxerr: {np.amax(err)}")
+        # print(f"int2 est. maxerr: {np.amax(err)}")
         return ret
 
 

@@ -3,11 +3,9 @@ import numpy as np
 import os
 import multiprocessing as mp
 
-from constants.constants import *
+import constants.constants
+from constants.constants import MASS, HBAR
 from utils.nn_models import *
-
-MEMORY_FLAG = False
-RUNTIME_FLAG = True
 
 def read_NNConfigFile(filename):
     """
@@ -48,10 +46,10 @@ def read_NNConfigFile(filename):
     else:
         print(f"Using num_cores = {config['num_cores']} parallelization out of {mp.cpu_count()} total CPUs available.")
 
-    MEMORY_FLAG = config['memory_flag'] == 1
-    RUNTIME_FLAG = config['runtime_flag'] == 1
-    print("MEMORY_FLAG is ON") if MEMORY_FLAG else None
-    print("RUNTIME_FLAG is ON") if MEMORY_FLAG else None
+    constants.constants.MEMORY_FLAG = config['memory_flag'] == 1
+    constants.constants.RUNTIME_FLAG = config['runtime_flag'] == 1
+    print("MEMORY_FLAG is ON") if constants.constants.MEMORY_FLAG else None
+    print("RUNTIME_FLAG is ON") if constants.constants.RUNTIME_FLAG else None
 
     return config
 

@@ -5,11 +5,10 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt 
 mpl.rcParams['lines.markersize'] = 3
 
-from constants.constants import * 
-
 def pot_func(x, params): 
     pot = (params[0]*(x*x - params[1]) / (params[2] * torch.exp(params[3]*x*x) - 1.0))
     return pot
+
 
 def realSpacePot(vq, qSpacePot, nRGrid, rmax=25): 
     # vq and qSpacePot are both 1D tensor of torch.Size([nQGrid]). vq is assumed to be equally spaced. 
@@ -30,6 +29,7 @@ def realSpacePot(vq, qSpacePot, nRGrid, rmax=25):
             rSpacePot[ir] = torch.sum(prefactor * vq * torch.sin(vq * vr[ir]) * qSpacePot)
 
     return (vr.view(-1,1), rSpacePot.view(-1,1))
+
 
 def plotBandStruct(bulkSystem_list, bandStruct_list, SHOWPLOTS): 
     # The input bandStruct_list is a list of tensors. They should be ordered as: 
@@ -81,6 +81,7 @@ def plotBandStruct(bulkSystem_list, bandStruct_list, SHOWPLOTS):
     if SHOWPLOTS: 
         plt.show()
     return fig
+
 
 def plotPP(atomPPOrder, ref_q, pred_q, ref_vq_atoms, pred_vq_atoms, ref_labelName, pred_labelName, lineshape_array, boolPlotDiff, SHOWPLOTS):
     # ref_vq_atoms and pred_vq_atoms are 2D tensors. Each tensor contains the pseudopotential (either ref or pred)
@@ -142,8 +143,8 @@ def plot_training_validation_cost(training_cost, validation_cost, ylogBoolean, S
     # Plot training and validation costs
     fig, axs = plt.subplots(1, 1, figsize=(6, 4))
 
-    axs.plot(epochs, training_cost, "b-", label='Training Cost')
-    axs.plot(evaluation_epochs, validation_cost, "r:", label='Validation Cost')
+    axs.plot(np.array(epochs)+1, training_cost, "b-", label='Training Cost')
+    axs.plot(np.array(evaluation_epochs)+1, validation_cost, "r:", label='Validation Cost')
 
     if ylogBoolean:
         axs.set_yscale('log')
@@ -156,6 +157,7 @@ def plot_training_validation_cost(training_cost, validation_cost, ylogBoolean, S
     if SHOWPLOTS:
         plt.show()
     return fig
+
 
 def FT_converge_and_write_pp(atomPPOrder, qmax_array, nQGrid_array, nRGrid_array, model, val_dataset, xmin, xmax, ymin, ymax, choiceQMax, choiceNQGrid, choiceNRGrid, ppPlotFilePrefix, potRAtomFilePrefix, SHOWPLOTS):
     cmap = plt.get_cmap('rainbow')
