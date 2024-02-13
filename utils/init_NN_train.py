@@ -1,11 +1,11 @@
-import numpy as np
-import matplotlib as mpl
-import matplotlib.pyplot as plt 
-mpl.rcParams['lines.markersize'] = 3
 import torch
 from torch.utils.data import Dataset, DataLoader
 import torch.nn as nn
 import torch.nn.init as init
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt 
+mpl.rcParams['lines.markersize'] = 3
 
 from utils.pp_func import *
 from utils.memory import print_memory_usage

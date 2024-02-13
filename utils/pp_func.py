@@ -1,9 +1,9 @@
+import torch
 import numpy as np
 from itertools import product
 import matplotlib as mpl
 import matplotlib.pyplot as plt 
 mpl.rcParams['lines.markersize'] = 3
-import torch
 
 from constants.constants import * 
 

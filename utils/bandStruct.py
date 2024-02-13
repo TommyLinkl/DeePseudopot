@@ -1,13 +1,14 @@
-import numpy as np
-import matplotlib as mpl
-import matplotlib.pyplot as plt 
-mpl.rcParams['lines.markersize'] = 3
+
 import torch
 import psutil
 from memory_profiler import profile
 import gc
 from torch.autograd import profiler
 from torch.utils.checkpoint import checkpoint
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt 
+mpl.rcParams['lines.markersize'] = 3
 
 from constants.constants import *
 from utils.pp_func import pot_func

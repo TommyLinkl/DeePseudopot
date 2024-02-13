@@ -1,6 +1,6 @@
+import torch
 import sys, os
 from main import main
-import torch
 
 if __name__ == "__main__":
     torch.set_num_threads(1)

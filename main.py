@@ -1,7 +1,4 @@
 import os
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-import numpy as np
 import time
 import torch
 from torch.utils.data import DataLoader
@@ -10,7 +7,7 @@ import matplotlib.pyplot as plt
 import gc
 from multiprocessing import shared_memory
 from memory_profiler import profile
-torch.set_num_threads(1)
+import numpy as np
 
 from constants.constants import *
 from utils.nn_models import *
@@ -25,11 +22,8 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     torch.set_num_threads(1)
     torch.set_default_dtype(torch.float64)
     torch.manual_seed(24)
-    omp_num_threads = "1"
-    mkl_num_threads = "1"
-    os.environ["OMP_NUM_THREADS"] = omp_num_threads
-    os.environ["MKL_NUM_THREADS"] = mkl_num_threads
-    print(f"Setting OMP_NUM_THREADS = {omp_num_threads}, MKL_NUM_THREADS = {mkl_num_threads}")
+    os.environ["OMP_NUM_THREADS"] = "1"
+    os.environ["MKL_NUM_THREADS"] = "1"
 
     '''
     if torch.cuda.is_available():
@@ -41,7 +35,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     '''
     device = torch.device("cpu")
     memory_usage_data = []
-    set_debug_memory_flag(False)  # False
+    set_debug_memory_flag(False)
 
     ############## main ##############
     os.makedirs(resultsFolder, exist_ok=True)
@@ -55,14 +49,14 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     print(f"{'#' * 40}\nReading and setting up the BulkSystems.")
     atomPPOrder = []
     systems = [BulkSystem() for _ in range(nSystem)]
-    for iSys in range(nSystem): 
-        systems[iSys].setSystem(inputsFolder + "system_%d.par" % iSys)
-        systems[iSys].setInputs(inputsFolder + "input_%d.par" % iSys)
-        systems[iSys].setKPointsAndWeights(inputsFolder + "kpoints_%d.par" % iSys)
-        systems[iSys].setExpBS(inputsFolder + "expBandStruct_%d.par" % iSys)
-        systems[iSys].setBandWeights(inputsFolder + "bandWeights_%d.par" % iSys)
-        systems[iSys].print_basisStates(resultsFolder + "basisStates_%d.dat" % iSys)
-        atomPPOrder.append(systems[iSys].atomTypes)
+    for iSys, sys in enumerate(systems):
+        sys.setSystem(inputsFolder + "system_%d.par" % iSys)
+        sys.setInputs(inputsFolder + "input_%d.par" % iSys)
+        sys.setKPointsAndWeights(inputsFolder + "kpoints_%d.par" % iSys)
+        sys.setExpBS(inputsFolder + "expBandStruct_%d.par" % iSys)
+        sys.setBandWeights(inputsFolder + "bandWeights_%d.par" % iSys)
+        sys.print_basisStates(resultsFolder + "basisStates_%d.dat" % iSys)
+        atomPPOrder.append(sys.atomTypes)
 
     # Calculate atomPPOrder. Read in initial PPparams. Set up NN accordingly
     atomPPOrder = np.unique(np.concatenate(atomPPOrder))
@@ -80,7 +74,6 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
             PPmodel = globals()[NNConfig['PPmodel']](layers)
     else:
         raise ValueError(f"Function {NNConfig['PPmodel']} does not exist.")
-    PPmodel.share_memory_()
     print_memory_usage()
 
     # Initialize the ham class for each BulkSystem. 

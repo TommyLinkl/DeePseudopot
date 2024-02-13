@@ -1,9 +1,6 @@
 import sys, os
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-import numpy as np
 import torch
-torch.set_num_threads(1)
+import numpy as np
 from scipy.special import erf
 from scipy.integrate import quad, quadrature, quad_vec
 import time
@@ -709,14 +706,10 @@ class Hamiltonian:
         This function builds the Htot at a certain kpoint that is given as the input, 
         digonalizes the Htot, and obtains the eigenvalues at this kpoint. 
         '''
-        torch.set_num_threads(1)
-        os.environ["OMP_NUM_THREADS"] = "1"
-        os.environ["MKL_NUM_THREADS"] = "1"
 
         nbands = self.system.nBands
         eigVals = torch.zeros(nbands)
 
-        '''
         # if cachedMats_info = None and SOC=False: proceed as normal. Won't even go into buildSO or buildNL. 
         #       Need to pass None into buildSO and buildNL
         # if cachedMats_info = None and SOC=True: find SOmats and NLmats from self.xxx
@@ -779,8 +772,8 @@ class Hamiltonian:
         print_memory_usage()
         end_time = time.time()
         print(f"eigvalsh and storing energies, elapsed time: {(end_time - start_time):.2f} seconds")
-        '''
 
+        '''
         # Testing with random matrix
         start_time = time.time()
         test_H = torch.randn(2000, 2000, dtype=torch.complex128)
@@ -789,7 +782,8 @@ class Hamiltonian:
         total_time = end_time - start_time
         print(f"Generating and diagonalizing a random 2000x2000 matrix. Time: {total_time:.2f} seconds")
         return eigenvalues
-
+        '''
+        
         if requires_grad: 
             return eigVals
         else: 

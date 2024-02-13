@@ -1,11 +1,11 @@
 from threadpoolctl import threadpool_info
 from pprint import pprint
 import time
-import torch
-pprint(threadpool_info())
 import multiprocessing as mp
 pprint(threadpool_info())
 import numpy as np
+pprint(threadpool_info())
+import torch
 pprint(threadpool_info())
 import os
 import psutil 

@@ -1,7 +1,3 @@
-import numpy as np
-import matplotlib as mpl
-import matplotlib.pyplot as plt 
-mpl.rcParams['lines.markersize'] = 3
 import torch
 import time
 from torch.utils.data import Dataset, DataLoader
@@ -11,6 +7,10 @@ from torch.optim.lr_scheduler import ExponentialLR
 import gc
 import multiprocessing as mp
 from functools import partial
+import numpy as np
+import matplotlib as mpl
+import matplotlib.pyplot as plt 
+mpl.rcParams['lines.markersize'] = 3
 
 from utils.pp_func import *
 from utils.memory import print_memory_usage
