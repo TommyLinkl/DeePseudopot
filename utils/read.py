@@ -10,9 +10,16 @@ MEMORY_FLAG = False
 RUNTIME_FLAG = True
 
 def read_NNConfigFile(filename):
+    """
+    This read function is able to skip empty lines, 
+    able to ignore comments after # sign, 
+    and not all keys are required. 
+    """
     config = {}
     with open(filename, 'r') as file:
         for line in file:
+            if not line.strip():              # Skip empty lines
+                continue
             if '=' in line:
                 key, value = line.split('#')[0].strip().split('=')
                 key = key.strip()

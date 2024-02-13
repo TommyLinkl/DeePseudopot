@@ -1,13 +1,11 @@
 import torch
 import time
-from torch.utils.data import Dataset, DataLoader
 import torch.nn as nn
 import torch.nn.init as init
 from torch.optim.lr_scheduler import ExponentialLR
 import gc
 import multiprocessing as mp
 from functools import partial
-import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt 
 mpl.rcParams['lines.markersize'] = 3
@@ -73,8 +71,8 @@ def calcGradSingleKpt_parallel(kidx, ham, iSystem, bulkSystem, criterion_singleK
 def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, atomPPOrder, totalParams, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, val_dataset, resultsFolder, cachedMats_info):
     training_COST=[]
     validation_COST=[]
-    file_trainCost = open(resultsFolder + 'final_training_cost.dat', "w")
-    file_valCost = open(resultsFolder + 'final_validation_cost.dat', "w")
+    file_trainCost = open(f'{resultsFolder}final_training_cost.dat', "w")
+    file_valCost = open(f'{resultsFolder}final_validation_cost.dat', "w")
     model.to(device)
     best_validation_loss = float('inf')
     no_improvement_count = 0
@@ -119,7 +117,7 @@ def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, ato
                 ham_list[iSystem].set_NNmodel(model)
                 print_memory_usage()
 
-                if ('num_cores' not in NNConfig): # or (NNConfig['num_cores']==1): 
+                if ('num_cores' not in NNConfig) or (NNConfig['num_cores']==0): 
                     # No multiprocessing
                     for kidx in range(bulkSystem_list[iSystem].getNKpts()): 
                         calcEnergies = ham_list[iSystem].calcEigValsAtK(kidx, iSystem, cachedMats_info, requires_grad=True)
@@ -145,22 +143,12 @@ def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, ato
                             for key in d:
                                 merged_dict[key] = merged_dict.get(key, 0) + d[key]
                         return merged_dict
-                    print(f"Total num_cores available = {mp.cpu_count()}. We are using num_cores = {NNConfig['num_cores']}.")
-                    pool = mp.Pool(NNConfig['num_cores'])
-                    results_systemKpt = pool.map(partial(calcGradSingleKpt_parallel, 
-                                                         ham=ham_list[iSystem], 
-                                                         iSystem=iSystem, 
-                                                         bulkSystem=bulkSystem_list[iSystem], 
-                                                         criterion_singleKpt=criterion_singleKpt, 
-                                                         optimizer=optimizer, 
-                                                         model=model, 
-                                                         cachedMats_info=cachedMats_info), 
-                                                         range(bulkSystem_list[iSystem].getNKpts()))
 
-                    gradients_systemKpt, trainLoss_systemKpt = zip(*results_systemKpt)
+                    args_list = [(kidx, ham_list[iSystem], iSystem, bulkSystem_list[iSystem], criterion_singleKpt, optimizer, model, cachedMats_info) for kidx in range(bulkSystem_list[iSystem].getNKpts())]
+                    with mp.Pool(NNConfig['num_cores']) as pool:
+                        results_systemKpt = pool.starmap(calcGradSingleKpt_parallel, args_list)
+                        gradients_systemKpt, trainLoss_systemKpt = zip(*results_systemKpt)
                     gc.collect()
-                    pool.close()
-                    pool.join()
                     total_gradients = merge_dicts(gradients_systemKpt)
                     trainLoss = torch.sum(torch.tensor(trainLoss_systemKpt))
 
@@ -191,7 +179,6 @@ def bandStruct_train_GPU(model, device, NNConfig, bulkSystem_list, ham_list, ato
                 ham_list[iSystem].set_NNmodel(model)
                 with torch.no_grad():
                     NN_outputs = ham_list[iSystem].calcBandStruct_noGrad(NNConfig, iSystem, cachedMats_info)
-                # NN_outputs = calcBandStruct_GPU(True, model, bulkSystem_list[iSystem], atomPPOrder, totalParams, device)
                 systemLoss = criterion_singleSystem(NN_outputs, bulkSystem_list[iSystem])
                 val_loss += systemLoss.item()
                 
