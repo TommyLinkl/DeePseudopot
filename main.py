@@ -10,13 +10,11 @@ from memory_profiler import profile
 import numpy as np
 
 from constants.constants import *
-from utils.nn_models import *
-from utils.read import BulkSystem, read_NNConfigFile, read_PPparams
+from utils.read import MEMORY_FLAG, RUNTIME_FLAG, BulkSystem, read_NNConfigFile, setAllBulkSystems, setNN
 from utils.pp_func import plotPP, FT_converge_and_write_pp, plotBandStruct
 from utils.init_NN_train import init_Zunger_data, init_Zunger_weighted_mse, init_Zunger_train_GPU
 from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, bandStruct_train_GPU
 from utils.ham import Hamiltonian
-from utils.memory import print_memory_usage, plot_memory_usage, set_debug_memory_flag
 
 def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     torch.set_num_threads(1)
@@ -24,57 +22,19 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     torch.manual_seed(24)
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1"
-
-    '''
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-        print("CUDA is available.\n")
-    else:
-        device = torch.device("cpu")
-        print("CUDA is not available. Using CPU.\n")
-    '''
     device = torch.device("cpu")
-    memory_usage_data = []
-    set_debug_memory_flag(False)
 
-    ############## main ##############
     os.makedirs(resultsFolder, exist_ok=True)
 
     NNConfig = read_NNConfigFile(inputsFolder + 'NN_config.par')
     nSystem = NNConfig['nSystem']
-    if 'memory_flag' in NNConfig:
-        set_debug_memory_flag(NNConfig['memory_flag'])
     
     # Read and set up systems
-    print(f"{'#' * 40}\nReading and setting up the BulkSystems.")
-    atomPPOrder = []
-    systems = [BulkSystem() for _ in range(nSystem)]
-    for iSys, sys in enumerate(systems):
-        sys.setSystem(inputsFolder + "system_%d.par" % iSys)
-        sys.setInputs(inputsFolder + "input_%d.par" % iSys)
-        sys.setKPointsAndWeights(inputsFolder + "kpoints_%d.par" % iSys)
-        sys.setExpBS(inputsFolder + "expBandStruct_%d.par" % iSys)
-        sys.setBandWeights(inputsFolder + "bandWeights_%d.par" % iSys)
-        sys.print_basisStates(resultsFolder + "basisStates_%d.dat" % iSys)
-        atomPPOrder.append(sys.atomTypes)
+    print(f"\n{'#' * 40}\nReading and setting up the BulkSystems.")
+    systems, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams = setAllBulkSystems(nSystem, inputsFolder, resultsFolder)
 
-    # Calculate atomPPOrder. Read in initial PPparams. Set up NN accordingly
-    atomPPOrder = np.unique(np.concatenate(atomPPOrder))
-    nPseudopot = len(atomPPOrder)
-    print(f"There are {nPseudopot} atomic pseudopotentials. They are in the order of: {atomPPOrder}")
-    PPparams, totalParams = read_PPparams(atomPPOrder, inputsFolder + "init_")
-    localPotParams = totalParams[:,:4]
-    layers = [1] + NNConfig['hiddenLayers'] + [nPseudopot]
-    if NNConfig['PPmodel'] in globals() and callable(globals()[NNConfig['PPmodel']]):
-        if NNConfig['PPmodel']=='Net_relu_xavier_decay': 
-            PPmodel = globals()[NNConfig['PPmodel']](layers, decay_rate=NNConfig['PPmodel_decay_rate'], decay_center=NNConfig['PPmodel_decay_center'])
-        elif NNConfig['PPmodel']=='Net_relu_xavier_decayGaussian': 
-            PPmodel = globals()[NNConfig['PPmodel']](layers, gaussian_std=NNConfig['PPmodel_gaussian_std'])
-        else: 
-            PPmodel = globals()[NNConfig['PPmodel']](layers)
-    else:
-        raise ValueError(f"Function {NNConfig['PPmodel']} does not exist.")
-    print_memory_usage()
+    # Set up the neural network
+    PPmodel = setNN(NNConfig, nPseudopot)
 
     # Initialize the ham class for each BulkSystem. 
     # dummy_ham is used to initialize and store the cached SOmats and NLmats in dict cachedMats. 
@@ -146,7 +106,6 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
         hams.append(ham)
         end_time = time.time()
         print(f"Elapsed time: {(end_time - start_time):.2f} seconds\n")
-    print_memory_usage()
 
     oldFunc_plot_bandStruct_list = []
     oldFunc_totalMSE = 0
@@ -164,7 +123,6 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     fig.suptitle("The total bandStruct MSE = %e " % oldFunc_totalMSE)
     fig.savefig(resultsFolder + 'oldFunc_plotBS.png')
     plt.close('all')
-    print_memory_usage()
 
     ############# Initialize the NN to the local pot function form #############
     train_dataset = init_Zunger_data(atomPPOrder, localPotParams, train=True)
@@ -196,17 +154,14 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
         torch.save(PPmodel.state_dict(), resultsFolder + 'initZunger_PPmodel.pth')
 
         print("Done with NN initialization to the latest function form.")
-    print_memory_usage()
 
     print("Plotting and write pseudopotentials in the real and reciprocal space.")
     torch.cuda.empty_cache()
     PPmodel.eval()
-    PPmodel.cpu()
     qmax = np.array([10.0, 20.0, 30.0])
     nQGrid = np.array([2048, 4096])
     nRGrid = np.array([2048, 4096])
     FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, val_dataset, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, resultsFolder + 'initZunger_plotPP', resultsFolder + 'initZunger_pot', NNConfig['SHOWPLOTS'])
-    print_memory_usage()
 
     print("\nEvaluating band structures using the initialized pseudopotentials. ")
     plot_bandStruct_list = []
@@ -228,7 +183,6 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     fig.savefig(resultsFolder + 'initZunger_plotBS.png')
     plt.close('all')
     torch.cuda.empty_cache()
-    print_memory_usage()
 
     ############# Fit NN to band structures ############# 
     print(f"\n{'#' * 40}\nStart training of the NN to fit to band structures. ")
@@ -247,12 +201,10 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     ############# Writing the trained NN PP ############# 
     print(f"\n{'#' * 40}\nWriting the NN pseudopotentials")
     PPmodel.eval()
-    PPmodel.cpu()
     qmax = np.array([10.0, 20.0, 30.0])
     nQGrid = np.array([2048, 4096])
     nRGrid = np.array([2048, 4096])
     FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, val_dataset, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, resultsFolder + 'final_plotPP', resultsFolder + 'final_pot', NNConfig['SHOWPLOTS'])
-    plot_memory_usage(resultsFolder)
 
     if shm_dict_SO is not None: 
         for shm in shm_dict_SO.values():
@@ -269,7 +221,6 @@ if __name__ == "__main__":
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1"
 
-    MEMORY_FLAG = False
     if MEMORY_FLAG:
         main = profile(main)
 

@@ -11,7 +11,7 @@ from functools import partial
 
 from constants.constants import *
 from utils.pp_func import pot_func
-from utils.memory import print_memory_usage
+from utils.read import RUNTIME_FLAG
 
 class Hamiltonian:
     def __init__(
@@ -99,10 +99,11 @@ class Hamiltonian:
             model.to(device)
         
 
-
     def buildHtot(self, kidx, preComp_SOmats_kidx, preComp_NLmats_kidx, defbool=False, requires_grad=True):
         """
-        Build the total Hamiltonian for a given kpt, specified by its kidx.
+        Build the total Hamiltonian for a given kpt, specified by its kidx. 
+        preComp_SOmats_kidx and preComp_NLmats_kidx are the pre-computed
+        SO and NL matrices (actual matrices) at the certain kidx
         """
         nbv = self.basis.shape[0]
         if self.SObool:
@@ -117,29 +118,29 @@ class Hamiltonian:
             Htot[i,i] = HBAR**2 / (2*MASS) * torch.norm(self.basis[i%nbv] + self.system.kpts[kidx])**2
 
         # local potential
-        start_time = time.time()
-        Htot = self.buildVlocMat(self.NNConfig, defbool=defbool, addMat=Htot)
+        start_time = time.time() if RUNTIME_FLAG else None
+        Htot = self.buildVlocMat(defbool=defbool, addMat=Htot)
         if not requires_grad: 
             Htot = Htot.detach()
-        end_time = time.time()
-        print(f"Building VlocMat, elapsed time: {(end_time - start_time):.2f} seconds")
+        end_time = time.time() if RUNTIME_FLAG else None
+        print(f"Building VlocMat, elapsed time: {(end_time - start_time):.2f} seconds") if RUNTIME_FLAG else None
 
         if self.SObool:
-            start_time = time.time()
+            start_time = time.time() if RUNTIME_FLAG else None
             if preComp_SOmats_kidx is None: 
                 raise ValueError("SObool is True, but preComp_SOmats_kidx isn't passed. ")
             else: 
-                Htot = self.buildSOmat(kidx, preComp_SOmats_kidx, addMat=Htot)
-            end_time = time.time()
-            print(f"Building SOmat, elapsed time: {(end_time - start_time):.2f} seconds")
+                Htot = self.buildSOmat(preComp_SOmats_kidx, addMat=Htot)
+            end_time = time.time() if RUNTIME_FLAG else None
+            print(f"Building SOmat, elapsed time: {(end_time - start_time):.2f} seconds") if RUNTIME_FLAG else None
 
-            start_time = time.time()
+            start_time = time.time() if RUNTIME_FLAG else None
             if preComp_NLmats_kidx is None: 
                 raise ValueError("Trying to buildNLmat, but preComp_NLmats_kidx is not pre-computed. ")
             else: 
-                Htot = self.buildNLmat(kidx, preComp_NLmats_kidx, addMat=Htot)
-            end_time = time.time()
-            print(f"Building NLmat, elapsed time: {(end_time - start_time):.2f} seconds")
+                Htot = self.buildNLmat(preComp_NLmats_kidx, addMat=Htot)
+            end_time = time.time() if RUNTIME_FLAG else None
+            print(f"Building NLmat, elapsed time: {(end_time - start_time):.2f} seconds") if RUNTIME_FLAG else None
 
         if self.device.type == "cuda":
             # !!! is this sufficient to match previous performance?
@@ -153,7 +154,7 @@ class Hamiltonian:
         return Htot
 
     
-    def buildVlocMat(self, NNConfig, defbool=False, addMat=None):
+    def buildVlocMat(self, defbool=False, addMat=None):
         """
         Computes the local potential, either using the algebraic form
         or the NN form.
@@ -641,10 +642,11 @@ class Hamiltonian:
         return NLmats
     
     
-    def buildSOmat(self, kidx, preComp_SOmats_kidx, addMat=None):
+    def buildSOmat(self, preComp_SOmats_kidx, addMat=None):
         """
         Build the final SO mat for a given kpoint (specified by its kidx).
-        Using the cached SOmats, this function just multiplies by the 
+        Using the cached SOmats at the kidx (preComp_SOmats_kidx, the 
+        actual matrices), this function just multiplies by the 
         current values of the PPparams, and then sums over all atoms.
         "addMat" can be set to be a partially constructed Hamiltonian matrix, to
         which the local potential can be added. Might help save slightly on memory.
@@ -669,10 +671,11 @@ class Hamiltonian:
         return SOmatf
     
 
-    def buildNLmat(self, kidx, preComp_NLmats_kidx, addMat=None):
+    def buildNLmat(self, preComp_NLmats_kidx, addMat=None):
         """
         Build the final nonlocal mat for a given kpoint (specified by its kidx).
-        Using the cached NLmats, this function just multiplies by the 
+        Using the cached NLmats at this kidx (preComp_NLmats_kidx, the actual
+        matrices), this function just multiplies by the 
         current values of the PPparams, and then sums over all atoms.
         "addMat" can be set to be a partially constructed Hamiltonian matrix, to
         which the local potential can be added. Might help save slightly on memory.
@@ -701,6 +704,7 @@ class Hamiltonian:
 
         return NLmatf
 
+
     def calcEigValsAtK(self, kidx, iSystem, cachedMats_info, requires_grad=True):
         '''
         This function builds the Htot at a certain kpoint that is given as the input, 
@@ -710,45 +714,35 @@ class Hamiltonian:
         nbands = self.system.nBands
         eigVals = torch.zeros(nbands)
 
-        # if cachedMats_info = None and SOC=False: proceed as normal. Won't even go into buildSO or buildNL. 
-        #       Need to pass None into buildSO and buildNL
-        # if cachedMats_info = None and SOC=True: find SOmats and NLmats from self.xxx
-        #       Need to pass self.SOmats[kidx] and self.NLmats[kidx]
-        # else: load from the shared memory (cachedMats_info is only filled when SOC=True, para=True)
-        if (cachedMats_info is None) and (self.SObool==False): 
+        if (cachedMats_info is None) and (self.SObool==False):    # proceed as normal. Won't even go into buildSO or buildNL. Need to pass None into buildSO and buildNL
             preComp_SOmats_kidx = None
             preComp_NLmats_kidx = None
-        elif (cachedMats_info is None) and (self.SObool==True): 
+        elif (cachedMats_info is None) and (self.SObool==True):
             if (self.SOmats is None) or (self.NLmats is None):
                 raise ValueError("SObool is True, but the ham instance doesn't have initialized SOmats or NLmats. ")
             preComp_SOmats_kidx = self.SOmats[kidx]
             preComp_NLmats_kidx = self.NLmats[kidx]
         elif (cachedMats_info is not None): 
-            start_time = time.time()
+            start_time = time.time() if RUNTIME_FLAG else None
             shm_SOmats = shared_memory.SharedMemory(name=f"SOmats_{iSystem}_{kidx}")
             preComp_SOmats_kidx = np.ndarray(cachedMats_info[f"SO_{iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{iSystem}_{kidx}"]['dtype'], buffer=shm_SOmats.buf)
-
             shm_NLmats = shared_memory.SharedMemory(name=f"NLmats_{iSystem}_{kidx}")
             preComp_NLmats_kidx = np.ndarray(cachedMats_info[f"NL_{iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{iSystem}_{kidx}"]['dtype'], buffer=shm_NLmats.buf)
-            end_time = time.time()
-            print(f"Loading shared memory, elapsed time: {(end_time - start_time):.2f} seconds")
+            end_time = time.time() if RUNTIME_FLAG else None
+            print(f"Loading shared memory, elapsed time: {(end_time - start_time):.2f} seconds") if RUNTIME_FLAG else None
         else: 
             raise ValueError("Error in calcEigValsAtK. ")
 
-        start_time = time.time()
-        print_memory_usage()
+        start_time = time.time() if RUNTIME_FLAG else None
         H = self.buildHtot(kidx, preComp_SOmats_kidx, preComp_NLmats_kidx, requires_grad)
         if not requires_grad: 
             H = H.detach()
-        print_memory_usage()
-        end_time = time.time()
-        print(f"Building Htot, elapsed time: {(end_time - start_time):.2f} seconds")
+        end_time = time.time() if RUNTIME_FLAG else None
+        print(f"Building Htot, elapsed time: {(end_time - start_time):.2f} seconds") if RUNTIME_FLAG else None
 
-        start_time = time.time()
+        start_time = time.time() if RUNTIME_FLAG else None
         if not self.coupling:
-            print_memory_usage() 
             energies = torch.linalg.eigvalsh(H)
-            print_memory_usage() 
             energiesEV = energies * AUTOEV
         else:
             # this will be slow, since torch seems to only support
@@ -769,25 +763,24 @@ class Hamiltonian:
             # dont need to interleave eigenvecs (if stored) since we only
             # store the vb and cb anyways.
         eigVals[:] = energiesEV[:nbands]
-        print_memory_usage()
-        end_time = time.time()
-        print(f"eigvalsh and storing energies, elapsed time: {(end_time - start_time):.2f} seconds")
+        end_time = time.time() if RUNTIME_FLAG else None
+        print(f"eigvalsh and storing energies, elapsed time: {(end_time - start_time):.2f} seconds") if RUNTIME_FLAG else None
 
         '''
         # Testing with random matrix
-        start_time = time.time()
+        start_time = time.time() if RUNTIME_FLAG else None
         test_H = torch.randn(2000, 2000, dtype=torch.complex128)
         eigenvalues = torch.linalg.eigvalsh(test_H)
-        end_time = time.time()
+        end_time = time.time() if RUNTIME_FLAG else None
         total_time = end_time - start_time
-        print(f"Generating and diagonalizing a random 2000x2000 matrix. Time: {total_time:.2f} seconds")
-        return eigenvalues
+        print(f"Generating and diagonalizing a random 2000x2000 matrix. Time: {total_time:.2f} seconds") if RUNTIME_FLAG else None
         '''
         
         if requires_grad: 
             return eigVals
         else: 
             return eigVals.detach()
+
 
     def calcBandStruct_withGrad(self, iSystem, cachedMats_info):
         '''
@@ -801,7 +794,6 @@ class Hamiltonian:
             eigValsAtK = self.calcEigValsAtK(self, kidx, iSystem, cachedMats_info, requires_grad=True)
             bandStruct[kidx,:] = eigValsAtK
         
-        print_memory_usage()
         return bandStruct
 
 
@@ -814,7 +806,7 @@ class Hamiltonian:
         nkpt = self.system.getNKpts()
 
         bandStruct = torch.zeros([nkpt, nbands], requires_grad=False)
-        if ('num_cores' not in NNConfig): # or (NNConfig['num_cores']==1): Commented out for fast testing.
+        if ('num_cores' not in NNConfig) or (NNConfig['num_cores']==0): 
             # No multiprocessing
             for kidx in range(nkpt):
                 eigValsAtK = self.calcEigValsAtK(kidx, iSystem, cachedMats_info, requires_grad=False)
@@ -823,13 +815,11 @@ class Hamiltonian:
             torch.set_num_threads(1)
             os.environ["OMP_NUM_THREADS"] = "1"
             os.environ["MKL_NUM_THREADS"] = "1"
-            print(f"Total num_cores available = {mp.cpu_count()}. We are using num_cores = {NNConfig['num_cores']}.")
             print(f"The size of cachedMats_info is: {sys.getsizeof(cachedMats_info)/1024} KB")
+            args_list = [(kidx, iSystem, cachedMats_info, False) for kidx in range(nkpt)]
             with mp.Pool(NNConfig['num_cores']) as pool:
-                args_list = [(kidx, iSystem, cachedMats_info, False) for kidx in range(nkpt)]
                 eigValsList = pool.starmap(self.calcEigValsAtK, args_list)
             bandStruct = torch.stack(eigValsList)
-        print_memory_usage()
         return bandStruct
 
 
@@ -1001,6 +991,7 @@ class Hamiltonian:
         """
         return self.model
     
+
     def set_NNmodel(self, newmodel):
         """
         Use this to set the current NN model.
@@ -1008,8 +999,10 @@ class Hamiltonian:
         """
         self.model = newmodel
 
+
     def get_PPparams(self):
         return self.PPparams
+    
     
     def set_PPparams(self, newparams):
         """

@@ -1,8 +1,13 @@
 import torch
 import numpy as np
 import os
+import multiprocessing as mp
 
 from constants.constants import *
+from utils.nn_models import *
+
+MEMORY_FLAG = False
+RUNTIME_FLAG = True
 
 def read_NNConfigFile(filename):
     config = {}
@@ -12,7 +17,7 @@ def read_NNConfigFile(filename):
                 key, value = line.split('#')[0].strip().split('=')
                 key = key.strip()
                 value = value.strip()
-                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'memory_flag']:
+                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'memory_flag', 'runtime_flag']:
                     config[key] = bool(int(value))
                 elif key in ['nSystem', 'num_cores', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience']:
                     config[key] = int(value)
@@ -23,12 +28,23 @@ def read_NNConfigFile(filename):
                 else:
                     config[key] = value
 
+    print("All settings: ")
     if (config["checkpoint"]==1) and (config["separateKptGrad"]==1): 
         raise ValueError("############################################\n# Please don't turn on both checkpoint and separateKptGrad. \n############################################\n")
     elif (config["checkpoint"]==1) and (config["separateKptGrad"]==0):
-        print("############################################\n# WARNING: Using checkpointing! Please use this as a last resort, only for pseudopotential fitting where memory limit is a major issue. The code will run slower due to checkpointing. \n############################################\n")
+        print("##### WARNING: Using checkpointing! Please use this as a last resort, only for pseudopotential fitting where memory limit is a major issue. The code will run slower due to checkpointing. \n")
     elif (config["checkpoint"]==0) and (config["separateKptGrad"]==1): 
-        print("############################################\n# Using separateKptGrad. This can decrease the peak memory load during the fitting code. \n############################################\n")
+        print("Using separateKptGrad. This can decrease the peak memory load during the fitting code.")
+
+    if ('num_cores' not in config) or (config['num_cores']==0): 
+        print("Not doing multiprocessing.")
+    else:
+        print(f"Using num_cores = {config['num_cores']} parallelization out of {mp.cpu_count()} total CPUs available.")
+
+    MEMORY_FLAG = config['memory_flag'] == 1
+    RUNTIME_FLAG = config['runtime_flag'] == 1
+    print("MEMORY_FLAG is ON") if MEMORY_FLAG else None
+    print("RUNTIME_FLAG is ON") if MEMORY_FLAG else None
 
     return config
 
@@ -227,3 +243,36 @@ class BulkSystem:
 
         np.savetxt(basisStateFileName, sorted_basisSet, fmt=['%d']+['%f']*(sorted_basisSet.shape[1]-1), delimiter='\t')
         return
+
+def setAllBulkSystems(nSystem, inputsFolder, resultsFolder):
+    atomPPOrder = []
+    systemsList = [BulkSystem() for _ in range(nSystem)]
+    for iSys, sys in enumerate(systemsList):
+        sys.setSystem(inputsFolder + "system_%d.par" % iSys)
+        sys.setInputs(inputsFolder + "input_%d.par" % iSys)
+        sys.setKPointsAndWeights(inputsFolder + "kpoints_%d.par" % iSys)
+        sys.setExpBS(inputsFolder + "expBandStruct_%d.par" % iSys)
+        sys.setBandWeights(inputsFolder + "bandWeights_%d.par" % iSys)
+        sys.print_basisStates(resultsFolder + "basisStates_%d.dat" % iSys)
+        atomPPOrder.append(sys.atomTypes)
+    atomPPOrder = np.unique(np.concatenate(atomPPOrder))
+    nPseudopot = len(atomPPOrder)
+    print(f"There are {nPseudopot} atomic pseudopotentials. They are in the order of: {atomPPOrder}")
+    
+    PPparams, totalParams = read_PPparams(atomPPOrder, inputsFolder + "init_")
+    localPotParams = totalParams[:,:4]
+    return systemsList, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams
+
+def setNN(config, nPseudopot):
+    layers = [1] + config['hiddenLayers'] + [nPseudopot]
+    if config['PPmodel'] in globals() and callable(globals()[config['PPmodel']]):
+        if config['PPmodel']=='Net_relu_xavier_decay': 
+            PPmodel = globals()[config['PPmodel']](layers, decay_rate=config['PPmodel_decay_rate'], decay_center=config['PPmodel_decay_center'])
+        elif config['PPmodel']=='Net_relu_xavier_decayGaussian': 
+            PPmodel = globals()[config['PPmodel']](layers, gaussian_std=config['PPmodel_gaussian_std'])
+        else: 
+            PPmodel = globals()[config['PPmodel']](layers)
+    else:
+        raise ValueError(f"Function {config['PPmodel']} does not exist.")
+    return PPmodel
+
