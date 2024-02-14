@@ -791,7 +791,7 @@ class Hamiltonian:
         nkpt = self.system.getNKpts()
         bandStruct = torch.zeros([nkpt, nbands])
         for kidx in range(nkpt):
-            eigValsAtK = self.calcEigValsAtK(self, kidx, iSystem, cachedMats_info, requires_grad=True)
+            eigValsAtK = self.calcEigValsAtK(kidx, iSystem, cachedMats_info, requires_grad=True)
             bandStruct[kidx,:] = eigValsAtK
         
         return bandStruct
