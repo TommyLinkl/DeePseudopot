@@ -1,13 +1,12 @@
-import os, time
+import os, time, sys
 import torch
 from torch.optim.lr_scheduler import ExponentialLR
 from memory_profiler import profile
 import numpy as np
 
 import constants.constants
-from constants.constants import MASS, HBAR, AUTOEV, AUTONM, NQGRID
 from utils.read import read_NNConfigFile, setAllBulkSystems, setNN
-from utils.pp_func import FT_converge_and_write_pp, plotBandStruct
+from utils.pp_func import FT_converge_and_write_pp
 from utils.init_NN_train import init_ZungerPP
 from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, bandStruct_train_GPU, evalBS_noGrad
 from utils.ham import initAndCacheHams
@@ -86,7 +85,10 @@ if __name__ == "__main__":
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1"
 
-    if constants.constants.MEMORY_FLAG:
-        main = profile(main)
+    if len(sys.argv) != 3:
+        print("Usage: python main.py <inputsFolder> <resultsFolder> ")
+        sys.exit(1)
 
-    main("CALCS/CsPbI3_test/inputs/", "CALCS/CsPbI3_test/results/")
+    inputsFolder = sys.argv[1]
+    resultsFolder = sys.argv[2]
+    main(inputsFolder, resultsFolder)

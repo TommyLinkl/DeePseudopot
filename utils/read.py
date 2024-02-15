@@ -37,18 +37,19 @@ def read_NNConfigFile(filename):
     if (config["checkpoint"]==1) and (config["separateKptGrad"]==1): 
         raise ValueError("############################################\n# Please don't turn on both checkpoint and separateKptGrad. \n############################################\n")
     elif (config["checkpoint"]==1) and (config["separateKptGrad"]==0):
-        print("##### WARNING: Using checkpointing! Please use this as a last resort, only for pseudopotential fitting where memory limit is a major issue. The code will run slower due to checkpointing. \n")
+        print("WARNING: Using checkpointing! Please use this as a last resort, only for pseudopotential fitting where memory limit is a major issue. The code will run slower due to checkpointing. \n")
     elif (config["checkpoint"]==0) and (config["separateKptGrad"]==1): 
-        print("Using separateKptGrad. This can decrease the peak memory load during the fitting code.")
+        print("\tUsing separateKptGrad. This can decrease the peak memory load during the fitting code.")
 
     if ('num_cores' not in config) or (config['num_cores']==0): 
-        print("Not doing multiprocessing.")
+        print("\tNot doing multiprocessing.")
     else:
-        print(f"Using num_cores = {config['num_cores']} parallelization out of {mp.cpu_count()} total CPUs available.")
+        print(f"\tUsing num_cores = {config['num_cores']} parallelization out of {mp.cpu_count()} total CPUs available.")
 
     constants.constants.MEMORY_FLAG = config['memory_flag'] == 1
     constants.constants.RUNTIME_FLAG = config['runtime_flag'] == 1
-    print("MEMORY_FLAG is ON") if constants.constants.MEMORY_FLAG else None
+    if constants.constants.MEMORY_FLAG: 
+        print("\nWARNING: MEMORY_FLAG is ON. Please check to make sure that the script is run with:\n\tmprof run --output <mem_output_file> main.py <inputsFolder> <resultsFolder>\n\tmprof plot -o <mem_plot_file> <mem_output_file>\n")
     print("RUNTIME_FLAG is ON") if constants.constants.RUNTIME_FLAG else None
 
     return config

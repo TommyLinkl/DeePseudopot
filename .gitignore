@@ -4,6 +4,5 @@ __pycache__/
 CALCS/
 CALCS/*
 .vscode/*
-custom_torch/*
-pytorch/*
 test_parallel/results*/*
+*.log

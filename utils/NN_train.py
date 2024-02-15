@@ -230,7 +230,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, to
 
             torch.save(model.state_dict(), f'{resultsFolder}epoch_{epoch+1}_PPmodel.pth')
             torch.cuda.empty_cache()
-        
+        '''
         # Dynamic stopping: Stop training if no improvement for 'patience' epochs
         if val_MSE < best_validation_loss - 1e-4:
             best_validation_loss = val_MSE
@@ -240,7 +240,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, to
         if no_improvement_count >= NNConfig['patience']:
             print(f"Early stopping at Epoch {epoch} due to lack of improvement.")
             break
-
+        '''
         plt.close('all')
         torch.cuda.empty_cache()
     fig_cost = plot_training_validation_cost(training_COST, validation_COST, True, NNConfig['SHOWPLOTS']);
