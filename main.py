@@ -4,6 +4,7 @@ from torch.optim.lr_scheduler import ExponentialLR
 from memory_profiler import profile
 import numpy as np
 
+
 import constants.constants
 from utils.read import read_NNConfigFile, setAllBulkSystems, setNN
 from utils.pp_func import FT_converge_and_write_pp
@@ -17,6 +18,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     torch.manual_seed(24)
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1"
+
     device = torch.device("cpu")
 
     os.makedirs(resultsFolder, exist_ok=True)

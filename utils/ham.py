@@ -4,14 +4,17 @@ import numpy as np
 from scipy.special import erf
 from scipy.integrate import quad, quadrature, quad_vec
 import time
+import copy
+
 from torch.utils.checkpoint import checkpoint
 import multiprocessing as mp
 from multiprocessing import Process, Queue, Pool, shared_memory
 import gc
 
-import constants.constants
-from constants.constants import MASS, HBAR, AUTOEV
-from utils.pp_func import pot_func
+import ..constants.constants as constants.constants
+from ..constants.constants import MASS, HBAR, AUTOEV
+from .pp_func import pot_func, pot_funcLR
+
 
 class Hamiltonian:
     def __init__(
@@ -55,6 +58,8 @@ class Hamiltonian:
         self.model = model
         self.coupling = coupling   # fit the e-ph couplings? boolean
 
+        self.LRgamma = 0.2   # erf attenuation parameter for long-range 
+                             # component of potential. This is a good value
 
         # if spin orbit, do a bunch of caching to speed up the inner loop 
         # of the optimization. This uses more memory (storing natom * nkpt
@@ -63,41 +68,54 @@ class Hamiltonian:
         if SObool and cacheSO:
             #self.SOmats = self.initSOmat()
             self.SOmats = self.initSOmat_fast()
+            self.SOmats_def = None
             # check if nonlocal potentials are included, if so, cache them
-            checknl = False
+            self.checknl = False
             for alpha in range(system.getNAtomTypes()):
                 if abs(self.PPparams[self.system.atomTypes[alpha]][6]) > 1e-8:
-                    checknl = True
+                    self.checknl = True
                     break
                 elif abs(self.PPparams[self.system.atomTypes[alpha]][7]) > 1e-8:
-                    checknl = True
+                    self.checknl = True
                     break
-            if checknl:
+            if self.checknl:
                 #self.NLmats = self.initNLmat()
                 self.NLmats = self.initNLmat_fast()
+                self.NLmats_def = None
+       
         elif (SObool) and (not cacheSO) and ('num_cores' not in NNConfig):
             print("WARNING: Setting SObool=True, cacheSO=False, without multiprocessing parallelization. This is not implemented. ")
+
         
         if self.coupling:
-            nkpt = self.system.getNKpt()
-            nbv = self.system.basis.shape[0]
-            if SObool: nbv *= 2
-            self.vb_vecs = torch.zeros([nkpt, nbv], dtype=torch.complex128)
-            self.cb_vecs = torch.zeros([nkpt, nbv], dtype=torch.complex128)
+            nkpt = self.system.getNKpts()
+            #nbv = self.basis.shape[0]
+            #if SObool: nbv *= 2
+            #self.vb_vecs = torch.zeros([nkpt, nbv, 1], dtype=torch.complex128)
+            #self.cb_vecs = torch.zeros([nkpt, nbv, 1], dtype=torch.complex128)
+            self.vb_vecs = {k : [] for k in range(nkpt)}
+            self.cb_vecs = {k : [] for k in range(nkpt)}
 
-            if not isinstance(self.system.idx_bv, int):
+            if not isinstance(self.system.idx_vb, int):
                 raise ValueError("need to specify vb, cb indices for coupling")
             elif not isinstance(self.system.idx_cb, int):
                 raise ValueError("need to specify vb, cb indices for coupling")
+            elif not isinstance(self.system.idx_gap, int):
+                raise ValueError("need to specify kpt index of bandgap for coupling")
             else:
                 self.idx_vb = self.system.idx_vb
                 self.idx_cb = self.system.idx_cb
+                self.idx_gap = self.system.idx_gap
+
+            if SObool:
+                self.SOmats_couple, self.NLmats_couple = self.initCouplingMats()
 
         # send things to gpu, if enabled ??
         # Or is it better to send some things at the last minute before diagonalization?
         if model is not None:
             model.to(device)
         
+
 
     def buildHtot(self, kidx, preComp_SOmats_kidx, preComp_NLmats_kidx, defbool=False, requires_grad=True):
         """
@@ -152,9 +170,95 @@ class Hamiltonian:
         if not requires_grad: 
             Htot = Htot.detach()
         return Htot
+    
+
+    def buildHtot_def(self, scale=1.0001, verbosity=2):
+        """
+        Build the total Hamiltonian in the deformed basis, for ONLY the
+        bandgap kpt. This is used for the "classic" method of
+        computing the deformation potential. The deformed unit cell is scaled
+        by "scale". IMPORTANT: this function assumes that you only want to
+        construct the deformed Hamiltonian at a SINGLE kpoint - the kpoint 
+        corresponding to the bandgap.
+        """
+        if verbosity >= 2:
+            print("***************************")
+            print("You are computing deformation potentials by directly changing")
+            print("the volume of the material. To be precise, computing a")
+            print("quantity that can be correctly compared to the DFT literature,")
+            print("or experiments, requires very careful consideration of the")
+            print("g_i - g_j = 0 point in the potentials. These considerations")
+            print("are not made here. Consult the DFT literature, e.g.")
+            print("PRB 73 245206 (2006) and its references.")
+            print("***************************")
+
+        kidx = self.idx_gap
+
+        self.defscale = self.system.scale * scale
+        # modify the relevent quantities, then modify them back after diagonalizing
+        self.basis *= (self.system.scale / self.defscale)
+        self.system.kpts *= (self.system.scale / self.defscale)
+        self.system.unitCellVectors *= (self.defscale / self.system.scale)
+        self.system.atomPos *= (self.defscale / self.system.scale)
+
+
+
+        nbv = self.basis.shape[0]
+        if self.SObool:
+            Htot = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
+        else:
+            Htot = torch.zeros([nbv, nbv], dtype=torch.complex128)
+        
+        # kinetic energy
+        if self.SObool: top = 2*nbv
+        else: top = nbv
+        for i in range(top):
+            Htot[i,i] = HBAR**2 / (2*MASS) * torch.norm(self.basis[i%nbv] + self.system.kpts[kidx])**2
+
+        # local potential
+        Htot = self.buildVlocMat(addMat=Htot)
+
+        if self.SObool:
+            store_SOmats = self.SOmats
+            if self.checknl:
+                store_NLmats = self.NLmats
+            # only compute the SO integrals for the kpt corresponding to the gap (assuming direct gap).
+            # check if we cached them from the first call...
+            if self.SOmats_def is not None:
+                self.SOmats = self.SOmats_def
+            else:
+                self.SOmats_def = self.initSOmat_fast(defbool=True, idxGap=kidx)
+                self.SOmats = self.SOmats_def
+            if self.NLmats_def is not None and self.checknl:
+                self.NLmats = self.NLmats_def
+            elif self.checknl:
+                self.NLmats_def = self.initNLmat_fast(defbool=True, idxGap=kidx)
+                self.NLmats = self.NLmats_def
+
+            # the below calls are kidx=0 because they index into the SOmats and NLmats
+            # arrays, for which there is only a single kpoint. There are no calls
+            # self.system.kpts[kidx] in these functions, so it does not cause any
+            # issues.
+            Htot = self.buildSOmat(0, addMat=Htot)
+            if self.checknl:
+                Htot = self.buildNLmat(0, addMat=Htot)
+
+        
+
+        # now return everything to its non-deformed values
+        self.basis *= (self.defscale / self.system.scale)
+        self.system.kpts *= (self.defscale / self.system.scale)
+        self.system.unitCellVectors *= (self.system.scale / self.defscale)
+        self.system.atomPos *= (self.system.scale / self.defscale)
+        if self.SObool:
+            self.SOmats = store_SOmats
+            if self.checknl:
+                self.NLmats = store_NLmats
+
+        return Htot
 
     
-    def buildVlocMat(self, defbool=False, addMat=None):
+    def buildVlocMat(self, addMat=None):
         """
         Computes the local potential, either using the algebraic form
         or the NN form.
@@ -180,17 +284,9 @@ class Hamiltonian:
                 Vmat = torch.zeros([nbv, nbv])
 
         for alpha in range(self.system.getNAtoms()):
-            if not defbool:
-                gdiffDotTau = torch.sum(gdiff * self.system.atomPos[alpha], axis=2)
-                sfact_re = 1/self.system.getCellVolume() * torch.cos(gdiffDotTau)
-                sfact_im = 1/self.system.getCellVolume() * torch.sin(gdiffDotTau)
-            else:
-                # gdiff should be different for deformed calc.
-                # the basis is rescaled in the deformed basis, so the
-                # differences are also rescaled...?
-                gdiffDotTau = torch.sum(gdiff * self.system.atomPosDef[alpha], axis=2)
-                sfact_re = 1/self.system.getCellVolumeDef() * torch.cos(gdiffDotTau)
-                sfact_im = 1/self.system.getCellVolumeDef() * torch.sin(gdiffDotTau)
+            gdiffDotTau = torch.sum(gdiff * self.system.atomPos[alpha], axis=2)
+            sfact_re = 1/self.system.getCellVolume() * torch.cos(gdiffDotTau)
+            sfact_im = 1/self.system.getCellVolume() * torch.sin(gdiffDotTau)
 
             thisAtomIndex = np.where(self.system.atomTypes[alpha]==self.atomPPorder)[0]
             if len(thisAtomIndex)!=1: 
@@ -205,13 +301,17 @@ class Hamiltonian:
                     atomFF = checkpoint(compute_atomFF, use_reentrant=False)
                 atomFF = atomFF[:, thisAtomIndex].view(nbv, nbv)
             else:
-                atomFF = pot_func(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
+                #atomFF = pot_func(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
+                atomFF = pot_funcLR(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]], self.LRgamma)
 
             if self.SObool:
                 # local potential has delta function on spin --> block diagonal
                 Vmat[:nbv, :nbv] = Vmat[:nbv, :nbv] + atomFF * torch.complex(sfact_re, sfact_im)
                 Vmat[nbv:, nbv:] = Vmat[nbv:, nbv:] + atomFF * torch.complex(sfact_re, sfact_im)
             else:
+                #sfact = torch.complex(sfact_re, sfact_im)
+                #print(sfact.dtype)
+                #print((sfact*atomFF)[:8, :8])
                 Vmat = Vmat + atomFF * torch.complex(sfact_re, sfact_im)
 
         return Vmat
@@ -387,16 +487,10 @@ class Hamiltonian:
                               np.stack([gjkp]*nbv, axis=0), axisa=-1, axisb=-1, axisc=-1)
 
             for alpha in range(self.system.getNAtoms()):
-                if not defbool:
-                    gdiffDotTau = gdiff * self.system.atomPos[alpha]
-                    gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
-                    sfact_re = 1 / self.system.getCellVolume() * np.cos(gdiffDotTau)
-                    sfact_im = 1 / self.system.getCellVolume() * np.sin(gdiffDotTau)
-                else:
-                    gdiffDotTau = gdiff * self.system.atomPosDef[alpha]
-                    gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
-                    sfact_re = 1 / self.system.getCellVolumeDef() * np.cos(gdiffDotTau)
-                    sfact_im = 1 / self.system.getCellVolumeDef() * np.sin(gdiffDotTau)
+                gdiffDotTau = gdiff * self.system.atomPos[alpha]
+                gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
+                sfact_re = 1 / self.system.getCellVolume() * np.cos(gdiffDotTau)
+                sfact_im = 1 / self.system.getCellVolume() * np.sin(gdiffDotTau)
 
                 # build SO matrix
                 # up up
@@ -608,17 +702,11 @@ class Hamiltonian:
             prefactor[ids] = 12.0 * np.pi / denom[ids]
 
             for alpha in range(self.system.getNAtoms()):
-                if not defbool:
-                    gdiffDotTau = gdiff * self.system.atomPos[alpha]
-                    gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
-                    sfact_re = 1 / self.system.getCellVolume() * np.cos(gdiffDotTau)
-                    sfact_im = 1 / self.system.getCellVolume() * np.sin(gdiffDotTau)
-                else:
-                    gdiffDotTau = gdiff * self.system.atomPosDef[alpha]
-                    gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
-                    sfact_re = 1 / self.system.getCellVolumeDef() * np.cos(gdiffDotTau)
-                    sfact_im = 1 / self.system.getCellVolumeDef() * np.sin(gdiffDotTau)
-
+                gdiffDotTau = gdiff * self.system.atomPos[alpha]
+                gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
+                sfact_re = 1 / self.system.getCellVolume() * np.cos(gdiffDotTau)
+                sfact_im = 1 / self.system.getCellVolume() * np.sin(gdiffDotTau)
+                
             
                 # This potential is block diagonal on spin
                 # up up, 1st integral
@@ -705,7 +793,8 @@ class Hamiltonian:
         return NLmatf
 
 
-    def calcEigValsAtK(self, kidx, iSystem, cachedMats_info, requires_grad=True):
+
+    def calcEigValsAtK(self, kidx, iSystem, cachedMats_info, requires_grad=True, verbosity=0):
         '''
         This function builds the Htot at a certain kpoint that is given as the input, 
         digonalizes the Htot, and obtains the eigenvalues at this kpoint. 
@@ -745,16 +834,51 @@ class Hamiltonian:
             energies = torch.linalg.eigvalsh(H)
             energiesEV = energies * AUTOEV
         else:
-            # this will be slow, since torch seems to only support
+            # this will be slower than necessary, since torch seems to only support
             # full diagonalization including all eigenvectors. 
-            # If computing couplings, it might
-            # make sense to implement a custom torch diagonalization wrapper
+            # If computing couplings, it would be faster to
+            # implement a custom torch diagonalization wrapper
             # that uses scipy under the hood to allow for better partial
-            # diagonalization algorithms.
+            # diagonalization algorithms (e.g. the ?heevr driver).
             ens, vecs = torch.linalg.eigh(H)
             energiesEV = ens * AUTOEV
-            self.vb_vecs[kidx, :] = vecs[:, self.idx_vb]
-            self.cb_vecs[kidx, :] = vecs[:, self.idx_cb]
+            self.vb_vecs[kidx].append(vecs[:, self.idx_vb])
+            self.cb_vecs[kidx].append(vecs[:, self.idx_cb])
+            # NOTE!!! that using the eigenvectors with torch autodiff can result in non-uniqueness
+            # an instability if there are degenerate eigenvalues. 
+
+            # To avoid gauge phase-dependent values of the coupling when we
+            # have degenerate electronic states, we collect all degenerate bands,
+            # to compute their couplings and THEN average the couplings. This is
+            # different than doing an average over degenerate eigenvectors first, 
+            # which is wrong (results will depend on arbitrary phase in degenerate subspace).
+            ctr = 1
+            for idx in range(self.idx_vb-1, 0, -1):
+                if abs(ens[self.idx_vb] - ens[idx]) < 1e-5:
+                    # this describes a degenerate state as begin within .01 meV (adopted from EPW source)
+                    self.vb_vecs[kidx].append(vecs[:, idx])
+                    ctr += 1
+                else:
+                    break
+
+            if ctr == 1 and self.SObool and verbosity >= 2:
+                print(f"\nWARNING: spin-orbit calc but vb spin states are not degenerate to 1e-10, kidx={kidx}\n")
+            if verbosity >= 3:
+                print(f"kidx={kidx}, vb_vec[0:5]= {self.vb_vecs[kidx, :5]}")
+
+            ctr = 1
+            for idx in range(self.idx_cb+1, self.system.nBands):
+                if abs(ens[self.idx_cb] - ens[idx]) < 1e-5:
+                    # this describes a degenerate state as begin within .01 meV (adopted from EPW source)
+                    self.cb_vecs[kidx].append(vecs[:, idx])
+                    ctr += 1
+                else:
+                    break
+
+            if ctr == 1 and self.SObool and verbosity >= 2:
+                print(f"\nWARNING: spin-orbit calc but cb spin states are not degenerate to 1e-10, kidx={kidx}\n")
+            if verbosity >= 3:
+                print(f"kidx={kidx}, cb_vec[0:5]= {self.cb_vecs[kidx, :5]}")
 
         if not self.SObool:
             # 2-fold degeneracy for spin. Not sure why this is necessary, but
@@ -823,8 +947,422 @@ class Hamiltonian:
         return bandStruct
 
 
-    def calcCouplings(self):
-        raise NotImplementedError()
+    def initCouplingMats(self, SOwidth=0.7, NLwidth=1.0, NLshift=1.5):
+        """
+        This function is for caching the SOC and NL derivative potentials.
+        It doesn't do the local potential at all, just builds
+        the SO and NL matrices in the basis <G_i | dV | G_j + q>, where q is
+        the phonon wavevector. For further explanation, see buildCouplingMat().
+        In general, we can't reuse the computations from initSOmat() or
+        initNLmat() because the j basis can be shifted by an arbitrary amount q. 
+        These caluclation will be performed at the kidx of the bandgap kpoint 
+        (see buildCouplingMat()).
+        """
+
+        kidx = self.idx_gap
+        nbv = self.basis.shape[0]
+        # set radial cutoff ~ 4.2488 Bohr; V(rcut) = 1e-16 for default SOwidth
+        rcut_so = np.sqrt(SOwidth**2 * 16 * np.log(10.0))
+        rcut_nl = np.sqrt(NLwidth**2 * 16 * np.log(10.0))
+
+        nqp = self.system.getNQpts()
+
+        # BEWARE! these might use a lot of memory!
+        # for example, a 4000 x 4000 numpy array with dtype complex128
+        # uses approx 244 MB of RAM. We are initializing
+        # 3* (Natom * 3 * nqp) of these matrices. If there are a lot
+        # of atoms or a lot of qpoints, this will use a considerable
+        # amount of RAM. If we really need to, we can only store the 
+        # upper triangles since the matrices are hermitian. The NL mats
+        # also have 0 off diagonal BLOCKS. Not doing any of this yet.
+        SOmats = np.empty([nqp, self.system.getNAtoms(), 3], dtype=object)
+        for id1 in range(nqp):
+            for id2 in range(self.system.getNAtoms()):
+                for id3 in range(3):
+                    SOmats[id1,id2,id3] = np.zeros([2*nbv, 2*nbv], dtype=np.complex128)
+
+        NLmats = np.empty([nqp, self.system.getNAtoms(), 3, 2], dtype=object)
+        for id1 in range(nqp):
+            for id2 in range(self.system.getNAtoms()):
+                for id3 in range(3):
+                    for id4 in range(2):
+                        NLmats[id1,id2,id3, id4] = np.zeros([2*nbv, 2*nbv], dtype=np.complex128)
+
+        for qidx in range(nqp):
+            print(f"initializing coupling SO + NL: qpt {qidx+1}/{nqp}")
+            sys.stdout.flush()
+
+            gjPlusQ = self.basis + self.system.qpts[qidx]
+            gjqPlusK = gjPlusQ + self.system.kpts[kidx]
+            giPlusK = self.basis + self.system.kpts[kidx]
+            gqDiff = torch.stack([self.basis] * nbv, dim=1 ) - gjPlusQ.repeat(nbv,1,1)  # G_i - (G_j + q)
+
+            giPlusK = giPlusK.numpy(force=True)
+            gjqPlusK = gjqPlusK.numpy(force=True)
+            inm = np.linalg.norm(giPlusK, axis=1)
+            jnm = np.linalg.norm(gjqPlusK, axis=1)
+
+            isum = self._soIntegral_vect(inm, jnm, rcut_so, SOwidth)
+            isum2 = self._soIntegral_vect(inm, jnm, rcut_nl, NLwidth)
+            isum3 = self._nlIntegral_vect(inm, jnm, rcut_nl, NLwidth, NLshift)
+
+            # this is the normal SOC prefactor (no derivs)
+            SOprefactor = np.zeros([nbv,nbv], dtype=float)
+            denom = inm[:, np.newaxis] * jnm
+            ids = np.nonzero(denom)
+            SOprefactor[ids] = 12 * np.pi / denom[ids]  # this DOES NOT include the factor of -i in front of the entire V_SO
+
+            gcross = np.cross(np.stack([giPlusK]*nbv, axis=1),
+                                np.stack([gjqPlusK]*nbv, axis=0), axisa=-1, axisb=-1, axisc=-1)
+
+            gdot = np.tensordot(giPlusK, gjqPlusK, axes=[[1],[1]])
+
+            for alpha in range(self.system.getNAtoms()):
+                gqDiffDotTau = gqDiff * self.system.atomPos[alpha]
+                gqDiffDotTau = np.sum(gqDiffDotTau.numpy(force=True), axis=2)
+                structFact = (1.0 / self.system.getCellVolume()) * (np.cos(gqDiffDotTau) + 1j * np.sin(gqDiffDotTau))
+
+                for gamma in range(3):
+                    # Now add derivative of SOC potential and nonlocal potential.
+                    # First consider the SOC potential: it is composed of 4 "parts":
+                    # the first includes the prefactor and the cross product, we will call this c(k+G_i, k+G_j)
+                    # the second is the integral over r from 0 to infinity, we will call this f(|r-tau_{alpha}|, |k+G_i|, |k+G_j|)
+                    # the third is the structure factor, which we will call g(|G_i - G_j|, tau_{alpha})
+                    # the fourth is the spin operator S_{sigma, sigma'}.
+                    # We can thus write V_SOC = c(k+G_i, k+G_j) * \sum_{alpha} [f|r-tau_{alpha}|, |k+G_i|, |k+G_j|) * g(|G_i - G_j|, tau_{alpha})]  DOT S_{sigma,sigma'}
+                    # Now we want <k+G_i|  dV / d tau_{alpha, gamma, q}  |k+G_j+q>
+                    # = c(k+G_i, k+G_j+q) * f(|r-tau_{alpha}|, |k+G_i|, |k+G_j+q|) * dg(|G_i - (G_j+q)|, tau_{alpha}) / d tau_{alpha,gamma,q}   DOT S
+                    # + c(k+G_i, k+G_j+q) * df(|r-tau_{alpha}|, |k+G_i|, |k+G_j+q|) / d tau_{gamma,alpha,q} * g(|G_i - (G_j+q)|, tau_{alpha})   DOT S
+                    # --> The second term goes to 0 for any integral over r that converges. Consider df/dtau = df/d(r-tau) * d(r-tau)/dtau.
+                    # We have df/d(r-tau) = d/d(r-tau) integral 0 to infty d(r-tau) of some function. This is like considering
+                    # d/dx \integral_0^infty dx f(x). As long as the integral converges, the resulting expression is a constant (or, in the case
+                    # of a multi-variable function, it contains no dependence on x), and thus the derivative is 0.
+                    # This means that the deriv of the SOC potential is very similar to the deriv of the local potential:
+                    # <k+G_i| dV_{i,j} / dtau_{alpha,gamma,q} |k+G_j+q> =  c(k+G_i, k+G_j+q) * f(|r-tau_{alpha}|, |k+G_i|, |k+G_j+q|) * 
+                    #                                                               +i(G_i - (G_j+q))_{gamma} * g(|G_i - (G_j+q)|, tau_{alpha})   DOT S
+
+                    derivFact = 1j * gqDiff[:,:, gamma]
+                    derivFact = derivFact.numpy()  # send this from torch type to ndarray
+
+                    # build SOC matrix
+                    # up up
+                    # gcp dot S_up,up is: 1/2 * (gcp.z)
+                    common = -1j * SOprefactor * derivFact * isum * structFact
+                    SOmats[qidx, alpha, gamma][:nbv, :nbv] = common * 0.5 * gcross[:,:,2]
+
+                    # dn dn
+                    # gcp dot S_dn,dn is: -1/2 * (gcp.z)
+                    SOmats[qidx, alpha, gamma][nbv:, nbv:] = common * -0.5 * gcross[:,:,2]
+
+                    # up dn
+                    # gcp dot S_up,dn is: 1/2 * (gcp.x) - i/2 * (gcp.y)
+                    SOmats[qidx,alpha,gamma][:nbv, nbv:] = common * 0.5 * (gcross[:,:,0] - 1j*gcross[:,:,1])
+
+                    # dn up
+                    # gcp dot S_dn,up is: 1/2 * (gcp.x) + i/2 * (gcp.y)
+                    SOmats[qidx, alpha, gamma][nbv:, :nbv] = common * 0.5 * (gcross[:,:,0] + 1j*gcross[:,:,1])
+
+
+                    # build NL matrix. It has the same deriv factor as SOC part.
+                    # this potential is block diagonal on spin.
+                    # It doesn't have the global factor of -i in front, like SOC does.
+                    # up up, 1st integral
+                    common = SOprefactor * derivFact * structFact * gdot
+                    NLmats[qidx, alpha, gamma, 0][:nbv, :nbv] = isum2 * common
+                    # 2nd integral
+                    NLmats[qidx, alpha, gamma, 1][:nbv, :nbv] = isum3 * common
+
+                    # dn dn
+                    NLmats[qidx, alpha, gamma, 0][nbv:, nbv:] = isum2 * common
+                    NLmats[qidx, alpha, gamma, 1][nbv:, nbv:] = isum3 * common
+
+
+        return SOmats, NLmats
+
+
+    
+    def buildCouplingMats(self, qidx, atomgammaidxs=None):
+        """
+        The derivative of the potential (local or not) is a matrix of the same 
+        size as the Hamiltonian (2*nbv x 2*nbv, in SOC case).
+        This is for a given k-point, phonon wavevector (q-point), atom, and polarization direction (x,y,z).
+        The k-point (electronic) will be assumed to be fixed at the bandgap kpoint.
+        The q-point is the phonon wavevector, there is a different derivative (different matrix) for each q 
+        like there is a different electronic Hamiltonian for each k. The qidx also need be
+        specified as an arg.
+        The derivative of the potential is with respect to the position of a given nucleus (atom) in the unit
+        cell, along a specific direction (x,y,z)
+        Like the calcHamiltonianMatrix function, this will only calculate the matrices for a single, 
+        given q-vector. As a default behavior, this function will return all natom*3 derivatives for that 
+        q-vector in a dict with keys that are tuples (atomidx, gamma). If you only want the derivs for a
+        subset of atoms/gammas, you can specify which you want to compute using the "atomgammaidxs"
+        kwarg, which should be a list of tuples like [(atomidx1, gamma1), (atomidx2, gamma2), ...]. 
+        """
+
+        nbv = self.basis.shape[0]
+        natom = self.system.getNAtoms()
+
+        ret_dict = {}
+
+        if atomgammaidxs is None:
+            atomgammaidxs = [(a, g) for a in range(natom) for g in range(3)]
+
+        # local potential: dV_{i,j} / d tau_{alpha, gamma, q} = <G_i |dV_{alpha} / d tau_{alpha,gamma,q}|G_j + q> = 
+        # +i*(G_{i,gamma} - (G_{j,gamma} + q_{gamma})) * [e^{+i(G_i-(G_j+q))\cdot\tau_{alpha}} * v_{alpha}(|G_i - (G_j + q)|) / (V_cell)]
+        # i,j labels the plane wave basis. alpha labels the atom identity. gamma labels the (x,y,z) component of a vector,
+        # and q is the phonon wave vector.
+        # !! WHAT ABOUT STRAIN TERM?? -- not implementing it here for now, its deriv is a bit complicated for a generic
+        # unit cell geometry. It also depends on our definition of cell volume: does it depend
+        # on atomic positions, or only lattice vectors? This is a choice...?
+
+        gjPlusQ = self.basis + self.system.qpts[qidx]
+        gqDiff = torch.stack([self.basis] * nbv, dim=1 ) - gjPlusQ.repeat(nbv,1,1)  # G_i - (G_j + q)
+
+        for alpha, gamma in atomgammaidxs:
+            if self.SObool:
+                dV = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
+            else:
+                dV = torch.zeros([nbv, nbv], dtype=torch.complex128)
+
+            # this prefactor comes from the derivative of the structure factor
+            if gamma == 0:
+                # x
+                prefactor = 1j * gqDiff[:,:,0]
+            elif gamma == 1:
+                # y
+                prefactor = 1j * gqDiff[:,:,1]
+            else:
+                # z
+                prefactor = 1j * gqDiff[:,:,2]
+            # test
+            #prefactor = torch.ones_like(prefactor)
+
+            gqDiffDotTau = torch.sum(gqDiff * self.system.atomPos[alpha], axis=2)
+            structFact = (1.0 / self.system.getCellVolume()) * (torch.cos(gqDiffDotTau) + 1j * torch.sin(gqDiffDotTau))
+
+            thisAtomIndex = np.where(self.system.atomTypes[alpha]==self.atomPPorder)[0]
+            if len(thisAtomIndex)!=1: 
+                raise ValueError("Type of atoms in PP. ")
+            thisAtomIndex = thisAtomIndex[0]
+
+            if self.NN_locbool:
+                atomFF = self.model(torch.norm(gqDiff, dim=2).view(-1,1))
+                atomFF = atomFF[:, thisAtomIndex].view(nbv, nbv)
+            else:
+                #atomFF = pot_func(torch.norm(gqDiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
+                atomFF = pot_funcLR(torch.norm(gqDiff, dim=2), self.PPparams[self.system.atomTypes[alpha]], self.LRgamma)
+
+            dV[:nbv, :nbv] = prefactor * structFact * atomFF
+
+            if self.SObool:
+                # local potential has delta function on spin --> block diagonal
+                dV[nbv:, nbv:] = prefactor * structFact * atomFF
+
+                # SOC part
+                if isinstance(self.SOmats_couple[qidx, alpha, gamma], torch.Tensor):
+                    tmp = self.SOmats_couple[qidx, alpha, gamma]
+                else:
+                    tmp = torch.tensor(self.SOmats_couple[qidx, alpha, gamma])
+
+                dV = dV + tmp * self.PPparams[self.system.atomTypes[alpha]][5]
+            
+
+                # NL part
+                if isinstance(self.NLmats_couple[qidx,alpha,gamma,0], torch.Tensor):
+                    tmp1 = self.NLmats_couple[qidx,alpha,gamma,0]
+                else:
+                    tmp1 = torch.tensor(self.NLmats_couple[qidx,alpha,gamma,0])
+                if isinstance(self.NLmats_couple[qidx,alpha,gamma,1], torch.Tensor):
+                    tmp2 = self.NLmats_couple[qidx,alpha,gamma,1]
+                else:
+                    tmp2 = torch.tensor(self.NLmats_couple[qidx,alpha,gamma,1])
+
+                dV = (dV + tmp1 * self.PPparams[self.system.atomTypes[alpha]][6]
+                                + tmp2 * self.PPparams[self.system.atomTypes[alpha]][7] )
+                
+            ret_dict[(alpha,gamma)] = dV
+                
+        return ret_dict
+
+
+
+
+    def calcCouplings(self, qlist=None, atomgammaidxs=None, symm_equiv=None):
+        """
+        All we do here is call buildCouplingMats(), check the we have the
+        correct eigenstates (from bandstructure calculation) to compute the
+        desired matrix elements, then compute the expectation values.
+
+        This return a dictionary with keys that are tuples: 
+        (atomidx, gamma, qidx, 'vb'/'cb')
+        and values are just floats (the coupling value). The couplings are in
+        units of eV.
+
+        qlist is a list of qidx integers corresponding to the phonon q-points
+        for which we want to evaluate the coupling. The default behavior
+        is to compute the coupling for all qpoint supplied in the
+        input files. A few notes about this:
+        - the qpoint and kpoint grids supplied have to be commensurate, so
+        that for every q vec we have a k' vector so that k_{bg} + q = k', where
+        k_{bg} is the kpoint vector of the bandgap.
+        - the couplings are always evaluated at the bandgap kpoint, according
+        to the above expression.
+        - the coupling are computed for valence-valence band scattering (coupling) 
+        and conduction-conduction band scattering (coupling). I.e. there is 
+        no valence-conduction band scattering or other bands.
+
+        As a default behavior, this function will return all natom*3 couplings 
+        for each q-vector in a dict with keys that are tuples (atomidx, gamma). 
+        If you only want the derivs for a subset of atoms/directions (gammas), 
+        you can specify which you want to compute using the 
+        "atomgammaidxs" kwarg, which should be a list of tuples like 
+        [(atomidx1, gamma1), (atomidx2, gamma2), ...]. 
+
+        The coupling can be a complex number, but its magnitude is a 
+        gauge-invariant quantity, which is invariant to sign conventions
+        in the code. This function therefore returns the 
+        magnitude of the number, averged over degenerate band spaces and,
+        optionally, over symmetry equivalent derivative directions (x,y,z).
+        IMPORTANT NOTE: when there are exactly degenerate bands in the VB or
+        CB space (i.e. energy difference less than 1e-15), the x, y, and z
+        derivs can be subject to an arbitrary unitary rotation. If you know that
+        some of these derivs should be the same due to the spherical symmetry
+        of the atomic potentials and the unit cell geometry, you can recover the
+        correct values by averaging over the symmetry equivalent directions. The
+        User needs to specify this for each atom in a dict "symm_equiv" which
+        has keys corresponding to the atom idxs, and values are tuples
+        corresponding to the directions to be averaged e.g. ('x','y','z').
+        You can see an example in test_ham/test_couple.py.
+        I don't think there will be any cases when you need to average over
+        multiple different atoms, since they all should have different symmetry
+        operations..?
+        """
+
+        if qlist is None:
+            qlist = list(range(self.system.getNQpts()))
+        
+        k_bg = self.system.kpts[self.idx_gap]
+        ret_dict = {}
+        equiv_arr = torch.ones([3,3]) # use this to check for matching kpoint (up to periodic boundary conditions)
+        equiv_arr[0,:] *= 0.0
+        equiv_arr[1,:] *= 2*np.pi / self.system.scale
+        equiv_arr[2,:] *= -2*np.pi / self.system.scale
+
+        for qid in qlist:
+            needKidx = None
+            #qvec = self.system.qpts[qid]
+            kp = k_bg + self.system.qpts[qid]
+            for kid in range(self.system.getNKpts()):
+                if torch.any(torch.all(torch.isclose(kp - self.system.kpts[kid], equiv_arr), dim=1)):
+                    # this complicated looking statement is true when the vector "kp"
+                    # differs from a kpt vector by equiv_arr[0,:], equiv_arr[1,:], or equiv_arr[2,:]
+                    needKidx = kid
+                    break
+            if needKidx is None:
+                raise ValueError("kpt and qpt grids are not commensurate: k_{bg} + q != k'")
+
+            dV_dict = self.buildCouplingMats(qid, atomgammaidxs=atomgammaidxs)
+
+            # check if we need to avg over symmetry equivalent deriv directions
+            symm_equiv_compat = {}
+            avg_couple = {}
+            if symm_equiv is not None:
+                print("\nWARNING: This feature is no longer necessary for atomic derivs.")
+                print("Degeneracy of electronic bands is now handled automatically.")
+                print("This feature should only be necessary for explicit phonons.\n")
+                for key in symm_equiv:
+                    avg_couple[(key, 'cb')] = torch.zeros([1,], dtype=torch.complex128)
+                    avg_couple[(key, 'vb')] = torch.zeros([1,], dtype=torch.complex128)
+                    tmp = symm_equiv[key]
+                    symm_equiv_compat[key] = []
+                    for i in range(len(tmp)):
+                        if tmp[i] == 'x' or tmp[i] == 'X':
+                            symm_equiv_compat[key].append(0)
+                        elif tmp[i] == 'y' or tmp[i] == 'Y':
+                            symm_equiv_compat[key].append(1)
+                        else:
+                            assert tmp[i] == 'z' or tmp[i] == 'Z'
+                            symm_equiv_compat[key].append(2) 
+
+                for key in dV_dict:
+                    if key[0] in symm_equiv:
+                        if key[1] in symm_equiv_compat[key[0]]:
+                            n_right = len(self.cb_vecs[needKidx])
+                            n_left = len(self.cb_vecs[self.idx_gap])
+                            if n_right > 1:
+                                right_vecs = torch.stack(self.cb_vecs[needKidx], dim=-1)
+                            else:
+                                right_vecs = self.cb_vecs[needKidx].view(-1,1)
+                            if n_left > 1:
+                                left_vecs = torch.stack(self.cb_vecs[self.idx_gap], dim=0)
+                            else:
+                                left_vecs = self.cb_vecs[self.idx_gap].view(1,-1)
+                            tmp = torch.matmul(dV_dict[key], right_vecs)   # batched multiplication of all degenerate bands
+                            tmp = torch.matmul(torch.conj(left_vecs), tmp) # n_right * n_left dot products in the elements of a matrix
+                            mag = torch.sum(torch.sqrt(tmp.conj() * tmp)).real
+                            avg_couple[(key[0], 'cb')] += mag / (len(symm_equiv[key[0]]) * n_right * n_left)
+
+                            n_right = len(self.vb_vecs[needKidx])
+                            n_left = len(self.vb_vecs[self.idx_gap])
+                            if n_right > 1:
+                                right_vecs = torch.stack(self.vb_vecs[needKidx], dim=-1)
+                            else:
+                                right_vecs = self.vb_vecs[needKidx].view(-1,1)
+                            if n_left > 1:
+                                left_vecs = torch.stack(self.vb_vecs[self.idx_gap], dim=0)
+                            else:
+                                left_vecs = self.vb_vecs[self.idx_gap].view(1,-1)
+                            tmp2 = torch.matmul(dV_dict[key], right_vecs) # batched multiplication of all degenerate bands
+                            tmp2 = torch.matmul(torch.conj(left_vecs), tmp2) # n_right * n_left dot products in the elements of a matrix
+                            mag2 = torch.sum(torch.sqrt(tmp2.conj() * tmp2)).real
+                            avg_couple[(key[0], 'vb')] += mag2 / (len(symm_equiv[key[0]]) * n_right * n_left)
+
+            # build ret_dict 
+            for key in dV_dict:
+                if key[0] in symm_equiv_compat:
+                    if key[1] in symm_equiv_compat[key[0]]:
+                        #avg_cb = avg_couple[(key[0], 'cb')]
+                        #avg_vb = avg_couple[(key[0], 'vb')]
+                        #ret_dict[key+(qid,'cb')] = torch.sqrt(avg_cb.conj() * avg_cb).real * AUTOEV
+                        #ret_dict[key+(qid,'vb')] = torch.sqrt(avg_vb.conj() * avg_vb).real * AUTOEV
+                        ret_dict[key + (qid,'cb')] = avg_couple[(key[0], 'cb')]
+                        ret_dict[key + (qid,'vb')] = avg_couple[(key[0], 'vb')]
+
+                else:
+                    n_right = len(self.cb_vecs[needKidx])
+                    n_left = len(self.cb_vecs[self.idx_gap])
+                    if n_right > 1:
+                        right_vecs = torch.stack(self.cb_vecs[needKidx], dim=-1)
+                    else:
+                        right_vecs = self.cb_vecs[needKidx].view(-1,1)
+                    if n_left > 1:
+                        left_vecs = torch.stack(self.cb_vecs[self.idx_gap], dim=0)
+                    else:
+                        left_vecs = self.cb_vecs[self.idx_gap].view(1,-1)
+                    cpl = torch.matmul(dV_dict[key], right_vecs) # batched multiplication of all degenerate bands
+                    cpl = torch.matmul(torch.conj(left_vecs), cpl) # n_right * n_left dot products in the elements of a matrix
+                    cpl_mag = torch.sum(torch.sqrt(cpl.conj() * cpl)).real
+                    ret_dict[key + (qid,'cb')] = (cpl_mag / (n_right * n_left)) * AUTOEV # average coupling from degenerate subspace
+
+                    n_right = len(self.vb_vecs[needKidx])
+                    n_left = len(self.vb_vecs[self.idx_gap])
+                    if n_right > 1:
+                        right_vecs = torch.stack(self.vb_vecs[needKidx], dim=-1)
+                    else:
+                        right_vecs = self.vb_vecs[needKidx].view(-1,1)
+                    if n_left > 1:
+                        left_vecs = torch.stack(self.vb_vecs[self.idx_gap], dim=0)
+                    else:
+                        left_vecs = self.vb_vecs[self.idx_gap].view(1,-1)
+                    cpl = torch.matmul(dV_dict[key], right_vecs) # batched multiplication of all degenerate bands
+                    cpl = torch.matmul(torch.conj(left_vecs), cpl) # n_right * n_left dot products in the elements of a matrix
+                    cpl_mag = torch.sum(torch.sqrt(cpl.conj() * cpl)).real
+                    ret_dict[key + (qid,'vb')] = (cpl_mag / (n_right * n_left)) * AUTOEV
+
+        return ret_dict
+
+
+
 
     
     def _bessel1(self, x, x1):
@@ -1001,7 +1539,7 @@ class Hamiltonian:
 
 
     def get_PPparams(self):
-        return self.PPparams
+        return copy.deepcopy(self.PPparams)
     
 
     def set_PPparams(self, newparams):

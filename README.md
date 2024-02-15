@@ -7,6 +7,9 @@ This code parametrizes pseudopotentials for semiconductor nanocrystal systems th
 
 ## Code details
 
+Running this code requires python 3.6+ for use of f-strings, guaranteed 
+deterministic dict iteration, etc.
+
 - ``test.ipynb``  
 A Jupyter Notebook script that runs ``main.py`` on sample inputs. 
 

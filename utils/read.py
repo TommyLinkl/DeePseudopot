@@ -3,9 +3,9 @@ import numpy as np
 import os
 import multiprocessing as mp
 
-import constants.constants
-from constants.constants import MASS, HBAR
-from utils.nn_models import *
+import ..constants.constants as constants.constants
+from ..constants.constants import MASS, HBAR
+from .nn_models import *
 
 def read_NNConfigFile(filename):
     """
@@ -94,8 +94,11 @@ class BulkSystem:
         self.expBandStruct = expBandStruct
         self.nBands = nBands
         self.maxKE = maxKE
+        self.expCouplingBands = None
+        self.bandWeights = None
         self.BS_plot_center = BS_plot_center
         self.systemName = systemName
+        
         
     def setInputs(self, inputFilename):
         attributes = {}
@@ -107,7 +110,7 @@ class BulkSystem:
                     value = value.strip()
                     if key in ['maxKE', 'BS_plot_center']:
                         attributes[key] = float(value)
-                    elif key in ['nBands']:            # nBands can be redundant
+                    elif key in ['nBands', 'idxVB', 'idxCB', 'idxGap']:            # nBands can be redundant
                         attributes[key] = int(float(value))
                     elif key in ['systemName']: 
                         attributes[key] = value
@@ -143,27 +146,32 @@ class BulkSystem:
             
         self.scale = scale
         self.unitCellVectors = scale * torch.tensor(cell)
-        # 1% expansion, matching the DFT literature
-        self.unitCellVectorsDef = self.unitCellVectors * 1.01
         self.atomTypes = np.array(atomTypes).flatten()
         self.atomPos = torch.tensor(atomCoords) @ self.unitCellVectors
-        self.atomPosDef = torch.tensor(atomCoords) @ self.unitCellVectorsDef
         # self.systemName = ''.join(self.atomTypes)
+        
     
     def setKPointsAndWeights(self, kPointsFilename):
-        try:
-            with open(kPointsFilename, 'r') as file:
-                data = np.loadtxt(file)
-                kpts = data[:, :3]
-                kptWeights = data[:, 3]
-                gVectors = self.getGVectors()
-                
-                self.kpts = torch.tensor(kpts, dtype=torch.float64) @ gVectors
-                self.kptWeights = torch.tensor(kptWeights, dtype=torch.float64)
-        except FileNotFoundError:
-            print(f"File not found: {kPointsFilename}")
-        except Exception as e:
-            print(f"An error occurred while processing the file: {e}")
+        with open(kPointsFilename, 'r') as file:
+            data = np.loadtxt(file)
+            kpts = data[:, :3]
+            kptWeights = data[:, 3]
+            gVectors = self.getGVectors()
+            
+            self.kpts = torch.tensor(kpts, dtype=torch.float64) @ gVectors
+            self.kptWeights = torch.tensor(kptWeights, dtype=torch.float64)
+    
+
+    def setQPointsAndWeights(self, qPointsFilename):
+        with open(qPointsFilename, 'r') as file:
+            data = np.loadtxt(file)
+            qpts = data[:, :3]
+            qptWeights = data[:, 3]
+            gVectors = self.getGVectors()
+            
+            self.qpts = torch.tensor(qpts, dtype=torch.float64) @ gVectors
+            self.qptWeights = torch.tensor(qptWeights, dtype=torch.float64)
+        
 
     def setExpBS(self, expBSFilename):
         with open(expBSFilename, 'r') as file:
@@ -181,12 +189,57 @@ class BulkSystem:
         except Exception as e:
             print(f"An error occurred while processing the file: {e}")
 
+    def setExpCouplings(self, expCplFilename):
+        #with open(expCplFilename, 'r') as fread:
+        #    self.expCouplingBands = torch.tensor(np.loadtxt(fread)[:, 1:], dtype=torch.float64)
+
+        self.expCouplingBands = {}
+        with open(expCplFilename, 'r') as fread:
+            lines = fread.readlines()
+            for lidx, line in enumerate(lines):
+                if "Atom idx" in line:
+                    sp = line.split()
+                    atomidx = int(float(sp[3]))
+                    begin_block = lidx
+                elif "coupling elements" in line:
+                    assert lidx == begin_block+1 or lidx == begin_block+8
+                    sp = line.split()
+                    bandid = sp[0].split("-")[0]
+                    gamma = sp[-1]
+                elif "polarization" in line:
+                    assert lidx in [begin_block+3, begin_block+5, begin_block+10, begin_block+12]
+                    gamma = line.split()[-1]
+
+                else:
+                    # numerical data read in this block
+
+                    # first work out numerical value of gamma
+                    if gamma == 'x' or gamma == 0:
+                        gamma = 0
+                    elif gamma == 'y' or gamma == 1:
+                        gamma = 1
+                    elif gamma == 'z' or gamma == 2:
+                        gamma = 2
+                    else:
+                        raise ValueError("unexpected value of gamma")
+                    
+                    sp = line.split()
+                    for qidx in range(len(sp)):
+                        self.expCouplingBands[(atomidx, gamma, qidx, bandid)] = float(sp[qidx])
+
+
+    def setExpDefPot(self, expDefPotFilename):
+        with open(expDefPotFilename, 'r') as fread:
+            lines = fread.readlines()
+            assert len(lines) == 2
+            self.expDefPots = np.array([0.0, 0.0])
+            self.expDefPots[0] = float(lines[0]) # VBM
+            self.expDefPots[1] = float(lines[1]) # CBM
+
+
     def getCellVolume(self): 
         return float(torch.dot(self.unitCellVectors[0], torch.cross(self.unitCellVectors[1], self.unitCellVectors[2])))
     
-    def getCellVolumeDef(self):
-        return float(torch.dot(self.unitCellVectorsDef[0], torch.cross(self.unitCellVectorsDef[1], self.unitCellVectorsDef[2])))
-
     def getNAtoms(self):
         return len(self.atomTypes)
     
@@ -209,6 +262,9 @@ class BulkSystem:
     
     def getNKpts(self): 
         return self.kpts.shape[0]
+    
+    def getNQpts(self):
+        return self.qpts.shape[0]
     
     def basis(self): 
         gVectors = self.getGVectors()

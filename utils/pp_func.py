@@ -4,11 +4,19 @@ from itertools import product
 import matplotlib as mpl
 import matplotlib.pyplot as plt 
 mpl.rcParams['lines.markersize'] = 3
+from ..constants.constants import * 
+
 
 def pot_func(x, params): 
     pot = (params[0]*(x*x - params[1]) / (params[2] * torch.exp(params[3]*x*x) - 1.0))
     return pot
 
+def pot_funcLR(x, params, gamma):
+    pot = params[0]*(x*x - params[1]) / (params[2] * torch.exp(params[3]*x*x) - 1.0)
+    nzid = torch.nonzero(x > 1e-4, as_tuple=True) # x is batched, but want to avoid division by 0
+    pot[nzid] -= params[4] * 4 * np.pi / (x[nzid]**2) * torch.exp(-1 * x[nzid]**2 / (4*gamma**2))
+    return pot
+  
 
 def realSpacePot(vq, qSpacePot, nRGrid, rmax=25): 
     # vq and qSpacePot are both 1D tensor of torch.Size([nQGrid]). vq is assumed to be equally spaced. 

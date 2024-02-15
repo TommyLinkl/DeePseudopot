@@ -8,8 +8,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt 
 mpl.rcParams['lines.markersize'] = 3
 
-import constants.constants
-from utils.pp_func import plotPP, plot_training_validation_cost, plotBandStruct
+
+import ..constants.constants as constants.constants
+from .pp_func import plotPP, plot_training_validation_cost, plotBandStruct
 
 def print_and_inspect_gradients(model): 
     for name, param in model.named_parameters():

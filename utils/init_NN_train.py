@@ -6,8 +6,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt 
 mpl.rcParams['lines.markersize'] = 3
 
-from constants.constants import MASS, HBAR, AUTOEV, AUTONM, NQGRID
-from utils.pp_func import pot_func, plotPP, plot_training_validation_cost
+from ..constants.constants import MASS, HBAR, AUTOEV, AUTONM, NQGRID
+from .pp_func import pot_func, plotPP, plot_training_validation_cost
+
 
 class init_Zunger_data(Dataset):
 
