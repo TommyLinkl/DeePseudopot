@@ -1,12 +1,18 @@
-import numpy as np
+import sys, os
 import torch
+import numpy as np
 from scipy.special import erf
 from scipy.integrate import quad, quadrature, quad_vec
 import time
-import sys
 import copy
 
-from ..constants.constants import *
+from torch.utils.checkpoint import checkpoint
+import multiprocessing as mp
+from multiprocessing import Process, Queue, Pool, shared_memory
+import gc
+
+import ..constants.constants as constants.constants
+from ..constants.constants import MASS, HBAR, AUTOEV
 from .pp_func import pot_func, pot_funcLR
 
 
@@ -16,7 +22,8 @@ class Hamiltonian:
         system,
         PPparams,
         atomPPorder,
-        device,
+        device, 
+        NNConfig, 
         SObool = False,
         cacheSO = True,
         NN_locbool = False,
@@ -25,7 +32,7 @@ class Hamiltonian:
     ):
         """
         The Hamiltonian is initialized by passing it an initialized and
-        populated bulkSystem class, which contains all the relevant 
+        populated BulkSystem class, which contains all the relevant 
         information about the basis, atoms, etc. 
         PPparams should be formatted as a dict of lists, where
         PPparams[atomkey] = [params], and atomkey is the string symbol of the atom.
@@ -44,6 +51,7 @@ class Hamiltonian:
         self.atomPPorder = atomPPorder
         self.system = system
         self.device = device
+        self.NNConfig = NNConfig
         self.SObool = SObool
         self.cacheSO = cacheSO
         self.NN_locbool = NN_locbool
@@ -74,8 +82,10 @@ class Hamiltonian:
                 #self.NLmats = self.initNLmat()
                 self.NLmats = self.initNLmat_fast()
                 self.NLmats_def = None
-        elif SObool and not cacheSO:
-            raise NotImplementedError("currently we only support caching the SO matrices")
+       
+        elif (SObool) and (not cacheSO) and ('num_cores' not in NNConfig):
+            print("WARNING: Setting SObool=True, cacheSO=False, without multiprocessing parallelization. This is not implemented. ")
+
         
         if self.coupling:
             nkpt = self.system.getNKpts()
@@ -107,9 +117,11 @@ class Hamiltonian:
         
 
 
-    def buildHtot(self, kidx):
+    def buildHtot(self, kidx, preComp_SOmats_kidx, preComp_NLmats_kidx, defbool=False, requires_grad=True):
         """
-        Build the total Hamiltonian for a given kpt, specified by its kidx.
+        Build the total Hamiltonian for a given kpt, specified by its kidx. 
+        preComp_SOmats_kidx and preComp_NLmats_kidx are the pre-computed
+        SO and NL matrices (actual matrices) at the certain kidx
         """
         nbv = self.basis.shape[0]
         if self.SObool:
@@ -124,12 +136,29 @@ class Hamiltonian:
             Htot[i,i] = HBAR**2 / (2*MASS) * torch.norm(self.basis[i%nbv] + self.system.kpts[kidx])**2
 
         # local potential
-        Htot = self.buildVlocMat(addMat=Htot)
+        start_time = time.time() if constants.constants.RUNTIME_FLAG else None
+        Htot = self.buildVlocMat(defbool=defbool, addMat=Htot)
+        if not requires_grad: 
+            Htot = Htot.detach()
+        end_time = time.time() if constants.constants.RUNTIME_FLAG else None
+        print(f"Building VlocMat, elapsed time: {(end_time - start_time):.2f} seconds") if constants.constants.RUNTIME_FLAG else None
 
         if self.SObool:
-            Htot = self.buildSOmat(kidx, addMat=Htot)
-            if self.checknl:
-                Htot = self.buildNLmat(kidx, addMat=Htot)
+            start_time = time.time() if constants.constants.RUNTIME_FLAG else None
+            if preComp_SOmats_kidx is None: 
+                raise ValueError("SObool is True, but preComp_SOmats_kidx isn't passed. ")
+            else: 
+                Htot = self.buildSOmat(preComp_SOmats_kidx, addMat=Htot)
+            end_time = time.time() if constants.constants.RUNTIME_FLAG else None
+            print(f"Building SOmat, elapsed time: {(end_time - start_time):.2f} seconds") if constants.constants.RUNTIME_FLAG else None
+
+            start_time = time.time() if constants.constants.RUNTIME_FLAG else None
+            if preComp_NLmats_kidx is None: 
+                raise ValueError("Trying to buildNLmat, but preComp_NLmats_kidx is not pre-computed. ")
+            else: 
+                Htot = self.buildNLmat(preComp_NLmats_kidx, addMat=Htot)
+            end_time = time.time() if constants.constants.RUNTIME_FLAG else None
+            print(f"Building NLmat, elapsed time: {(end_time - start_time):.2f} seconds") if constants.constants.RUNTIME_FLAG else None
 
         if self.device.type == "cuda":
             # !!! is this sufficient to match previous performance?
@@ -138,6 +167,8 @@ class Hamiltonian:
             # which might be slower.
             Htot.to(self.device)
 
+        if not requires_grad: 
+            Htot = Htot.detach()
         return Htot
     
 
@@ -238,6 +269,9 @@ class Hamiltonian:
         nbv = self.basis.shape[0]
         gdiff = torch.stack([self.basis] * nbv, dim=1 ) - self.basis.repeat(nbv,1,1)
 
+        def compute_atomFF():
+            return self.model(torch.norm(gdiff, dim=2).view(-1,1))
+    
         if addMat is not None:
             if self.SObool:
                 assert addMat.shape[0] == 2*nbv
@@ -260,7 +294,11 @@ class Hamiltonian:
             thisAtomIndex = thisAtomIndex[0]
 
             if self.NN_locbool:
-                atomFF = self.model(torch.norm(gdiff, dim=2).view(-1,1))
+                # atomFF = self.model(torch.norm(gdiff, dim=2).view(-1,1))
+                if self.NNConfig['checkpoint']==0: 
+                    atomFF = self.model(torch.norm(gdiff, dim=2).view(-1,1))
+                elif self.NNConfig['checkpoint']==1: 
+                    atomFF = checkpoint(compute_atomFF, use_reentrant=False)
                 atomFF = atomFF[:, thisAtomIndex].view(nbv, nbv)
             else:
                 #atomFF = pot_func(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
@@ -648,11 +686,11 @@ class Hamiltonian:
             isum1 = self._soIntegral_vect(inm, jnm, rcut, width1)
             #isum1 = self._soIntegral_dan(inm, jnm, width1)  # for testing only
             t2 = time.time()
-            print(f"time int1: {t2-t1}")
+            # print(f"time int1: {t2-t1}")
             isum2 = self._nlIntegral_vect(inm, jnm, rcut, width2, shift)
             #isum2 = self._nlIntegral_dan(inm, jnm, width2, shift)  # for testing
             t3 = time.time()
-            print(f"time int2: {t3-t2}")
+            # print(f"time int2: {t3-t2}")
 
             #gdot = torch.dot(gikp, gjkp)
             # this tensordot call is like mat[i,j] = sum_k gikp[i,k] * gjkp[j,k]
@@ -692,14 +730,16 @@ class Hamiltonian:
         return NLmats
     
     
-    def buildSOmat(self, kidx, addMat=None):
+    def buildSOmat(self, preComp_SOmats_kidx, addMat=None):
         """
         Build the final SO mat for a given kpoint (specified by its kidx).
-        Using the cached SOmats, this function just multiplies by the 
+        Using the cached SOmats at the kidx (preComp_SOmats_kidx, the 
+        actual matrices), this function just multiplies by the 
         current values of the PPparams, and then sums over all atoms.
         "addMat" can be set to be a partially constructed Hamiltonian matrix, to
         which the local potential can be added. Might help save slightly on memory.
         """
+        # It seems that we only use preComp_SOmats[kidx]. So why don't we just load this part of the SOmats
         nbv = self.basis.shape[0]
         if addMat is not None:
             assert addMat.shape[0] == 2*nbv
@@ -709,24 +749,26 @@ class Hamiltonian:
             SOmatf = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
         
         for alpha in range(self.system.getNAtoms()):
-            if isinstance(self.SOmats[kidx,alpha], torch.Tensor):
-                tmp = self.SOmats[kidx,alpha]
+            if isinstance(preComp_SOmats_kidx[alpha], torch.Tensor):
+                tmp = preComp_SOmats_kidx[alpha]
             else:
-                tmp = torch.tensor(self.SOmats[kidx,alpha])
+                tmp = torch.tensor(preComp_SOmats_kidx[alpha])
 
             SOmatf = SOmatf + tmp * self.PPparams[self.system.atomTypes[alpha]][5]
-        
+
         return SOmatf
     
 
-    def buildNLmat(self, kidx, addMat=None):
+    def buildNLmat(self, preComp_NLmats_kidx, addMat=None):
         """
         Build the final nonlocal mat for a given kpoint (specified by its kidx).
-        Using the cached NLmats, this function just multiplies by the 
+        Using the cached NLmats at this kidx (preComp_NLmats_kidx, the actual
+        matrices), this function just multiplies by the 
         current values of the PPparams, and then sums over all atoms.
         "addMat" can be set to be a partially constructed Hamiltonian matrix, to
         which the local potential can be added. Might help save slightly on memory.
         """
+        # It seems that we only use preComp_NLmats[kidx]. So why don't we just load this part of the NLmats
         nbv = self.basis.shape[0]
         if addMat is not None:
             assert addMat.shape[0] == 2*nbv
@@ -736,91 +778,172 @@ class Hamiltonian:
             NLmatf = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
         
         for alpha in range(self.system.getNAtoms()):
-            if isinstance(self.NLmats[kidx,alpha,0], torch.Tensor):
-                tmp1 = self.NLmats[kidx,alpha,0]
+            if isinstance(preComp_NLmats_kidx[alpha,0], torch.Tensor):
+                tmp1 = preComp_NLmats_kidx[alpha,0]
             else:
-                tmp1 = torch.tensor(self.NLmats[kidx,alpha,0])
-            if isinstance(self.NLmats[kidx,alpha,1], torch.Tensor):
-                tmp2 = self.NLmats[kidx,alpha,1]
+                tmp1 = torch.tensor(preComp_NLmats_kidx[alpha,0])
+            if isinstance(preComp_NLmats_kidx[alpha,1], torch.Tensor):
+                tmp2 = preComp_NLmats_kidx[alpha,1]
             else:
-                tmp2 = torch.tensor(self.NLmats[kidx,alpha,1])
+                tmp2 = torch.tensor(preComp_NLmats_kidx[alpha,1])
 
             NLmatf = (NLmatf + tmp1 * self.PPparams[self.system.atomTypes[alpha]][6]
                              + tmp2 * self.PPparams[self.system.atomTypes[alpha]][7] )
-        
+
         return NLmatf
 
 
-    def calcBandStruct(self, verbosity=0):
+
+    def calcEigValsAtK(self, kidx, iSystem, cachedMats_info, requires_grad=True, verbosity=0):
+        '''
+        This function builds the Htot at a certain kpoint that is given as the input, 
+        digonalizes the Htot, and obtains the eigenvalues at this kpoint. 
+        '''
+
+        nbands = self.system.nBands
+        eigVals = torch.zeros(nbands)
+
+        if (cachedMats_info is None) and (self.SObool==False):    # proceed as normal. Won't even go into buildSO or buildNL. Need to pass None into buildSO and buildNL
+            preComp_SOmats_kidx = None
+            preComp_NLmats_kidx = None
+        elif (cachedMats_info is None) and (self.SObool==True):
+            if (self.SOmats is None) or (self.NLmats is None):
+                raise ValueError("SObool is True, but the ham instance doesn't have initialized SOmats or NLmats. ")
+            preComp_SOmats_kidx = self.SOmats[kidx]
+            preComp_NLmats_kidx = self.NLmats[kidx]
+        elif (cachedMats_info is not None): 
+            start_time = time.time() if constants.constants.RUNTIME_FLAG else None
+            shm_SOmats = shared_memory.SharedMemory(name=f"SOmats_{iSystem}_{kidx}")
+            preComp_SOmats_kidx = np.ndarray(cachedMats_info[f"SO_{iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{iSystem}_{kidx}"]['dtype'], buffer=shm_SOmats.buf)
+            shm_NLmats = shared_memory.SharedMemory(name=f"NLmats_{iSystem}_{kidx}")
+            preComp_NLmats_kidx = np.ndarray(cachedMats_info[f"NL_{iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{iSystem}_{kidx}"]['dtype'], buffer=shm_NLmats.buf)
+            end_time = time.time() if constants.constants.RUNTIME_FLAG else None
+            print(f"Loading shared memory, elapsed time: {(end_time - start_time):.2f} seconds") if constants.constants.RUNTIME_FLAG else None
+        else: 
+            raise ValueError("Error in calcEigValsAtK. ")
+
+        start_time = time.time() if constants.constants.RUNTIME_FLAG else None
+        H = self.buildHtot(kidx, preComp_SOmats_kidx, preComp_NLmats_kidx, requires_grad)
+        if not requires_grad: 
+            H = H.detach()
+        end_time = time.time() if constants.constants.RUNTIME_FLAG else None
+        print(f"Building Htot, elapsed time: {(end_time - start_time):.2f} seconds") if constants.constants.RUNTIME_FLAG else None
+
+        start_time = time.time() if constants.constants.RUNTIME_FLAG else None
+        if not self.coupling:
+            energies = torch.linalg.eigvalsh(H)
+            energiesEV = energies * AUTOEV
+        else:
+            # this will be slower than necessary, since torch seems to only support
+            # full diagonalization including all eigenvectors. 
+            # If computing couplings, it would be faster to
+            # implement a custom torch diagonalization wrapper
+            # that uses scipy under the hood to allow for better partial
+            # diagonalization algorithms (e.g. the ?heevr driver).
+            ens, vecs = torch.linalg.eigh(H)
+            energiesEV = ens * AUTOEV
+            self.vb_vecs[kidx].append(vecs[:, self.idx_vb])
+            self.cb_vecs[kidx].append(vecs[:, self.idx_cb])
+            # NOTE!!! that using the eigenvectors with torch autodiff can result in non-uniqueness
+            # an instability if there are degenerate eigenvalues. 
+
+            # To avoid gauge phase-dependent values of the coupling when we
+            # have degenerate electronic states, we collect all degenerate bands,
+            # to compute their couplings and THEN average the couplings. This is
+            # different than doing an average over degenerate eigenvectors first, 
+            # which is wrong (results will depend on arbitrary phase in degenerate subspace).
+            ctr = 1
+            for idx in range(self.idx_vb-1, 0, -1):
+                if abs(ens[self.idx_vb] - ens[idx]) < 1e-5:
+                    # this describes a degenerate state as begin within .01 meV (adopted from EPW source)
+                    self.vb_vecs[kidx].append(vecs[:, idx])
+                    ctr += 1
+                else:
+                    break
+
+            if ctr == 1 and self.SObool and verbosity >= 2:
+                print(f"\nWARNING: spin-orbit calc but vb spin states are not degenerate to 1e-10, kidx={kidx}\n")
+            if verbosity >= 3:
+                print(f"kidx={kidx}, vb_vec[0:5]= {self.vb_vecs[kidx, :5]}")
+
+            ctr = 1
+            for idx in range(self.idx_cb+1, self.system.nBands):
+                if abs(ens[self.idx_cb] - ens[idx]) < 1e-5:
+                    # this describes a degenerate state as begin within .01 meV (adopted from EPW source)
+                    self.cb_vecs[kidx].append(vecs[:, idx])
+                    ctr += 1
+                else:
+                    break
+
+            if ctr == 1 and self.SObool and verbosity >= 2:
+                print(f"\nWARNING: spin-orbit calc but cb spin states are not degenerate to 1e-10, kidx={kidx}\n")
+            if verbosity >= 3:
+                print(f"kidx={kidx}, cb_vec[0:5]= {self.cb_vecs[kidx, :5]}")
+
+        if not self.SObool:
+            # 2-fold degeneracy for spin. Not sure why this is necessary, but
+            # it is included in Tommy's code...
+            energiesEV = energiesEV.repeat_interleave(2)
+            # dont need to interleave eigenvecs (if stored) since we only
+            # store the vb and cb anyways.
+        eigVals[:] = energiesEV[:nbands]
+        end_time = time.time() if constants.constants.RUNTIME_FLAG else None
+        print(f"eigvalsh and storing energies, elapsed time: {(end_time - start_time):.2f} seconds") if constants.constants.RUNTIME_FLAG else None
+
+        '''
+        # Testing with random matrix
+        start_time = time.time() if constants.constants.RUNTIME_FLAG else None
+        test_H = torch.randn(2000, 2000, dtype=torch.complex128)
+        eigenvalues = torch.linalg.eigvalsh(test_H)
+        end_time = time.time() if constants.constants.RUNTIME_FLAG else None
+        total_time = end_time - start_time
+        print(f"Generating and diagonalizing a random 2000x2000 matrix. Time: {total_time:.2f} seconds") if constants.constants.RUNTIME_FLAG else None
+        '''
+        
+        if requires_grad: 
+            return eigVals
+        else: 
+            return eigVals.detach()
+
+
+    def calcBandStruct_withGrad(self, iSystem, cachedMats_info):
+        '''
+        Multiprocessing is not implemented due to the requirement to keep gradients.
+        '''
+        
+        nbands = self.system.nBands
+        nkpt = self.system.getNKpts()
+        bandStruct = torch.zeros([nkpt, nbands])
+        for kidx in range(nkpt):
+            eigValsAtK = self.calcEigValsAtK(kidx, iSystem, cachedMats_info, requires_grad=True)
+            bandStruct[kidx,:] = eigValsAtK
+        
+        return bandStruct
+
+
+    def calcBandStruct_noGrad(self, NNConfig, iSystem, cachedMats_info):
+        """
+        Multiprocessing is implemented. However, the returned bandStruct doesn't have gradients.
+        """
+        
         nbands = self.system.nBands
         nkpt = self.system.getNKpts()
 
-        bandStruct = torch.zeros([nkpt, nbands])
-
-        # this loop should be parallelized for good performance.
-        # can be done with shared memory by simply using the multiprocessing module
-        for kidx in range(nkpt):
-            H = self.buildHtot(kidx)
-
-            if not self.coupling:
-                energies = torch.linalg.eigvalsh(H)
-                energiesEV = energies * AUTOEV
-            else:
-                # this will be slower than necessary, since torch seems to only support
-                # full diagonalization including all eigenvectors. 
-                # If computing couplings, it would be faster to
-                # implement a custom torch diagonalization wrapper
-                # that uses scipy under the hood to allow for better partial
-                # diagonalization algorithms (e.g. the ?heevr driver).
-                ens, vecs = torch.linalg.eigh(H)
-                energiesEV = ens * AUTOEV
-                self.vb_vecs[kidx].append(vecs[:, self.idx_vb])
-                self.cb_vecs[kidx].append(vecs[:, self.idx_cb])
-                # NOTE!!! that using the eigenvectors with torch autodiff can result in non-uniqueness
-                # an instability if there are degenerate eigenvalues. 
-                
-                # To avoid gauge phase-dependent values of the coupling when we
-                # have degenerate electronic states, we collect all degenerate bands,
-                # to compute their couplings and THEN average the couplings. This is
-                # different than doing an average over degenerate eigenvectors first, 
-                # which is wrong (results will depend on arbitrary phase in degenerate subspace).
-                ctr = 1
-                for idx in range(self.idx_vb-1, 0, -1):
-                    if abs(ens[self.idx_vb] - ens[idx]) < 1e-5:
-                        # this describes a degenerate state as begin within .01 meV (adopted from EPW source)
-                        self.vb_vecs[kidx].append(vecs[:, idx])
-                        ctr += 1
-                    else:
-                        break
-
-                if ctr == 1 and self.SObool and verbosity >= 2:
-                    print(f"\nWARNING: spin-orbit calc but vb spin states are not degenerate to 1e-10, kidx={kidx}\n")
-                if verbosity >= 3:
-                    print(f"kidx={kidx}, vb_vec[0:5]= {self.vb_vecs[kidx, :5]}")
-
-                ctr = 1
-                for idx in range(self.idx_cb+1, self.system.nBands):
-                    if abs(ens[self.idx_cb] - ens[idx]) < 1e-5:
-                        # this describes a degenerate state as begin within .01 meV (adopted from EPW source)
-                        self.cb_vecs[kidx].append(vecs[:, idx])
-                        ctr += 1
-                    else:
-                        break
-
-                if ctr == 1 and self.SObool and verbosity >= 2:
-                    print(f"\nWARNING: spin-orbit calc but cb spin states are not degenerate to 1e-10, kidx={kidx}\n")
-                if verbosity >= 3:
-                    print(f"kidx={kidx}, cb_vec[0:5]= {self.cb_vecs[kidx, :5]}")
-                
-            if not self.SObool:
-                # 2-fold degeneracy for spin. Not sure why this is necessary, but
-                # it is included in Tommy's code...
-                energiesEV = energiesEV.repeat_interleave(2)
-                # dont need to interleave eigenvecs (if stored) since we only
-                # store the vb and cb anyways.
-
-            bandStruct[kidx,:] = energiesEV[:nbands]
-
+        bandStruct = torch.zeros([nkpt, nbands], requires_grad=False)
+        if ('num_cores' not in NNConfig) or (NNConfig['num_cores']==0): 
+            # No multiprocessing
+            for kidx in range(nkpt):
+                eigValsAtK = self.calcEigValsAtK(kidx, iSystem, cachedMats_info, requires_grad=False)
+                bandStruct[kidx,:] = eigValsAtK
+        else: # multiprocessing
+            torch.set_num_threads(1)
+            os.environ["OMP_NUM_THREADS"] = "1"
+            os.environ["MKL_NUM_THREADS"] = "1"
+            # print(f"The size of cachedMats_info is: {sys.getsizeof(cachedMats_info)/1024} KB")
+            args_list = [(kidx, iSystem, cachedMats_info, False) for kidx in range(nkpt)]
+            with mp.Pool(NNConfig['num_cores']) as pool:
+                eigValsList = pool.starmap(self.calcEigValsAtK, args_list)
+            bandStruct = torch.stack(eigValsList)
         return bandStruct
 
 
@@ -1370,7 +1493,7 @@ class Hamiltonian:
         
         ret, err = quad_vec(integrand, 1e-10, shift+rcut, epsabs=1e-20, epsrel=1e-5, quadrature="gk21")
         ret = ret.reshape(len(k), len(kp))
-        print(f"int2 est. maxerr: {np.amax(err)}")
+        # print(f"int2 est. maxerr: {np.amax(err)}")
         return ret
 
 
@@ -1406,6 +1529,7 @@ class Hamiltonian:
         """
         return self.model
     
+
     def set_NNmodel(self, newmodel):
         """
         Use this to set the current NN model.
@@ -1413,9 +1537,11 @@ class Hamiltonian:
         """
         self.model = newmodel
 
+
     def get_PPparams(self):
         return copy.deepcopy(self.PPparams)
     
+
     def set_PPparams(self, newparams):
         """
         Set new values for the algebraic PP "a" params.
@@ -1424,3 +1550,78 @@ class Hamiltonian:
         """
         self.PPparams = newparams
 
+
+def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device):
+    """
+    Initialize the ham class for each BulkSystem. 
+    dummy_ham is used to initialize and store the cached SOmats and NLmats in dict cachedMats. 
+    As I initialize dummy_ham, immediately load them into share memory
+    Use a dict "cachedMats_info" to store dtype and shape
+    Then remove dummy_ham, and any intermediate variables
+    """
+    print("\nInitializing the ham class for each BulkSystem. Cache-ing the corresponding SO and NL mats. ")
+    hams = []
+    cachedMats_info = None
+    shm_dict_SO = None
+    shm_dict_NL = None
+    for iSys, sys in enumerate(systemsList):
+        start_time = time.time()
+
+        # Here I separate: 
+        # 1. SObool = False --> Just initialize ham. No storage / moving is needed. 
+        # 2. SObool = True, no parallel --> Initialize ham with cache. No storage / moving is needed.
+        # 3. SObool = True, yes parallel --> Do the complicated storage / moving. 
+        if not NNConfig['SObool']: 
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, SObool=NNConfig['SObool'])
+        elif (NNConfig['SObool']) and (('num_cores' not in NNConfig) or (NNConfig['num_cores']==0)): 
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, SObool=NNConfig['SObool'])
+        else: 
+            cachedMats_info = {}
+            shm_dict_SO = {}
+            shm_dict_NL = {}
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, SObool=True, cacheSO=False)
+            dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, SObool=NNConfig['SObool'])
+
+            if dummy_ham.SOmats is not None: 
+                # reshape dummy_ham.SOmats into 4D arrays 
+                # of shape (nkpt)*(nAtoms)*(2*nbasis) x (2*nbasis)
+                tmpSOmats = dummy_ham.SOmats
+                tmpSOmats_4d = np.array(tmpSOmats.tolist(), dtype=np.complex128).reshape((tmpSOmats.shape[0], tmpSOmats.shape[1], tmpSOmats[0,0].shape[0], tmpSOmats[0,0].shape[1]))
+                for kidx in range(sys.getNKpts()):
+                    SOkey = f"SO_{iSys}_{kidx}"
+                    SOvalue = {'dtype': tmpSOmats_4d[kidx].dtype,
+                        'shape': tmpSOmats_4d[kidx].shape,
+                    }
+                    cachedMats_info[SOkey] = SOvalue
+
+                    # Move the SOmats to shared memory
+                    shm_dict_SO[f"shm_SO_{iSys}_{kidx}"] = shared_memory.SharedMemory(create=True, size=tmpSOmats_4d[kidx].nbytes, name=f"SOmats_{iSys}_{kidx}")
+                    tmp_arr = np.ndarray(cachedMats_info[f"SO_{iSys}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{iSys}_{kidx}"]['dtype'], buffer=shm_dict_SO[f"shm_SO_{iSys}_{kidx}"].buf)  # Create a NumPy array backed by shared memory
+                    tmp_arr[:] = tmpSOmats_4d[kidx][:]   # Copy the cached SOmat into shared memory
+
+                del tmpSOmats, tmpSOmats_4d
+            if dummy_ham.NLmats is not None: 
+                # reshape dummy_ham.NLmats into 5D arrays 
+                # of shape (nkpt)*(nAtoms)*(2)*(2*nbasis) x (2*nbasis)
+                tmpNLmats = dummy_ham.NLmats
+                tmpNLmats_5d = np.array(tmpNLmats.tolist(), dtype=np.complex128).reshape((tmpNLmats.shape[0], tmpNLmats.shape[1], tmpNLmats.shape[2], tmpNLmats[0,0,0].shape[0], tmpNLmats[0,0,0].shape[1]))
+                for kidx in range(sys.getNKpts()):
+                    NLkey = f"NL_{iSys}_{kidx}"
+                    NLvalue = {'dtype': tmpNLmats_5d[kidx].dtype,
+                        'shape': tmpNLmats_5d[kidx].shape,
+                    }
+                    cachedMats_info[NLkey] = NLvalue
+
+                    # Move the NLmats to shared memory
+                    shm_dict_NL[f"shm_NL_{iSys}_{kidx}"] = shared_memory.SharedMemory(create=True, size=tmpNLmats_5d[kidx].nbytes, name=f"NLmats_{iSys}_{kidx}")
+                    tmp_arr = np.ndarray(cachedMats_info[f"NL_{iSys}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{iSys}_{kidx}"]['dtype'], buffer=shm_dict_NL[f"shm_NL_{iSys}_{kidx}"].buf) 
+                    tmp_arr[:] = tmpNLmats_5d[kidx][:] 
+
+                del tmpNLmats, tmpNLmats_5d
+            del dummy_ham
+            gc.collect()
+            print("Finished putting the cached SO and NLmats into shared memory ...")
+        hams.append(ham)
+        end_time = time.time()
+        print(f"Elapsed time: {(end_time - start_time):.2f} seconds\n")
+    return hams, cachedMats_info, shm_dict_SO, shm_dict_NL

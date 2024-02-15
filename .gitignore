@@ -3,3 +3,6 @@ __pycache__/
 .ipynb_checkpoints/
 CALCS/
 CALCS/*
+.vscode/*
+test_parallel/results*/*
+*.log

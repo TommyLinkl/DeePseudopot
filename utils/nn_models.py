@@ -23,10 +23,7 @@ class Net_sig(nn.Module):
                 x = linear_transform(x)
         return x
 
-# this model accepts a vector for the layers, i.e. [inp, hidden1, hidden2,...hiddenM,out]
-# with tanh activation
 class Net_tanh(nn.Module):
-    # Constructor
     def __init__(self, Layers,p=0):
         super(Net_tanh, self).__init__()
         self.drop=nn.Dropout(p=p)
@@ -35,7 +32,6 @@ class Net_tanh(nn.Module):
             linear = nn.Linear(input_size, output_size)
             self.hidden.append(linear)
 
-    # Prediction
     def forward(self, x):
         L = len(self.hidden)
         for (l, linear_transform) in zip(range(L), self.hidden):
@@ -45,10 +41,7 @@ class Net_tanh(nn.Module):
                 x = linear_transform(x)
         return x
 
-# this model accepts a vector for the layers, i.e. [inp, hidden1, hidden2,...hiddenM,out]
-# with Relu activation
 class Net_relu(nn.Module):
-    # Constructor
     def __init__(self, Layers):
         super(Net_relu, self).__init__()
         self.hidden = nn.ModuleList()
@@ -57,7 +50,6 @@ class Net_relu(nn.Module):
             linear = nn.Linear(input_size, output_size)
             self.hidden.append(linear)
 
-    # Prediction
     def forward(self, x):
         L = len(self.hidden)
         for (l, linear_transform) in zip(range(L), self.hidden):
@@ -67,12 +59,29 @@ class Net_relu(nn.Module):
                 x = linear_transform(x)
         return x
 
-# this model accepts a vector for the layers, i.e. [inp, hidden1, hidden2,...hiddenM,out]
-# with sigmoid activation / uniform initialisation
-class Net_sig_UniformInit(nn.Module):
-    # Constructor
+class Net_relu_xavier(nn.Module):
     def __init__(self, Layers):
-        super(Net_UniformInit, self).__init__()
+        super(Net_relu_xavier, self).__init__()
+        self.hidden_l = nn.ModuleList()
+
+        for input_size, output_size in zip(Layers, Layers[1:]):
+            linear = nn.Linear(input_size, output_size)
+            torch.nn.init.xavier_normal_(linear.weight)
+            self.hidden_l.append(linear)
+
+    def forward(self, x):
+        L = len(self.hidden_l)
+        for (l, linear_transform) in zip(range(L), self.hidden_l):
+            if l < L - 1:
+                x = torch.relu(linear_transform(x))
+            else:
+                x = linear_transform(x)
+        return x
+
+# sigmoid activation + uniform initialization
+class Net_sig_UniformInit(nn.Module):
+    def __init__(self, Layers):
+        super(Net_sig_UniformInit, self).__init__()
         self.hidden = nn.ModuleList()
 
         for input_size, output_size in zip(Layers, Layers[1:]):
@@ -80,7 +89,6 @@ class Net_sig_UniformInit(nn.Module):
             linear.weight.data.uniform_(0, 1)
             self.hidden.append(linear)
 
-    # Prediction
     def forward(self, x):
         L = len(self.hidden)
         for (l, linear_transform) in zip(range(L), self.hidden):
@@ -90,20 +98,18 @@ class Net_sig_UniformInit(nn.Module):
                 x = linear_transform(x)
         return x
 
-# this model accepts a vector for the layers, i.e. [inp, hidden1, hidden2,...hiddenM,out]
-# with tanh activation / Xavier initialisation
+# tanh activation + Xavier initialization
 # "p" is a dropout parameter, i.e. we randomly "switch off" neurons at probability p
 class Net_tanh_XavierInit_dropout(nn.Module):
-    # Constructor
-    def __init__(self, Layers,p=0):
-        super(Net_XavierInit, self).__init__()
+    def __init__(self, Layers, p=0):
+        super(Net_tanh_XavierInit_dropout, self).__init__()
         self.drop=nn.Dropout(p=p)
         self.hidden = nn.ModuleList()
         for input_size, output_size in zip( Layers, Layers[1:]):
             linear = nn.Linear(input_size, output_size)
             torch.nn.init.xavier_uniform_(linear.weight)
             self.hidden.append(linear)
-    # Prediction
+
     def forward(self, x):
         L = len(self.hidden)
         for (l, linear_transform) in zip(range(L), self.hidden):
@@ -113,12 +119,10 @@ class Net_tanh_XavierInit_dropout(nn.Module):
                 x = linear_transform(x)
         return x
 
-# this model accepts a vector for the layers, i.e. [inp, hidden1, hidden2,...hiddenM,out]
-# with Relu activation / He (Kaiming) initialisation
+# Relu activation + He (Kaiming) initialization
 class Net_relu_HeInit(nn.Module):
-    # Constructor
     def __init__(self, Layers):
-        super(Net_HeInit, self).__init__()
+        super(Net_relu_HeInit, self).__init__()
         self.hidden = nn.ModuleList()
 
         for input_size, output_size in zip(Layers, Layers[1:]):
@@ -126,7 +130,6 @@ class Net_relu_HeInit(nn.Module):
             torch.nn.init.kaiming_uniform_(linear.weight, nonlinearity='relu')
             self.hidden.append(linear)
 
-    # Prediction
     def forward(self, x):
         L = len(self.hidden)
         for (l, linear_transform) in zip(range(L), self.hidden):
@@ -136,12 +139,9 @@ class Net_relu_HeInit(nn.Module):
                 x = linear_transform(x)
         return x
 
-# this model accepts a vector for the layers, i.e. [inp, hidden1, hidden2,...hiddenM,out]
-# with sigmoid activation / batch normalisation
-# "p" is a dropout parameter, i.e. we randomly "switch off" neurons at probability p
+# sigmoid activation + batch normalization + dropout
 class Net_sig_bn(nn.Module):
-    # Constructor
-    def __init__(self, Layers,p=0):
+    def __init__(self, Layers, p=0):
         super(Net_sig_bn, self).__init__()
         self.drop=nn.Dropout(p=p)
         self.hidden_l = nn.ModuleList()
@@ -152,7 +152,7 @@ class Net_sig_bn(nn.Module):
             self.hidden_l.append(linear)
             batchnorm = nn.BatchNorm1d(output_size)
             self.hidden_bn.append(batchnorm)
-    # Prediction
+
     def forward(self, x):
         L = len(self.hidden_l)
         for (l, linear_transform, bn) in zip(range(L), self.hidden_l, self.hidden_bn):
@@ -162,11 +162,8 @@ class Net_sig_bn(nn.Module):
                 x = linear_transform(x)
         return x
 
-# this model accepts a vector for the layers, i.e. [inp, hidden1, hidden2,...hiddenM,out]
-# with tanh activation / batch normalisation
-# "p" is a dropout parameter, i.e. we randomly "switch off" neurons at probability p
+# with tanh activation + batch normalization + dropout
 class Net_tanh_bn(nn.Module):
-    # Constructor
     def __init__(self, Layers,p=0):
         super(Net_tanh_bn, self).__init__()
         self.drop=nn.Dropout(p=p)
@@ -178,7 +175,7 @@ class Net_tanh_bn(nn.Module):
             self.hidden_l.append(linear)
             batchnorm = nn.BatchNorm1d(output_size)
             self.hidden_bn.append(batchnorm)
-    # Prediction
+
     def forward(self, x):
         L = len(self.hidden_l)
         for (l, linear_transform, bn) in zip(range(L), self.hidden_l, self.hidden_bn):
@@ -188,11 +185,8 @@ class Net_tanh_bn(nn.Module):
                 x = linear_transform(x)
         return x
 
-# this model accepts a vector for the layers, i.e. [inp, hidden1, hidden2,...hiddenM,out]
-# with Relu activation / batch normalisation
-# "p" is a dropout parameter, i.e. we randomly "switch off" neurons at probability p
+# Relu activation + batch normalization + dropout
 class Net_relu_bn(nn.Module):
-    # Constructor
     def __init__(self, Layers,p=0):
         super(Net_relu_bn, self).__init__()
         self.drop=nn.Dropout(p=p)
@@ -204,7 +198,7 @@ class Net_relu_bn(nn.Module):
             self.hidden_l.append(linear)
             batchnorm = nn.BatchNorm1d(output_size)
             self.hidden_bn.append(batchnorm)
-    # Prediction
+
     def forward(self, x):
         L = len(self.hidden_l)
         for (l, linear_transform, bn) in zip(range(L), self.hidden_l, self.hidden_bn):
@@ -214,9 +208,7 @@ class Net_relu_bn(nn.Module):
                 x = linear_transform(x)
         return x
 
-# this model accepts a vector for the layers, i.e. [inp, hidden1, hidden2,...hiddenM,out]
-# with tanh activation / Xavier intialisation /batch normalisation
-# "p" is a dropout parameter, i.e. we randomly "switch off" neurons at probability p
+# tanh activation + Xavier intialization + batch normalization + dropout
 class Net_Xavier_BN(nn.Module):
     # Constructor
     def __init__(self, Layers,p=0):
@@ -241,9 +233,7 @@ class Net_Xavier_BN(nn.Module):
                 x = linear_transform(x)
         return x
 
-# this model accepts a vector for the layers, i.e. [inp, hidden1, hidden2,...hiddenM,out]
-# with Relu activation / He (Kaiming) intialisation /batch normalisation
-# "p" is a dropout parameter, i.e. we randomly "switch off" neurons at probability p
+# Relu activation + He (Kaiming) intialization + batch normalization + dropout
 class Net_He_BN(nn.Module):
     # Constructor
     def __init__(self, Layers,p=0):
@@ -271,7 +261,7 @@ class Net_He_BN(nn.Module):
 #######################################################################################################
     
 # this model accepts a vector for the layers, i.e. [inp, hidden1, hidden2,...hiddenM,out]
-# with Relu activation / Xavier intialisation / batch normalisation / dropout
+# Relu activation + Xavier intialization + batch normalization + dropout
 class Net_relu_xavier_BN_dropout(nn.Module):
     # Constructor
     def __init__(self, Layers, p=0):
@@ -301,7 +291,6 @@ class ZeroFunction(nn.Module):
         batch_size = x.size(0)
         return torch.zeros(batch_size, 2, dtype=x.dtype, device=x.device)
 
-
 class Net_relu_xavier_BN_dropout_decay(nn.Module):
     def __init__(self, Layers, p=0):
         super(Net_relu_xavier_BN_dropout_decay, self).__init__()
@@ -314,41 +303,15 @@ class Net_relu_xavier_BN_dropout_decay(nn.Module):
         output = torch.cat((neural_network_output, mathematical_function_output), dim=0)
         return output
     
-
-# this model accepts a vector for the layers, i.e. [inp, hidden1, hidden2,...hiddenM,out]
-# with Relu activation / Xavier intialization
-class Net_relu_xavier(nn.Module):
-    # Constructor
-    def __init__(self, Layers):
-        super(Net_relu_xavier, self).__init__()
-        self.hidden_l = nn.ModuleList()
-
-        for input_size, output_size in zip(Layers, Layers[1:]):
-            linear = nn.Linear(input_size, output_size)
-            torch.nn.init.xavier_normal_(linear.weight)
-            self.hidden_l.append(linear)
-    # Prediction
-    def forward(self, x):
-        L = len(self.hidden_l)
-        for (l, linear_transform) in zip(range(L), self.hidden_l):
-            if l < L - 1:
-                x = torch.relu(linear_transform(x))
-            else:
-                x = linear_transform(x)
-        return x
-    
-class Net_relu_xavier_decay1(nn.Module):
+class Net_relu_xavier_decay(nn.Module):
     def __init__(self, Layers, decay_rate, decay_center):
-        super(Net_relu_xavier_decay1, self).__init__()
+        super(Net_relu_xavier_decay, self).__init__()
         self.neural_network = Net_relu_xavier(Layers)
-        self.decay_rate = nn.Parameter(torch.tensor(decay_rate, dtype=torch.float64))
-        self.decay_center = nn.Parameter(torch.tensor(decay_center, dtype=torch.float64))
-    
-    def decay_function(self, x):
-        return 1 - 1 / (1 + torch.exp(-self.decay_rate * (x - self.decay_center)))
+        self.decay_rate = torch.tensor(decay_rate, requires_grad=False)
+        self.decay_center = torch.tensor(decay_center, requires_grad=False)
     
     def forward(self, x):
-        decay = self.decay_function(x)
+        decay = 1 - 1 / (1 + torch.exp(-self.decay_rate * (x - self.decay_center)))
         output = self.neural_network(x) * decay
         return output
     

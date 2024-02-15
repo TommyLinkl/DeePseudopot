@@ -1,35 +1,79 @@
-import numpy as np
 import torch
+import numpy as np
+import os
+import multiprocessing as mp
 
-from ..constants.constants import *
-
-torch.set_default_dtype(torch.float64)
-torch.manual_seed(24)
+import ..constants.constants as constants.constants
+from ..constants.constants import MASS, HBAR
+from .nn_models import *
 
 def read_NNConfigFile(filename):
+    """
+    This read function is able to skip empty lines, 
+    able to ignore comments after # sign, 
+    and not all keys are required. 
+    """
     config = {}
     with open(filename, 'r') as file:
         for line in file:
+            if not line.strip():              # Skip empty lines
+                continue
             if '=' in line:
-                key, value = line.strip().split('=')
+                key, value = line.split('#')[0].strip().split('=')
                 key = key.strip()
                 value = value.strip()
-                if key == 'SHOWPLOTS':
+                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'memory_flag', 'runtime_flag']:
                     config[key] = bool(int(value))
-                elif key in ['nSystem', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience']:
+                elif key in ['nSystem', 'num_cores', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience']:
                     config[key] = int(value)
-                elif key in ['init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma']:
+                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma']:
                     config[key] = float(value)
                 elif key in ['hiddenLayers']: 
                     config[key] = [int(x) for x in value.split()]
                 else:
                     config[key] = value
+
+    print("All settings: ")
+    if (config["checkpoint"]==1) and (config["separateKptGrad"]==1): 
+        raise ValueError("############################################\n# Please don't turn on both checkpoint and separateKptGrad. \n############################################\n")
+    elif (config["checkpoint"]==1) and (config["separateKptGrad"]==0):
+        print("WARNING: Using checkpointing! Please use this as a last resort, only for pseudopotential fitting where memory limit is a major issue. The code will run slower due to checkpointing. \n")
+    elif (config["checkpoint"]==0) and (config["separateKptGrad"]==1): 
+        print("\tUsing separateKptGrad. This can decrease the peak memory load during the fitting code.")
+
+    if ('num_cores' not in config) or (config['num_cores']==0): 
+        print("\tNot doing multiprocessing.")
+    else:
+        print(f"\tUsing num_cores = {config['num_cores']} parallelization out of {mp.cpu_count()} total CPUs available.")
+
+    constants.constants.MEMORY_FLAG = config['memory_flag'] == 1
+    constants.constants.RUNTIME_FLAG = config['runtime_flag'] == 1
+    if constants.constants.MEMORY_FLAG: 
+        print("\nWARNING: MEMORY_FLAG is ON. Please check to make sure that the script is run with:\n\tmprof run --output <mem_output_file> main.py <inputsFolder> <resultsFolder>\n\tmprof plot -o <mem_plot_file> <mem_output_file>\n")
+    print("RUNTIME_FLAG is ON") if constants.constants.RUNTIME_FLAG else None
+
     return config
 
-# Note: the python convention is capitalize the first letter of classes,
-# so this should be BulkSystem
-class bulkSystem:
-    def __init__(self, scale=1.0, unitCellVectors_unscaled=None, atomTypes=None, atomPos_unscaled=None, kpts_recipLatVec=None, expBandStruct=None, nBands=16, maxKE=5):
+def read_PPparams(atomPPOrder, paramsFilePath): 
+    PPparams = {}
+    totalParams = torch.empty(0,9) # see the readme for definition of all 9 params.
+                                   # They are not all used in this test. Only
+                                   # params 0-3,5-7 are used (local pot, SOC,
+                                   # and nonlocal, no long range or strain)
+    for atomType in atomPPOrder:
+        file_path = f"{paramsFilePath}{atomType}Params.par"
+        if os.path.isfile(file_path):
+            with open(file_path, 'r') as file:
+                a = torch.tensor([float(line.strip()) for line in file])
+            totalParams = torch.cat((totalParams, a.unsqueeze(0)), dim=0)
+            PPparams[atomType] = a
+        else:
+            raise FileNotFoundError("Error: File " + file_path + " cannot be found. This atom cannot be initialized. ")
+            
+    return PPparams, totalParams
+
+class BulkSystem:
+    def __init__(self, scale=1.0, unitCellVectors_unscaled=None, atomTypes=None, atomPos_unscaled=None, kpts_recipLatVec=None, expBandStruct=None, nBands=16, maxKE=5, BS_plot_center=-5.0, systemName='NoName'):
         if unitCellVectors_unscaled is None:
             unitCellVectors_unscaled = torch.zeros(3, 3)
         if atomTypes is None:
@@ -52,36 +96,25 @@ class bulkSystem:
         self.maxKE = maxKE
         self.expCouplingBands = None
         self.bandWeights = None
+        self.BS_plot_center = BS_plot_center
+        self.systemName = systemName
+        
         
     def setInputs(self, inputFilename):
-        # nBands can be redundant
-        maxKE = None
-        nBands = None
-        idxVB = None
-        idxCB = None
-        idxGap = None
+        attributes = {}
         with open(inputFilename, 'r') as file:
             for line in file:
-                parts = line.strip().split('=')
-                if len(parts) == 2:
-                    variable_name = parts[0].strip()
-                    value = parts[1].strip()
-                    if variable_name == 'maxKE':
-                        maxKE = float(value)
-                    elif variable_name == 'nBands':
-                        nBands = int(float(value))
-                    elif variable_name == 'idxVB':
-                        idxVB = int(float(value))
-                    elif variable_name == 'idxCB':
-                        idxCB = int(float(value))
-                    elif variable_name == 'idxGap':
-                        idxGap = int(float(value))
-        self.maxKE = maxKE
-        self.nBands = nBands
-        self.idx_vb = idxVB
-        self.idx_cb = idxCB
-        self.idx_gap = idxGap
-
+                if '=' in line:
+                    key, value = line.split('#')[0].strip().split('=')
+                    key = key.strip()
+                    value = value.strip()
+                    if key in ['maxKE', 'BS_plot_center']:
+                        attributes[key] = float(value)
+                    elif key in ['nBands', 'idxVB', 'idxCB', 'idxGap']:            # nBands can be redundant
+                        attributes[key] = int(float(value))
+                    elif key in ['systemName']: 
+                        attributes[key] = value
+        vars(self).update(attributes)
         
     def setSystem(self, systemFilename):
         # scale, unitCellVectors_unscaled, atomTypes, atomPos
@@ -115,7 +148,8 @@ class bulkSystem:
         self.unitCellVectors = scale * torch.tensor(cell)
         self.atomTypes = np.array(atomTypes).flatten()
         self.atomPos = torch.tensor(atomCoords) @ self.unitCellVectors
-        self.systemName = ''.join(self.atomTypes)
+        # self.systemName = ''.join(self.atomTypes)
+        
     
     def setKPointsAndWeights(self, kPointsFilename):
         with open(kPointsFilename, 'r') as file:
@@ -260,3 +294,47 @@ class bulkSystem:
         sorted_basisSet = basisSet[sorting_indices]
         
         return sorted_basisSet
+    
+    def print_basisStates(self, basisStateFileName):
+        sorted_basisSet = self.basis().numpy()
+        norm_column = np.linalg.norm(sorted_basisSet, axis=1, keepdims=True)
+        sorted_basisSet = np.hstack((sorted_basisSet, norm_column))
+        
+        first_column = np.arange(len(sorted_basisSet))[:, np.newaxis]
+        sorted_basisSet = np.hstack((first_column, sorted_basisSet))
+
+        np.savetxt(basisStateFileName, sorted_basisSet, fmt=['%d']+['%f']*(sorted_basisSet.shape[1]-1), delimiter='\t')
+        return
+
+def setAllBulkSystems(nSystem, inputsFolder, resultsFolder):
+    atomPPOrder = []
+    systemsList = [BulkSystem() for _ in range(nSystem)]
+    for iSys, sys in enumerate(systemsList):
+        sys.setSystem(inputsFolder + "system_%d.par" % iSys)
+        sys.setInputs(inputsFolder + "input_%d.par" % iSys)
+        sys.setKPointsAndWeights(inputsFolder + "kpoints_%d.par" % iSys)
+        sys.setExpBS(inputsFolder + "expBandStruct_%d.par" % iSys)
+        sys.setBandWeights(inputsFolder + "bandWeights_%d.par" % iSys)
+        sys.print_basisStates(resultsFolder + "basisStates_%d.dat" % iSys)
+        atomPPOrder.append(sys.atomTypes)
+    atomPPOrder = np.unique(np.concatenate(atomPPOrder))
+    nPseudopot = len(atomPPOrder)
+    print(f"There are {nPseudopot} atomic pseudopotentials. They are in the order of: {atomPPOrder}")
+    
+    PPparams, totalParams = read_PPparams(atomPPOrder, inputsFolder + "init_")
+    localPotParams = totalParams[:,:4]
+    return systemsList, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams
+
+def setNN(config, nPseudopot):
+    layers = [1] + config['hiddenLayers'] + [nPseudopot]
+    if config['PPmodel'] in globals() and callable(globals()[config['PPmodel']]):
+        if config['PPmodel']=='Net_relu_xavier_decay': 
+            PPmodel = globals()[config['PPmodel']](layers, decay_rate=config['PPmodel_decay_rate'], decay_center=config['PPmodel_decay_center'])
+        elif config['PPmodel']=='Net_relu_xavier_decayGaussian': 
+            PPmodel = globals()[config['PPmodel']](layers, gaussian_std=config['PPmodel_gaussian_std'])
+        else: 
+            PPmodel = globals()[config['PPmodel']](layers)
+    else:
+        raise ValueError(f"Function {config['PPmodel']} does not exist.")
+    return PPmodel
+

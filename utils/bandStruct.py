@@ -1,13 +1,25 @@
+
+import torch
+import psutil
+from memory_profiler import profile
+import gc
+from torch.autograd import profiler
+from torch.utils.checkpoint import checkpoint
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt 
 mpl.rcParams['lines.markersize'] = 3
-import torch
 
 from constants.constants import *
-from utils.pp_func import pot_func, realSpacePot, plotBandStruct
+from utils.pp_func import pot_func
+from utils.memory import print_memory_usage
 
 def calcHamiltonianMatrix_GPU(NN_boolean, model, basisStates, atomPos, atomTypes, nAtoms, cellVolume, kVector, atomPPOrder, totalParams, device):
+    '''
+    This function is outdated and miss the implementation of 
+    SOC and NL parts of the pseudopotential. Please use 
+    functions for class Hamiltonian in ham.py instead. 
+    '''
     model.to(device)
     basisStates = basisStates.to(device)
     kVector = kVector.to(device)
@@ -23,6 +35,9 @@ def calcHamiltonianMatrix_GPU(NN_boolean, model, basisStates, atomPos, atomTypes
     # Local potential
     gDiff = torch.stack([basisStates] * (basisStates.shape[0]), dim=1) - basisStates.repeat(basisStates.shape[0], 1, 1)
     
+    def compute_atomFF():
+        return model(torch.norm(gDiff, dim=2).view(-1, 1))
+
     for k in range(nAtoms): 
         gDiffDotTau = torch.sum(gDiff * atomPos[k], axis=2)
         structFact = 1/cellVolume * (torch.cos(gDiffDotTau) + 1j*torch.sin(gDiffDotTau))
@@ -33,30 +48,46 @@ def calcHamiltonianMatrix_GPU(NN_boolean, model, basisStates, atomPos, atomTypes
         thisAtomIndex = thisAtomIndex[0]
         
         if NN_boolean: 
-            # print(torch.norm(gDiff, dim=2).view(-1, 1).shape)
-            atomFF = model(torch.norm(gDiff, dim=2).view(-1, 1))
+            # atomFF = model(torch.norm(gDiff, dim=2).view(-1, 1))
+            atomFF = checkpoint(compute_atomFF)
             atomFF = atomFF[:, thisAtomIndex].view(n, n)
         else: 
             atomFF = pot_func(torch.norm(gDiff, dim=2), totalParams[thisAtomIndex])
         
         HMatrix += atomFF * structFact
+        del atomFF
+        gc.collect()
+        torch.cuda.empty_cache()
     return HMatrix
 
 def calcBandStruct_GPU(NN_boolean, model, bulkSystem, atomPPOrder, totalParams, device):
+    '''
+    This function is outdated and miss the implementation of 
+    SOC and NL parts of the pseudopotential. Please use 
+    functions for class Hamiltonian in ham.py instead. 
+    '''
     nBands = bulkSystem.nBands
     kpts_coord = bulkSystem.kpts
     nkpt = bulkSystem.getNKpts()
     
     bandStruct = torch.zeros((nkpt, nBands))
     for kpt_index in range(nkpt): 
+        print("\nConstructing H Matrix, before and after: ")
+        print_memory_usage()
         HamiltonianMatrixAtKpt = calcHamiltonianMatrix_GPU(NN_boolean, model, bulkSystem.basis(), bulkSystem.atomPos, bulkSystem.atomTypes, bulkSystem.getNAtoms(), bulkSystem.getCellVolume(), bulkSystem.kpts[kpt_index], atomPPOrder, totalParams, device)
+        print_memory_usage()
+
         # diagonalize the hamiltonian
+        print("\neigvalsh, before and after: ")
+        print_memory_usage()
         energies = torch.linalg.eigvalsh(HamiltonianMatrixAtKpt)
+        print_memory_usage()
         
         energiesEV = energies * AUTOEV
         # 2-fold degeneracy due to spin
         final_energies = energiesEV.repeat_interleave(2)[:nBands]
     
         bandStruct[kpt_index] = final_energies
+        torch.cuda.empty_cache()
 
     return bandStruct

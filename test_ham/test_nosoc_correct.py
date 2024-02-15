@@ -7,7 +7,7 @@ from utils.nn_models import *
 from utils.init_NN_train import init_Zunger_data
 from utils.bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
 from utils.ham import Hamiltonian
-from utils.read import bulkSystem
+from utils.read import BulkSystem
 
 # just test on cpu
 device = torch.device("cpu")
@@ -18,7 +18,7 @@ PPmodel = Net_relu_xavier_decay2([1,20,20,20,2])
 PPmodel.load_state_dict(torch.load(f"{pwd}/epoch_199_PPmodel.pth", map_location=device) )
 
 # read and set up system
-system = bulkSystem()
+system = BulkSystem()
 system.setSystem(f"{pwd}/inputs/system_0.par")
 system.setInputs(f"{pwd}/inputs/input_0.par")
 system.setKPointsAndWeights(f"{pwd}/inputs/kpoints_0.par")
