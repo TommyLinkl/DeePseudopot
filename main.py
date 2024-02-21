@@ -59,7 +59,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     scheduler = ExponentialLR(optimizer, gamma=NNConfig['scheduler_gamma'])
 
     start_time = time.time()
-    (training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, NNConfig, systems, hams, atomPPOrder, localPotParams, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, ZungerPPFunc_val, resultsFolder, cachedMats_info if cachedMats_info is not None else None)
+    (training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, NNConfig, systems, hams, atomPPOrder, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, ZungerPPFunc_val, resultsFolder, cachedMats_info)
     end_time = time.time()
     print(f"Total training + evaluation elapsed time: {end_time - start_time:.2f} seconds")
     torch.cuda.empty_cache()

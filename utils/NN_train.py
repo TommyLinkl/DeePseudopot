@@ -45,7 +45,7 @@ def weighted_mse_energiesAtKpt(calcEnergiesAtKpt, bulkSystem, kidx):
     return MSE
 
 
-def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info): 
+def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None): 
     if (model is not None): 
         print(f"{runName}: Evaluating band structures using the NN-pp model. ")
         model.eval()
@@ -63,13 +63,13 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
 
         start_time = time.time()
         with torch.no_grad():
-            calcBandStruct = hams[iSys].calcBandStruct_noGrad(NNConfig, iSys, cachedMats_info if cachedMats_info is not None else None)
-        calcBandStruct.detach_()
+            evalBS = hams[iSys].calcBandStruct_noGrad(cachedMats_info)
+        evalBS.detach_()
         end_time = time.time()
         print(f"{runName}: Finished evaluating {iSys}-th band structure with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds")
         plot_bandStruct_list.append(sys.expBandStruct)
-        plot_bandStruct_list.append(calcBandStruct)
-        totalMSE += weighted_mse_bandStruct(calcBandStruct, sys)
+        plot_bandStruct_list.append(evalBS)
+        totalMSE += weighted_mse_bandStruct(evalBS, sys)
     fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
     print(f"{runName}: totalMSE = {totalMSE:f}")
     fig.suptitle(f"{runName}: totalMSE = {totalMSE:f}")
@@ -79,19 +79,21 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
     return totalMSE
 
 
-def calcGradSingleKpt_parallel(kidx, ham, iSystem, bulkSystem, criterion_singleKpt, optimizer, model, cachedMats_info, runtime_flag=False):
-    # loop over kidx
-    # The rest of the arguments are "constants" / "constant functions" for a single kidx
-    # For performance, it is recommended that the ham in the argument doesn't have SOmat and NLmat initialized. 
+def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, criterion_singleKpt, optimizer, model, cachedMats_info=None):
+    """
+    loop over kidx
+    The rest of the arguments are "constants" / "constant functions" for a single kidx
+    For performance, it is recommended that the ham in the argument doesn't have SOmat and NLmat initialized. 
+    """
     singleKptGradients = {}
-    calcEnergies = ham.calcEigValsAtK(kidx, iSystem, cachedMats_info, requires_grad=True)
+    calcEnergies = ham.calcEigValsAtK(kidx, cachedMats_info, requires_grad=True)
 
     systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem, kidx)
-    start_time = time.time() if runtime_flag else None
+    start_time = time.time() if ham.NNConfig['runtime_flag'] else None
     optimizer.zero_grad()
     systemKptLoss.backward()
-    end_time = time.time() if runtime_flag else None
-    print(f"loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if runtime_flag else None
+    end_time = time.time() if ham.NNConfig['runtime_flag'] else None
+    print(f"loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if ham.NNConfig['runtime_flag'] else None
     for name, param in model.named_parameters():
         if param.grad is not None:
             if name not in singleKptGradients:
@@ -104,13 +106,13 @@ def calcGradSingleKpt_parallel(kidx, ham, iSystem, bulkSystem, criterion_singleK
     return singleKptGradients, trainLoss_systemKpt
 
 
-def trainIter_naive(model, systems, hams, cachedMats_info, criterion_singleSystem, optimizer, runtime_flag=False):
+def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info=None, runtime_flag=False):
     trainLoss = torch.tensor(0.0)
     for iSys, sys in enumerate(systems):
         hams[iSys].NN_locbool = True
         hams[iSys].set_NNmodel(model)
 
-        NN_outputs = hams[iSys].calcBandStruct_withGrad(iSys, cachedMats_info)
+        NN_outputs = hams[iSys].calcBandStruct_withGrad(cachedMats_info)
         
         systemLoss = criterion_singleSystem(NN_outputs, sys)
         # print_and_inspect_gradients(model)
@@ -128,7 +130,7 @@ def trainIter_naive(model, systems, hams, cachedMats_info, criterion_singleSyste
     return model, trainLoss
 
 
-def trainIter_separateKptGrad(model, systems, hams, cachedMats_info, NNConfig, criterion_singleKpt, optimizer, runtime_flag=False): 
+def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info=None): 
     trainLoss = 0.0
     total_gradients = {}
     for iSys, sys in enumerate(systems):
@@ -137,14 +139,14 @@ def trainIter_separateKptGrad(model, systems, hams, cachedMats_info, NNConfig, c
 
         if ('num_cores' not in NNConfig) or (NNConfig['num_cores']==0):   # No multiprocessing
             for kidx in range(sys.getNKpts()): 
-                calcEnergies = hams[iSys].calcEigValsAtK(kidx, iSys, cachedMats_info, requires_grad=True)
+                calcEnergies = hams[iSys].calcEigValsAtK(kidx, cachedMats_info, requires_grad=True)
                 systemKptLoss = criterion_singleKpt(calcEnergies, sys, kidx)
 
-                start_time = time.time() if runtime_flag else None
+                start_time = time.time() if NNConfig['runtime_flag'] else None
                 optimizer.zero_grad()
                 systemKptLoss.backward()
-                end_time = time.time() if runtime_flag else None
-                print(f"loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if runtime_flag else None
+                end_time = time.time() if NNConfig['runtime_flag'] else None
+                print(f"loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
 
                 for name, param in model.named_parameters():
                     if param.grad is not None:
@@ -164,9 +166,9 @@ def trainIter_separateKptGrad(model, systems, hams, cachedMats_info, NNConfig, c
                         merged_dict[key] = merged_dict.get(key, 0) + d[key]
                 return merged_dict
 
-            args_list = [(kidx, hams[iSys], iSys, sys, criterion_singleKpt, optimizer, model, cachedMats_info) for kidx in range(sys.getNKpts())]
+            args_list = [(kidx, hams[iSys], sys, criterion_singleKpt, optimizer, model, cachedMats_info) for kidx in range(sys.getNKpts())]
             with mp.Pool(NNConfig['num_cores']) as pool:
-                results_systemKpt = pool.starmap(calcGradSingleKpt_parallel, args_list)
+                results_systemKpt = pool.starmap(calcEigValsAtK_wGrad_parallel, args_list)
                 gradients_systemKpt, trainLoss_systemKpt = zip(*results_systemKpt)
             gc.collect()
             total_gradients = merge_dicts(gradients_systemKpt)
@@ -178,10 +180,10 @@ def trainIter_separateKptGrad(model, systems, hams, cachedMats_info, NNConfig, c
             if name in total_gradients:
                 param.grad = total_gradients[name].detach().clone()
 
-    start_time = time.time() if runtime_flag else None
+    start_time = time.time() if NNConfig['runtime_flag'] else None
     optimizer.step()
-    end_time = time.time() if runtime_flag else None
-    print(f"optimizer step, elapsed time: {(end_time - start_time):.2f} seconds") if runtime_flag else None
+    end_time = time.time() if NNConfig['runtime_flag'] else None
+    print(f"optimizer step, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
 
     torch.cuda.empty_cache()
     # print_and_inspect_gradients(model)
@@ -189,7 +191,7 @@ def trainIter_separateKptGrad(model, systems, hams, cachedMats_info, NNConfig, c
     return model, trainLoss
 
 
-def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, totalParams, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, val_dataset, resultsFolder, cachedMats_info):
+def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, val_dataset, resultsFolder, cachedMats_info=None):
     training_COST=[]
     validation_COST=[]
     file_trainCost = open(f'{resultsFolder}final_training_cost.dat', "w")
@@ -203,9 +205,9 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, to
         # train
         model.train()
         if NNConfig['separateKptGrad']==0: 
-            model, trainLoss = trainIter_naive(model, systems, hams, cachedMats_info, criterion_singleSystem, optimizer)
+            model, trainLoss = trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info, NNConfig['runtime_flag'])
         else: 
-            model, trainLoss = trainIter_separateKptGrad(model, systems, hams, cachedMats_info, NNConfig, criterion_singleKpt, optimizer)
+            model, trainLoss = trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info)
         training_COST.append(trainLoss.item())
         file_trainCost.write(f"{epoch+1}  {trainLoss.item()}\n")
         print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], training cost: {trainLoss.item():.4f}")
