@@ -1,5 +1,4 @@
 import psutil
-import matplotlib as mpl
 import matplotlib.pyplot as plt 
 
 memory_usage_data = []

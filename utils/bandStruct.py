@@ -1,18 +1,12 @@
 
 import torch
-import psutil
-from memory_profiler import profile
 import gc
-from torch.autograd import profiler
 from torch.utils.checkpoint import checkpoint
 import numpy as np
-import matplotlib as mpl
-import matplotlib.pyplot as plt 
-mpl.rcParams['lines.markersize'] = 3
 
-from constants.constants import *
-from utils.pp_func import pot_func
-from utils.memory import print_memory_usage
+from .constants import *
+from .pp_func import pot_func
+from .memory import print_memory_usage
 
 def calcHamiltonianMatrix_GPU(NN_boolean, model, basisStates, atomPos, atomTypes, nAtoms, cellVolume, kVector, atomPPOrder, totalParams, device):
     '''

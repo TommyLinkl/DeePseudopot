@@ -1,11 +1,8 @@
 import os, time, sys
 import torch
 from torch.optim.lr_scheduler import ExponentialLR
-from memory_profiler import profile
 import numpy as np
 
-
-import constants.constants
 from utils.read import read_NNConfigFile, setAllBulkSystems, setNN
 from utils.pp_func import FT_converge_and_write_pp
 from utils.init_NN_train import init_ZungerPP

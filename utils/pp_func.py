@@ -4,7 +4,7 @@ from itertools import product
 import matplotlib as mpl
 import matplotlib.pyplot as plt 
 mpl.rcParams['lines.markersize'] = 3
-from ..constants.constants import * 
+from .constants import * 
 
 
 def pot_func(x, params): 

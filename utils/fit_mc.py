@@ -1,8 +1,9 @@
 import numpy as np
 import torch.linalg
-from ..constants.constants import *
 import time
 import os
+
+from .constants import *
 
 class MonteCarloFit:
 

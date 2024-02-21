@@ -3,13 +3,12 @@ import time
 from torch.optim.lr_scheduler import ExponentialLR
 import gc
 import multiprocessing as mp
-from functools import partial
 import matplotlib as mpl
 import matplotlib.pyplot as plt 
 mpl.rcParams['lines.markersize'] = 3
 
 
-import ..constants.constants as constants.constants
+from .constants import *
 from .pp_func import plotPP, plot_training_validation_cost, plotBandStruct
 
 def print_and_inspect_gradients(model): 
@@ -80,7 +79,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
     return totalMSE
 
 
-def calcGradSingleKpt_parallel(kidx, ham, iSystem, bulkSystem, criterion_singleKpt, optimizer, model, cachedMats_info):
+def calcGradSingleKpt_parallel(kidx, ham, iSystem, bulkSystem, criterion_singleKpt, optimizer, model, cachedMats_info, runtime_flag=False):
     # loop over kidx
     # The rest of the arguments are "constants" / "constant functions" for a single kidx
     # For performance, it is recommended that the ham in the argument doesn't have SOmat and NLmat initialized. 
@@ -88,11 +87,11 @@ def calcGradSingleKpt_parallel(kidx, ham, iSystem, bulkSystem, criterion_singleK
     calcEnergies = ham.calcEigValsAtK(kidx, iSystem, cachedMats_info, requires_grad=True)
 
     systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem, kidx)
-    start_time = time.time() if constants.constants.RUNTIME_FLAG else None
+    start_time = time.time() if runtime_flag else None
     optimizer.zero_grad()
     systemKptLoss.backward()
-    end_time = time.time() if constants.constants.RUNTIME_FLAG else None
-    print(f"loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if constants.constants.RUNTIME_FLAG else None
+    end_time = time.time() if runtime_flag else None
+    print(f"loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if runtime_flag else None
     for name, param in model.named_parameters():
         if param.grad is not None:
             if name not in singleKptGradients:
@@ -105,7 +104,7 @@ def calcGradSingleKpt_parallel(kidx, ham, iSystem, bulkSystem, criterion_singleK
     return singleKptGradients, trainLoss_systemKpt
 
 
-def trainIter_naive(model, systems, hams, cachedMats_info, criterion_singleSystem, optimizer):
+def trainIter_naive(model, systems, hams, cachedMats_info, criterion_singleSystem, optimizer, runtime_flag=False):
     trainLoss = torch.tensor(0.0)
     for iSys, sys in enumerate(systems):
         hams[iSys].NN_locbool = True
@@ -117,19 +116,19 @@ def trainIter_naive(model, systems, hams, cachedMats_info, criterion_singleSyste
         # print_and_inspect_gradients(model)
         trainLoss += systemLoss
 
-    start_time = time.time() if constants.constants.RUNTIME_FLAG else None
+    start_time = time.time() if runtime_flag else None
     optimizer.zero_grad()
     trainLoss.backward()
     # print_and_inspect_gradients(model)
     optimizer.step()
-    end_time = time.time() if constants.constants.RUNTIME_FLAG else None
-    print(f"loss_backward + optimizer.step, elapsed time: {(end_time - start_time):.2f} seconds") if constants.constants.RUNTIME_FLAG else None
+    end_time = time.time() if runtime_flag else None
+    print(f"loss_backward + optimizer.step, elapsed time: {(end_time - start_time):.2f} seconds") if runtime_flag else None
 
     torch.cuda.empty_cache()
     return model, trainLoss
 
 
-def trainIter_separateKptGrad(model, systems, hams, cachedMats_info, NNConfig, criterion_singleKpt, optimizer): 
+def trainIter_separateKptGrad(model, systems, hams, cachedMats_info, NNConfig, criterion_singleKpt, optimizer, runtime_flag=False): 
     trainLoss = 0.0
     total_gradients = {}
     for iSys, sys in enumerate(systems):
@@ -141,11 +140,11 @@ def trainIter_separateKptGrad(model, systems, hams, cachedMats_info, NNConfig, c
                 calcEnergies = hams[iSys].calcEigValsAtK(kidx, iSys, cachedMats_info, requires_grad=True)
                 systemKptLoss = criterion_singleKpt(calcEnergies, sys, kidx)
 
-                start_time = time.time() if constants.constants.RUNTIME_FLAG else None
+                start_time = time.time() if runtime_flag else None
                 optimizer.zero_grad()
                 systemKptLoss.backward()
-                end_time = time.time() if constants.constants.RUNTIME_FLAG else None
-                print(f"loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if constants.constants.RUNTIME_FLAG else None
+                end_time = time.time() if runtime_flag else None
+                print(f"loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if runtime_flag else None
 
                 for name, param in model.named_parameters():
                     if param.grad is not None:
@@ -179,10 +178,10 @@ def trainIter_separateKptGrad(model, systems, hams, cachedMats_info, NNConfig, c
             if name in total_gradients:
                 param.grad = total_gradients[name].detach().clone()
 
-    start_time = time.time() if constants.constants.RUNTIME_FLAG else None
+    start_time = time.time() if runtime_flag else None
     optimizer.step()
-    end_time = time.time() if constants.constants.RUNTIME_FLAG else None
-    print(f"optimizer step, elapsed time: {(end_time - start_time):.2f} seconds") if constants.constants.RUNTIME_FLAG else None
+    end_time = time.time() if runtime_flag else None
+    print(f"optimizer step, elapsed time: {(end_time - start_time):.2f} seconds") if runtime_flag else None
 
     torch.cuda.empty_cache()
     # print_and_inspect_gradients(model)
