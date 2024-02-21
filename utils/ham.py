@@ -68,6 +68,10 @@ class Hamiltonian:
         # of the optimization. This uses more memory (storing natom * nkpt
         # matrices of size 4*nbasis^2) in exchange for avoiding loops
         # over the basis within the optimization inner loop.
+        self.SOmats = None
+        self.NLmats = None
+        self.SOmats_def = None
+        self.NLmats_def = None
         if SObool and cacheSO:
             self.SOmats = self.initSOmat_fast()
             self.SOmats_def = None
@@ -85,7 +89,7 @@ class Hamiltonian:
                 self.NLmats_def = None
        
         elif (SObool) and (not cacheSO) and ('num_cores' not in NNConfig):
-            print("WARNING: Setting SObool=True, cacheSO=False, without multiprocessing parallelization. This is not implemented. ")
+            print("WARNING: Calculation requires SObool, but we are not cache-ing the SOmats and NLmats. Without multiprocessing parallelization. This is not implemented. ")
 
         
         if self.coupling:
@@ -738,12 +742,12 @@ class Hamiltonian:
         which the local potential can be added. Might help save slightly on memory.
         """
         if preComp_SOmats_kidx is None: 
+            print("WARNING: Didn't find precomputed SO mats stored in shared memory. This buildSOmat could drastically slow down multiprocessing parallelization.")
             if self.SOmats is None: 
-                raise ValueError("Attempting to build the SO mat, but 1) no precomputed SO mats are stored in shared memory, 2) no cached SO matrices in the ham class. ")
-            else: 
-                print("WARNING: This buildSOmat could dramatically slow down multiprocessing parallelization.")
-                SOmats_4d = np.array(self.SOmats.tolist(), dtype=np.complex128).reshape((self.SOmats.shape[0], self.SOmats.shape[1], self.SOmats[0,0].shape[0], self.SOmats[0,0].shape[1]))
-                SOmats_kidx = SOmats_4d[kidx]
+                print("DANGEROUS!!! WARNING. Attempting to build the SO mat, but 1) no precomputed SO mats are stored in shared memory, 2) no cached SO matrices in the ham class. \nCalculating the SOmats on the fly. ")
+                self.SOmats = self.initSOmat_fast()
+            SOmats_4d = np.array(self.SOmats.tolist(), dtype=np.complex128).reshape((self.SOmats.shape[0], self.SOmats.shape[1], self.SOmats[0,0].shape[0], self.SOmats[0,0].shape[1]))
+            SOmats_kidx = SOmats_4d[kidx]
         else: 
             SOmats_kidx = preComp_SOmats_kidx
 
@@ -776,12 +780,12 @@ class Hamiltonian:
         which the local potential can be added. Might help save slightly on memory.
         """
         if preComp_NLmats_kidx is None: 
+            print("WARNING: Didn't find precomputed NL mats  stored in shared memory. This buildNLmat could drastically slow down multiprocessing parallelization.")
             if self.NLmats is None: 
-                raise ValueError("Attempting to build the NL mat, but 1) no precomputed NL mats are stored in shared memory, 2) no cached NL matrices in the ham class. ")
-            else: 
-                print("WARNING: This buildNLmat could dramatically slow down multiprocessing parallelization.")
-                NLmats_5d = np.array(self.NLmats.tolist(), dtype=np.complex128).reshape((self.NLmats.shape[0], self.NLmats.shape[1], self.NLmats.shape[2], self.NLmats[0,0,0].shape[0], self.NLmats[0,0,0].shape[1]))
-                NLmats_kidx = NLmats_5d[kidx]
+                print("DANGEROUS!!! WARNING. Attempting to build the NL mat, but 1) no precomputed NL mats are stored in shared memory, 2) no cached NL matrices in the ham class. \nCalculating the NLmats on the fly. ")
+                self.NLmats = self.initNLmat_fast()
+            NLmats_5d = np.array(self.NLmats.tolist(), dtype=np.complex128).reshape((self.NLmats.shape[0], self.NLmats.shape[1], self.NLmats.shape[2], self.NLmats[0,0,0].shape[0], self.NLmats[0,0,0].shape[1]))
+            NLmats_kidx = NLmats_5d[kidx]
         else: 
             NLmats_kidx = preComp_NLmats_kidx
         
@@ -1573,7 +1577,7 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device):
     Use a dict "cachedMats_info" to store dtype and shape
     Then remove dummy_ham, and any intermediate variables
     """
-    print("\nInitializing the ham class for each BulkSystem. Cache-ing the corresponding SO and NL mats. ")
+    print("\nInitializing the ham class for each BulkSystem. Cache-ing the SOmats, NLmats, and putting them into shared memeory. ")
     hams = []
     cachedMats_info = None
     shm_dict_SO = None

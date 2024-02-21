@@ -1,16 +1,16 @@
 #!/bin/bash
 #SBATCH -A mp309
-#SBATCH -J CsPbI3_noCs_16kpts
-#SBATCH -o CsPbI3_noCs_16kpts.log
+#SBATCH -J CsPbI3_eval_fullBand
+#SBATCH -o CsPbI3_eval_fullBand.log
 #SBATCH -C cpu
 #SBATCH --qos=shared
-#SBATCH -t 10:00:00
+#SBATCH -t 2:00:00
 #SBATCH -N 1
-#SBATCH --ntasks-per-node=16           # Number of tasks (MPI processes) per node
+#SBATCH --ntasks-per-node=30           # Number of tasks (MPI processes) per node
 #SBATCH --cpus-per-task=1             # Number of CPU cores per task
-#SBATCH --mem=128GB
+#SBATCH --mem=1024GB
 #SBATCH --mail-user=tommy_lin@berkeley.edu
 #SBATCH --mail-type=ALL
 
 conda activate myenv
-python main.py
+python eval_fullBand.py CALCS/CsPbI3_eval_fullBand/inputs/ CALCS/CsPbI3_eval_fullBand/results/
