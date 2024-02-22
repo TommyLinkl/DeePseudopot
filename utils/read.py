@@ -13,6 +13,16 @@ def read_NNConfigFile(filename):
     and not all keys are required. 
     """
     config = {}
+
+    # Set default values
+    config['memory_flag'] = False
+    config['runtime_flag'] = False
+    config['SHOWPLOTS'] = False
+    config['separateKptGrad'] = True
+    config['checkpoint'] = False
+    config['SObool'] = False
+    config['num_cores'] = 0
+
     with open(filename, 'r') as file:
         for line in file:
             if not line.strip():              # Skip empty lines
@@ -40,7 +50,7 @@ def read_NNConfigFile(filename):
     elif (config["checkpoint"]==0) and (config["separateKptGrad"]==1): 
         print("\tUsing separateKptGrad. This can decrease the peak memory load during the fitting code.")
 
-    if ('num_cores' not in config) or (config['num_cores']==0): 
+    if (config['num_cores']==0): 
         print("\tNot doing multiprocessing.")
     else:
         print(f"\tUsing num_cores = {config['num_cores']} parallelization out of {mp.cpu_count()} total CPUs available.")
@@ -173,7 +183,7 @@ class BulkSystem:
     def setExpBS(self, expBSFilename):
         with open(expBSFilename, 'r') as file:
             self.expBandStruct = torch.tensor(np.loadtxt(file)[:, 1:], dtype=torch.float64)
-            
+
     def setBandWeights(self, bandWeightsFilename): 
         try:
             with open(bandWeightsFilename, 'r') as file:
@@ -262,7 +272,7 @@ class BulkSystem:
     
     def getNQpts(self):
         return self.qpts.shape[0]
-    
+
     def basis(self): 
         gVectors = self.getGVectors()
         minGMag = min(torch.norm(gVectors[0]), torch.norm(gVectors[1]), torch.norm(gVectors[2]))

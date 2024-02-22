@@ -1,14 +1,11 @@
+import torch
 import numpy as np
 import time
-import torch
-from torch.utils.data import DataLoader
 import pathlib
 
 from utils.nn_models import *
-from utils.init_NN_train import init_Zunger_data
-from utils.bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
 from utils.ham import Hamiltonian
-from utils.read import BulkSystem, read_PPparams
+from utils.read import BulkSystem, read_PPparams, read_NNConfigFile
 
 print("***************************")
 print("""for this test to pass, make sure the ...Integral_dan() functions
@@ -46,8 +43,10 @@ for atomType in atomPPorder:
 '''
 PPparams, totalParams = read_PPparams(atomPPorder, f"{pwd}/inputs/soc/")
 
+NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
+
 start_time = time.time()
-ham1 = Hamiltonian(system, PPparams, atomPPorder, device, SObool=True)
+ham1 = Hamiltonian(system, PPparams, atomPPorder, device, NNConfig, iSystem=0, SObool=True)
 bs_new = ham1.calcBandStruct()
 end_time = time.time()
 print(f"Finished calculating the SOC band structure... Elapsed time: {(end_time - start_time):.2f} seconds")

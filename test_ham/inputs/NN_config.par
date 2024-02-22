@@ -1,5 +1,8 @@
 SHOWPLOTS = 1
 nSystem = 1
+separateKptGrad = 1
+checkpoint = 0
+SObool = 1
 hiddenLayers = 20 20 20
 init_Zunger_optimizer_lr = 0.1
 init_Zunger_scheduler_gamma = 0.90

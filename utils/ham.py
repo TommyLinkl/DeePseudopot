@@ -88,7 +88,7 @@ class Hamiltonian:
                 self.NLmats = self.initNLmat_fast()
                 self.NLmats_def = None
        
-        elif (SObool) and (not cacheSO) and ('num_cores' not in NNConfig):
+        elif (SObool) and (not cacheSO) and (NNConfig['num_cores']==0):
             print("WARNING: Calculation requires SObool, but we are not cache-ing the SOmats and NLmats. Without multiprocessing parallelization. This is not implemented. ")
 
         
@@ -1048,7 +1048,7 @@ class Hamiltonian:
         nkpt = self.system.getNKpts()
 
         bandStruct = torch.zeros([nkpt, nbands], requires_grad=False)
-        if ('num_cores' not in self.NNConfig) or (self.NNConfig['num_cores']==0): 
+        if (self.NNConfig['num_cores']==0): 
             # No multiprocessing
             for kidx in range(nkpt):
                 eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False)
@@ -1685,7 +1685,7 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device):
         # 3. SObool = True, yes parallel --> Do the complicated storage / moving. 
         if not NNConfig['SObool']: 
             ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, iSys, SObool=NNConfig['SObool'])
-        elif (NNConfig['SObool']) and (('num_cores' not in NNConfig) or (NNConfig['num_cores']==0)): 
+        elif (NNConfig['SObool']) and (NNConfig['num_cores']==0): 
             ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, iSys, SObool=NNConfig['SObool'])
         else: 
             cachedMats_info = {}

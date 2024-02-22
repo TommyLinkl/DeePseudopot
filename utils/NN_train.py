@@ -137,7 +137,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
         hams[iSys].NN_locbool = True
         hams[iSys].set_NNmodel(model)
 
-        if ('num_cores' not in NNConfig) or (NNConfig['num_cores']==0):   # No multiprocessing
+        if (NNConfig['num_cores']==0):   # No multiprocessing
             for kidx in range(sys.getNKpts()): 
                 calcEnergies = hams[iSys].calcEigValsAtK(kidx, cachedMats_info, requires_grad=True)
                 systemKptLoss = criterion_singleKpt(calcEnergies, sys, kidx)
