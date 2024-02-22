@@ -14,7 +14,7 @@ def read_NNConfigFile(filename):
     """
     config = {}
 
-    # Set default values
+    # Set default values for critical, optional keywords
     config['memory_flag'] = False
     config['runtime_flag'] = False
     config['SHOWPLOTS'] = False
@@ -59,6 +59,7 @@ def read_NNConfigFile(filename):
         print("\nWARNING: MEMORY_FLAG is ON. Please check to make sure that the script is run with:\n\tmprof run --output <mem_output_file> main.py <inputsFolder> <resultsFolder>\n\tmprof plot -o <mem_plot_file> <mem_output_file>\n")
     print("RUNTIME_FLAG is ON") if config['runtime_flag'] else None
 
+    print()
     return config
 
 def read_PPparams(atomPPOrder, paramsFilePath): 
@@ -80,7 +81,7 @@ def read_PPparams(atomPPOrder, paramsFilePath):
     return PPparams, totalParams
 
 class BulkSystem:
-    def __init__(self, scale=1.0, unitCellVectors_unscaled=None, atomTypes=None, atomPos_unscaled=None, kpts_recipLatVec=None, expBandStruct=None, nBands=16, maxKE=5, BS_plot_center=-5.0, systemName='NoName'):
+    def __init__(self, scale=1.0, unitCellVectors_unscaled=None, atomTypes=None, atomPos_unscaled=None, kpts_recipLatVec=None, expBandStruct=None, nBands=16, maxKE=5, BS_plot_center=-5.0, BS_plot_CBVB_range=10.0, BS_plot_CBVB_range_zoom=5.0, systemName='No_Name'):
         if unitCellVectors_unscaled is None:
             unitCellVectors_unscaled = torch.zeros(3, 3)
         if atomTypes is None:
@@ -104,6 +105,8 @@ class BulkSystem:
         self.expCouplingBands = None
         self.bandWeights = None
         self.BS_plot_center = BS_plot_center
+        self.BS_plot_CBVB_range = BS_plot_CBVB_range
+        self.BS_plot_CBVB_range_zoom = BS_plot_CBVB_range_zoom
         self.systemName = systemName
         
         
@@ -115,7 +118,7 @@ class BulkSystem:
                     key, value = line.split('#')[0].strip().split('=')
                     key = key.strip()
                     value = value.strip()
-                    if key in ['maxKE', 'BS_plot_center']:
+                    if key in ['maxKE', 'BS_plot_center', 'BS_plot_CBVB_range', 'BS_plot_CBVB_range_zoom']:
                         attributes[key] = float(value)
                     elif key in ['nBands', 'idxVB', 'idxCB', 'idxGap']:            # nBands can be redundant
                         attributes[key] = int(float(value))

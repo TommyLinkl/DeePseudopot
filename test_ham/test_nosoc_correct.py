@@ -1,15 +1,14 @@
-import numpy as np
 import torch
-from torch.utils.data import DataLoader
+import numpy as np
 import pathlib
 
 from utils.nn_models import *
 from utils.init_NN_train import init_Zunger_data
 from utils.bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
 from utils.ham import Hamiltonian
-from utils.read import BulkSystem
+from utils.read import BulkSystem, read_NNConfigFile
 
-# just test on cpu
+torch.set_default_dtype(torch.float64)
 device = torch.device("cpu")
 
 # read test NN config
@@ -25,11 +24,13 @@ system.setKPointsAndWeights(f"{pwd}/inputs/kpoints_0.par")
 system.setExpBS(f"{pwd}/inputs/expBandStruct_0.par")
 atomPPorder = np.unique(system.atomTypes)
 
+NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
+
 # old band structure
 bs_old = calcBandStruct_GPU(True, PPmodel, system, atomPPorder, [], device)
 
 # new band structure
-ham1 = Hamiltonian(system, {}, atomPPorder, device, SObool=False,
+ham1 = Hamiltonian(system, {}, atomPPorder, device, NNConfig, iSystem=0, SObool=False,
                    NN_locbool=True, model=PPmodel)
 bs_new = ham1.calcBandStruct()
 
@@ -48,7 +49,7 @@ for atomType in atomPPorder:
 
 bs_old = calcBandStruct_GPU(False, PPmodel, system, atomPPorder, totalParams, device)
 
-ham2 = Hamiltonian(system, PPparams, atomPPorder, device)
+ham2 = Hamiltonian(system, PPparams, atomPPorder, device, NNConfig, iSystem=0)
 bs_new = ham2.calcBandStruct()
 
 print(f"no SOC, zunger pot: new and old band structure methods return same energies (in same format): {torch.allclose(bs_old, bs_new)}")

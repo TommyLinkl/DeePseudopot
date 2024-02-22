@@ -78,8 +78,9 @@ def plotBandStruct(bulkSystem_list, bandStruct_list, SHOWPLOTS):
         predEList = bandStruct_list[2*iSystem+1][bandStruct_list[2*iSystem+1] > -50]
         predEmin = torch.min(predEList).item()
         predEmax = torch.max(predEList).item()
-        axs_flat[2*iSystem+0].set(ylim=(min(refEmin, predEmin)-0.5, max(refEmax, predEmax)+0.5))
-        axs_flat[2*iSystem+1].set(ylim=(bulkSystem_list[iSystem].BS_plot_center-4, bulkSystem_list[iSystem].BS_plot_center+5), title=systemNames[iSystem])
+        # axs_flat[2*iSystem+0].set(ylim=(min(refEmin, predEmin)-0.5, max(refEmax, predEmax)+0.5))
+        axs_flat[2*iSystem+0].set(ylim=(bulkSystem_list[iSystem].BS_plot_center-bulkSystem_list[iSystem].BS_plot_CBVB_range, bulkSystem_list[iSystem].BS_plot_center+bulkSystem_list[iSystem].BS_plot_CBVB_range))
+        axs_flat[2*iSystem+1].set(ylim=(bulkSystem_list[iSystem].BS_plot_center-bulkSystem_list[iSystem].BS_plot_CBVB_range_zoom, bulkSystem_list[iSystem].BS_plot_center+bulkSystem_list[iSystem].BS_plot_CBVB_range_zoom), title=systemNames[iSystem])
         # axs_flat[2*iSystem+0].get_xaxis().set_ticks([0, 20, 40, 45, 60])
         # axs_flat[2*iSystem+0].get_xaxis().set_ticklabels(["L", r"$\Gamma$", "X", "K", r"$\Gamma$"])
         # axs_flat[2*iSystem+1].get_xaxis().set_ticks([0, 20, 40, 45, 60])

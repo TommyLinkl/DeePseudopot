@@ -303,7 +303,7 @@ class Hamiltonian:
                     atomFF = checkpoint(compute_atomFF, use_reentrant=False)
                 atomFF = atomFF[:, thisAtomIndex].view(nbv, nbv)
             else:
-                #atomFF = pot_func(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
+                # atomFF = pot_func(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
                 atomFF = pot_funcLR(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]], self.LRgamma)
 
             if self.SObool:
@@ -873,9 +873,9 @@ class Hamiltonian:
         which the local potential can be added. Might help save slightly on memory.
         """
         if preComp_NLmats_kidx is None: 
-            print("WARNING: Didn't find precomputed NL mats  stored in shared memory. This buildNLmat could drastically slow down multiprocessing parallelization.")
+            print("WARNING: Didn't find precomputed NLmats  stored in shared memory. This buildNLmat could drastically slow down multiprocessing parallelization.")
             if self.NLmats is None: 
-                print("DANGEROUS!!! WARNING. Attempting to build the NL mat, but 1) no precomputed NL mats are stored in shared memory, 2) no cached NL matrices in the ham class. \nCalculating the NLmats on the fly. ")
+                print("DANGEROUS!!! WARNING. Attempting to build the NLmat, but 1) no precomputed NLmats are stored in shared memory, 2) no cached NL matrices in the ham class. \nCalculating the NLmats on the fly. ")
                 NLmats_kidx = self.initNLmat_fast_oneKpt(kidx)
             else: 
                 NLmats_5d = np.array(self.NLmats.tolist(), dtype=np.complex128).reshape((self.NLmats.shape[0], self.NLmats.shape[1], self.NLmats.shape[2], self.NLmats[0,0,0].shape[0], self.NLmats[0,0,0].shape[1]))

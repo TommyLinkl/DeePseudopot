@@ -6,9 +6,9 @@ import numpy as np
 
 from .constants import *
 from .pp_func import pot_func
-from .memory import print_memory_usage
 
 def calcHamiltonianMatrix_GPU(NN_boolean, model, basisStates, atomPos, atomTypes, nAtoms, cellVolume, kVector, atomPPOrder, totalParams, device):
+    torch.set_default_dtype(torch.float64)
     '''
     This function is outdated and miss the implementation of 
     SOC and NL parts of the pseudopotential. Please use 
@@ -66,16 +66,12 @@ def calcBandStruct_GPU(NN_boolean, model, bulkSystem, atomPPOrder, totalParams, 
     
     bandStruct = torch.zeros((nkpt, nBands))
     for kpt_index in range(nkpt): 
-        print("\nConstructing H Matrix, before and after: ")
-        print_memory_usage()
+        # print("\nConstructing H Matrix, before and after: ")
         HamiltonianMatrixAtKpt = calcHamiltonianMatrix_GPU(NN_boolean, model, bulkSystem.basis(), bulkSystem.atomPos, bulkSystem.atomTypes, bulkSystem.getNAtoms(), bulkSystem.getCellVolume(), bulkSystem.kpts[kpt_index], atomPPOrder, totalParams, device)
-        print_memory_usage()
 
         # diagonalize the hamiltonian
-        print("\neigvalsh, before and after: ")
-        print_memory_usage()
+        # print("\neigvalsh, before and after: ")
         energies = torch.linalg.eigvalsh(HamiltonianMatrixAtKpt)
-        print_memory_usage()
         
         energiesEV = energies * AUTOEV
         # 2-fold degeneracy due to spin
