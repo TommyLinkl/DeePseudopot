@@ -14,7 +14,7 @@ device = torch.device("cpu")
 # read test NN config
 pwd = pathlib.Path(__file__).parent.resolve()
 PPmodel = Net_relu_xavier_decay2([1,20,20,20,2])
-PPmodel.load_state_dict(torch.load(f"{pwd}/epoch_199_PPmodel.pth", map_location=device) )
+PPmodel.load_state_dict(torch.load(f"{pwd}/epoch_199_PPmodel.pth", map_location=device))
 
 # read and set up system
 system = BulkSystem()
