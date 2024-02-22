@@ -460,66 +460,109 @@ class Hamiltonian:
         # this can be parallelized over kpoints, but it's not critical since
         # this is only done once during initialization
         for kidx in range(nkp):
-            print(f"initializing SO: kpt {kidx+1}/{nkp}")
-            sys.stdout.flush()
-            if defbool:
-                gikp = self.basis + torch.stack([self.system.kpts[idxGap]] * nbv, dim=0)
-                gjkp = self.basis + torch.stack([self.system.kpts[idxGap]] * nbv, dim=0)
-            else:
-                gikp = self.basis + torch.stack([self.system.kpts[kidx]] * nbv, dim=0)
-                gjkp = self.basis + torch.stack([self.system.kpts[kidx]] * nbv, dim=0)
-            gdiff = torch.stack([self.basis]*nbv, dim=1) - self.basis.repeat(nbv, 1, 1)
-
-            gikp = gikp.numpy(force=True)
-            gjkp = gjkp.numpy(force=True)
-            inm = np.linalg.norm(gikp, axis=1)
-            jnm = np.linalg.norm(gjkp, axis=1)
-
-
-            isum = self._soIntegral_vect(inm, jnm, rcut, SOwidth)
-            #isum = self._soIntegral_dan(inm, jnm, SOwidth) # for testing, use the prev line for real calcs
-
-            #prefactor = 12.0 * np.pi / (inm[:, np.newaxis] * jnm)
-            prefactor = np.zeros([nbv,nbv], dtype=float)
-            denom = inm[:, np.newaxis] * jnm
-            ids = np.nonzero(denom)
-            prefactor[ids] = 12.0 * np.pi / denom[ids]
-
-            gcross = np.cross(np.stack([gikp]*nbv, axis=1), 
-                              np.stack([gjkp]*nbv, axis=0), axisa=-1, axisb=-1, axisc=-1)
-
-            for alpha in range(self.system.getNAtoms()):
-                gdiffDotTau = gdiff * self.system.atomPos[alpha]
-                gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
-                sfact_re = 1 / self.system.getCellVolume() * np.cos(gdiffDotTau)
-                sfact_im = 1 / self.system.getCellVolume() * np.sin(gdiffDotTau)
-
-                # build SO matrix
-                # up up
-                # -i * gcp dot S_up,up is pure imag: -i/2 * (gcp.z)
-                real_part = prefactor * isum * 0.5 * gcross[:,:, 2] * sfact_im
-                im_part = prefactor * isum * -0.5 * gcross[:,:, 2] * sfact_re
-                SOmats[kidx,alpha][:nbv, :nbv] = real_part + 1j * im_part
-
-                # dn dn
-                # -i * gcp dot S_dn,dn is pure imag: i/2 * (gcp.z)
-                real_part = prefactor * isum * -0.5 * gcross[:,:, 2] * sfact_im
-                im_part = prefactor * isum * 0.5 * gcross[:,:, 2] * sfact_re
-                SOmats[kidx,alpha][nbv:, nbv:] = real_part + 1j * im_part
-
-                # up dn
-                # -i * gcp dot S_up,dn is: -i/2 * (gcp.x) - 1/2 * (gcp.y)
-                real_part = prefactor * isum * (0.5 * gcross[:,:, 0] * sfact_im -0.5 * gcross[:,:, 1] * sfact_re)
-                im_part = prefactor * isum * (-0.5 * gcross[:,:, 0] * sfact_re -0.5 * gcross[:,:, 1] * sfact_im)
-                SOmats[kidx,alpha][:nbv, nbv:] = real_part + 1j * im_part
-
-                # dn up
-                # -i * gcp dot S_dn,up is: -i/2 * (gcp.x) + 1/2 * (gcp.y)
-                real_part = prefactor * isum * (0.5 * gcross[:,:, 0] * sfact_im + 0.5 * gcross[:,:, 1] * sfact_re)
-                im_part = prefactor * isum * (-0.5 * gcross[:,:, 0] * sfact_re + 0.5 * gcross[:,:, 1] * sfact_im)
-                SOmats[kidx,alpha][nbv:, :nbv] = real_part + 1j * im_part
+            SOmats_oneKpt = self.initSOmat_fast_oneKpt(kidx, SOwidth=0.7, defbool=False, idxGap=None)
+            for id2 in range(self.system.getNAtoms()):
+                SOmats[kidx, id2] = SOmats_oneKpt[id2]
 
         return SOmats
+
+
+    def initSOmat_fast_oneKpt(self, kidx, SOwidth=0.7, defbool=False, idxGap=None):
+        """
+        Calculates the SO integral Vso(K,K') = integral from 0 t0 infinity of
+        dr*r^2*j1(Kr)*exp^(-(r/0.7)^2)*j1(K'r) where j1 is the 1st bessel function,
+        K = kpoint + basisVector and exp^(-(r/0.7)^2) is the  spin-orbit potential
+        excluding the variable "a" parameter. 
+        
+        Then builds the SO matrix components corresponding to every atom type at 
+        only one kpoint as indexed by kidx. Storing natom complex matrices of dimension
+        (2*nbasis) x (2*nbasis). Format of output is SOmats_oneKpt[atomidx] = SOmatrix.
+
+        This function is a little bit of a messy mixture of numpy ndarray and
+        torch tensors, which are not super compatible. For now, I think it has
+        to be like this because we need numpy/scipy functions for vectorization, 
+        but the default self.system objects such as the basis/kpts are natively in 
+        torch datatypes. Be careful if editing, because torch tensors and ndarrays 
+        can behave differently in subtle ways (i.e. make sure you really understand the code).
+        """
+        nbv = self.basis.shape[0]
+        # set integral dr ~ 0.0089 Bohr at 25 Hartree energy cutoff
+        #dr = 2*np.pi / (100 * torch.norm(self.basis[-1]))
+        # set radial cutoff ~ 4.2488 Bohr; V(rcut) = 1e-16 for default SOwidth
+        rcut = np.sqrt(SOwidth**2 * 16 * np.log(10.0))
+        #ncut = int(rcut/dr)
+        
+        if defbool:
+            nkp = 1  # to allow for deformation calcs at a single kpoint
+            if idxGap is None:
+                raise RuntimeError("need to specify kpt idx of gap in deformed calc")
+        else:
+            nkp = self.system.getNKpts()
+        
+        SOmats_oneKpt = np.empty([self.system.getNAtoms()], dtype=object)
+        for id in range(self.system.getNAtoms()):
+            SOmats_oneKpt[id] = np.zeros([2*nbv, 2*nbv], dtype=np.complex128)
+
+        print(f"initializing SO: kpt {kidx+1}/{nkp}")
+        sys.stdout.flush()
+        if defbool:
+            gikp = self.basis + torch.stack([self.system.kpts[idxGap]] * nbv, dim=0)
+            gjkp = self.basis + torch.stack([self.system.kpts[idxGap]] * nbv, dim=0)
+        else:
+            gikp = self.basis + torch.stack([self.system.kpts[kidx]] * nbv, dim=0)
+            gjkp = self.basis + torch.stack([self.system.kpts[kidx]] * nbv, dim=0)
+        gdiff = torch.stack([self.basis]*nbv, dim=1) - self.basis.repeat(nbv, 1, 1)
+
+        gikp = gikp.numpy(force=True)
+        gjkp = gjkp.numpy(force=True)
+        inm = np.linalg.norm(gikp, axis=1)
+        jnm = np.linalg.norm(gjkp, axis=1)
+
+
+        isum = self._soIntegral_vect(inm, jnm, rcut, SOwidth)
+        #isum = self._soIntegral_dan(inm, jnm, SOwidth) # for testing, use the prev line for real calcs
+
+        #prefactor = 12.0 * np.pi / (inm[:, np.newaxis] * jnm)
+        prefactor = np.zeros([nbv,nbv], dtype=float)
+        denom = inm[:, np.newaxis] * jnm
+        ids = np.nonzero(denom)
+        prefactor[ids] = 12.0 * np.pi / denom[ids]
+
+        gcross = np.cross(np.stack([gikp]*nbv, axis=1), 
+                            np.stack([gjkp]*nbv, axis=0), axisa=-1, axisb=-1, axisc=-1)
+
+        for alpha in range(self.system.getNAtoms()):
+            gdiffDotTau = gdiff * self.system.atomPos[alpha]
+            gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
+            sfact_re = 1 / self.system.getCellVolume() * np.cos(gdiffDotTau)
+            sfact_im = 1 / self.system.getCellVolume() * np.sin(gdiffDotTau)
+
+            # build SO matrix
+            # up up
+            # -i * gcp dot S_up,up is pure imag: -i/2 * (gcp.z)
+            real_part = prefactor * isum * 0.5 * gcross[:,:, 2] * sfact_im
+            im_part = prefactor * isum * -0.5 * gcross[:,:, 2] * sfact_re
+            SOmats_oneKpt[alpha][:nbv, :nbv] = real_part + 1j * im_part
+
+            # dn dn
+            # -i * gcp dot S_dn,dn is pure imag: i/2 * (gcp.z)
+            real_part = prefactor * isum * -0.5 * gcross[:,:, 2] * sfact_im
+            im_part = prefactor * isum * 0.5 * gcross[:,:, 2] * sfact_re
+            SOmats_oneKpt[alpha][nbv:, nbv:] = real_part + 1j * im_part
+
+            # up dn
+            # -i * gcp dot S_up,dn is: -i/2 * (gcp.x) - 1/2 * (gcp.y)
+            real_part = prefactor * isum * (0.5 * gcross[:,:, 0] * sfact_im -0.5 * gcross[:,:, 1] * sfact_re)
+            im_part = prefactor * isum * (-0.5 * gcross[:,:, 0] * sfact_re -0.5 * gcross[:,:, 1] * sfact_im)
+            SOmats_oneKpt[alpha][:nbv, nbv:] = real_part + 1j * im_part
+
+            # dn up
+            # -i * gcp dot S_dn,up is: -i/2 * (gcp.x) + 1/2 * (gcp.y)
+            real_part = prefactor * isum * (0.5 * gcross[:,:, 0] * sfact_im + 0.5 * gcross[:,:, 1] * sfact_re)
+            im_part = prefactor * isum * (-0.5 * gcross[:,:, 0] * sfact_re + 0.5 * gcross[:,:, 1] * sfact_im)
+            SOmats_oneKpt[alpha][nbv:, :nbv] = real_part + 1j * im_part
+
+        return SOmats_oneKpt
 
 
     def initNLmat(self, width1=1.0, width2=1.0, shift=1.5, defbool=False, idxGap=None):
@@ -669,67 +712,116 @@ class Hamiltonian:
         # this can be parallelized over kpoints, but it's not critical since
         # this is only done once during initialization
         for kidx in range(nkp):
-            print(f"initializing NL pots: kpt {kidx+1}/{nkp}")
-            sys.stdout.flush()
-            if defbool:
-                gikp = self.basis + torch.stack([self.system.kpts[idxGap]] * nbv, dim=0)
-                gjkp = self.basis + torch.stack([self.system.kpts[idxGap]] * nbv, dim=0)
-            else:
-                gikp = self.basis + torch.stack([self.system.kpts[kidx]] * nbv, dim=0)
-                gjkp = self.basis + torch.stack([self.system.kpts[kidx]] * nbv, dim=0)
-            gdiff = torch.stack([self.basis]*nbv, dim=1) - self.basis.repeat(nbv, 1, 1)
-
-            gikp = gikp.numpy(force=True)
-            gjkp = gjkp.numpy(force=True)
-            inm = np.linalg.norm(gikp, axis=1)
-            jnm = np.linalg.norm(gjkp, axis=1)
-
-            t1 = time.time()
-            isum1 = self._soIntegral_vect(inm, jnm, rcut, width1)
-            #isum1 = self._soIntegral_dan(inm, jnm, width1)  # for testing only
-            t2 = time.time()
-            # print(f"time int1: {t2-t1}")
-            isum2 = self._nlIntegral_vect(inm, jnm, rcut, width2, shift)
-            #isum2 = self._nlIntegral_dan(inm, jnm, width2, shift)  # for testing
-            t3 = time.time()
-            # print(f"time int2: {t3-t2}")
-
-            #gdot = torch.dot(gikp, gjkp)
-            # this tensordot call is like mat[i,j] = sum_k gikp[i,k] * gjkp[j,k]
-            gdot = np.tensordot(gikp, gjkp, axes=[[1],[1]])      
-            #prefactor = 12.0 * np.pi / (inm[:, np.newaxis] * jnm)
-            prefactor = np.zeros([nbv,nbv], dtype=float)
-            denom = inm[:, np.newaxis] * jnm
-            ids = np.nonzero(denom)
-            prefactor[ids] = 12.0 * np.pi / denom[ids]
-
-            for alpha in range(self.system.getNAtoms()):
-                gdiffDotTau = gdiff * self.system.atomPos[alpha]
-                gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
-                sfact_re = 1 / self.system.getCellVolume() * np.cos(gdiffDotTau)
-                sfact_im = 1 / self.system.getCellVolume() * np.sin(gdiffDotTau)
-                
-            
-                # This potential is block diagonal on spin
-                # up up, 1st integral
-                real_part = prefactor * isum1 * gdot * sfact_re
-                im_part = prefactor * isum1 * gdot * sfact_im
-                NLmats[kidx,alpha,0][:nbv, :nbv] = real_part + 1j* im_part
-                # 2nd integral
-                real_part = prefactor * isum2 * gdot * sfact_re
-                im_part = prefactor * isum2 * gdot * sfact_im
-                NLmats[kidx,alpha,1][:nbv, :nbv] = real_part + 1j * im_part
-
-                # dn dn, 1st integral
-                real_part = prefactor * isum1 * gdot * sfact_re
-                im_part = prefactor * isum1 * gdot * sfact_im
-                NLmats[kidx,alpha,0][nbv:, nbv:] = real_part + 1j * im_part
-                # 2nd integral
-                real_part = prefactor * isum2 * gdot * sfact_re
-                im_part = prefactor * isum2 * gdot * sfact_im
-                NLmats[kidx,alpha,1][nbv:, nbv:] = real_part + 1j * im_part
+            NLmats_oneKpt = self.initNLmat_fast_oneKpt(kidx, width1=1.0, width2=1.0, shift=1.5, defbool=False, idxGap=None)
+            for id2 in range(self.system.getNAtoms()):
+                for id3 in [0,1]:
+                    NLmats[kidx,id2,id3] = NLmats_oneKpt[id2,id3]
 
         return NLmats
+    
+
+    def initNLmat_fast_oneKpt(self, kidx, width1=1.0, width2=1.0, shift=1.5, defbool=False, idxGap=None):
+        """
+        Calculates the nonlocal integrals V_{l=1}(K,K') = 
+        integral from 0 to infinity of
+        dr*r^2*j1(Kr)* [exp^(-(r/width1)^2)] *j1(K'r) and
+        dr*r^2*j1(Kr)* [exp^(-((r-shift)/width2)^2)] *j1(K'r)
+        where j1 is the 1st bessel function.
+        Then builds the Nonlocal matrix components
+        corresponding to every atom type at each kpoint for each integral. 
+        
+        WARNING: might consume significant memory. You are storing 
+        natom * 2 complex matrices of dimension
+        (2*nbasis) x (2*nbasis). Format of output is SOmats[atomidx,{0,1}] = NLmatrix{0,1}.
+        THIS OUTPUTS NUMPY ndarrays, not torch tensors!
+
+        This function is a little bit of a messy mixture of numpy ndarray and
+        torch tensors, which are not super compatible. For now, I think it has
+        to be like this because we need numpy/scipy functions for stable integration, 
+        but the default self.system objects such as the basis/kpts are natively in 
+        torch datatypes. Be careful if editing, because torch tensors and ndarray can behave
+        differently in subtle ways (i.e. make sure you really understand the code).
+        """
+        nbv = self.basis.shape[0]
+        # set integral dr ~ 0.0089 Bohr at 25 Hartree energy cutoff
+        #dr = 2*np.pi / (100 * torch.norm(self.basis[-1]))
+        # set radial cutoff ~ 4.2488 Bohr; V(rcut) = 1e-16 for default SOwidth
+        rcut = np.sqrt(width1*width2 * 16 * np.log(10.0))
+        #ncut = int(rcut/dr)
+        
+        if defbool:
+            nkp = 1  # to allow for deformation calcs at a single kpoint
+            if idxGap is None:
+                raise RuntimeError("need to specify kpt idx of gap in deformed calc")
+        else:
+            nkp = self.system.getNKpts()
+        
+        NLmats_oneKpt = np.empty([self.system.getNAtoms(), 2], dtype=object)
+        for id2 in range(self.system.getNAtoms()):
+            for id3 in [0,1]:
+                NLmats_oneKpt[id2,id3] = np.zeros([2*nbv, 2*nbv], dtype=np.complex128)
+
+        print(f"initializing NL pots: kpt {kidx+1}/{nkp}")
+        sys.stdout.flush()
+        if defbool:
+            gikp = self.basis + torch.stack([self.system.kpts[idxGap]] * nbv, dim=0)
+            gjkp = self.basis + torch.stack([self.system.kpts[idxGap]] * nbv, dim=0)
+        else:
+            gikp = self.basis + torch.stack([self.system.kpts[kidx]] * nbv, dim=0)
+            gjkp = self.basis + torch.stack([self.system.kpts[kidx]] * nbv, dim=0)
+        gdiff = torch.stack([self.basis]*nbv, dim=1) - self.basis.repeat(nbv, 1, 1)
+
+        gikp = gikp.numpy(force=True)
+        gjkp = gjkp.numpy(force=True)
+        inm = np.linalg.norm(gikp, axis=1)
+        jnm = np.linalg.norm(gjkp, axis=1)
+
+        t1 = time.time()
+        isum1 = self._soIntegral_vect(inm, jnm, rcut, width1)
+        #isum1 = self._soIntegral_dan(inm, jnm, width1)  # for testing only
+        t2 = time.time()
+        # print(f"time int1: {t2-t1}")
+        isum2 = self._nlIntegral_vect(inm, jnm, rcut, width2, shift)
+        #isum2 = self._nlIntegral_dan(inm, jnm, width2, shift)  # for testing
+        t3 = time.time()
+        # print(f"time int2: {t3-t2}")
+
+        #gdot = torch.dot(gikp, gjkp)
+        # this tensordot call is like mat[i,j] = sum_k gikp[i,k] * gjkp[j,k]
+        gdot = np.tensordot(gikp, gjkp, axes=[[1],[1]])      
+        #prefactor = 12.0 * np.pi / (inm[:, np.newaxis] * jnm)
+        prefactor = np.zeros([nbv,nbv], dtype=float)
+        denom = inm[:, np.newaxis] * jnm
+        ids = np.nonzero(denom)
+        prefactor[ids] = 12.0 * np.pi / denom[ids]
+
+        for alpha in range(self.system.getNAtoms()):
+            gdiffDotTau = gdiff * self.system.atomPos[alpha]
+            gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
+            sfact_re = 1 / self.system.getCellVolume() * np.cos(gdiffDotTau)
+            sfact_im = 1 / self.system.getCellVolume() * np.sin(gdiffDotTau)
+            
+        
+            # This potential is block diagonal on spin
+            # up up, 1st integral
+            real_part = prefactor * isum1 * gdot * sfact_re
+            im_part = prefactor * isum1 * gdot * sfact_im
+            NLmats_oneKpt[alpha,0][:nbv, :nbv] = real_part + 1j* im_part
+            # 2nd integral
+            real_part = prefactor * isum2 * gdot * sfact_re
+            im_part = prefactor * isum2 * gdot * sfact_im
+            NLmats_oneKpt[alpha,1][:nbv, :nbv] = real_part + 1j * im_part
+
+            # dn dn, 1st integral
+            real_part = prefactor * isum1 * gdot * sfact_re
+            im_part = prefactor * isum1 * gdot * sfact_im
+            NLmats_oneKpt[alpha,0][nbv:, nbv:] = real_part + 1j * im_part
+            # 2nd integral
+            real_part = prefactor * isum2 * gdot * sfact_re
+            im_part = prefactor * isum2 * gdot * sfact_im
+            NLmats_oneKpt[alpha,1][nbv:, nbv:] = real_part + 1j * im_part
+
+        return NLmats_oneKpt
     
     
     def buildSOmat(self, kidx, preComp_SOmats_kidx=None, addMat=None):
@@ -742,12 +834,13 @@ class Hamiltonian:
         which the local potential can be added. Might help save slightly on memory.
         """
         if preComp_SOmats_kidx is None: 
-            print("WARNING: Didn't find precomputed SO mats stored in shared memory. This buildSOmat could drastically slow down multiprocessing parallelization.")
+            print("WARNING: Didn't find precomputed SOmats stored in shared memory. This buildSOmat could drastically slow down multiprocessing parallelization.")
             if self.SOmats is None: 
-                print("DANGEROUS!!! WARNING. Attempting to build the SO mat, but 1) no precomputed SO mats are stored in shared memory, 2) no cached SO matrices in the ham class. \nCalculating the SOmats on the fly. ")
-                self.SOmats = self.initSOmat_fast()
-            SOmats_4d = np.array(self.SOmats.tolist(), dtype=np.complex128).reshape((self.SOmats.shape[0], self.SOmats.shape[1], self.SOmats[0,0].shape[0], self.SOmats[0,0].shape[1]))
-            SOmats_kidx = SOmats_4d[kidx]
+                print("DANGEROUS!!! WARNING. Attempting to build the SOmat, but 1) no precomputed SOmats are stored in shared memory, 2) no cached SOmatrices in the ham class. \nCalculating the SOmats for each kpt on the fly. ")
+                SOmats_kidx = self.initSOmat_fast_oneKpt(kidx)
+            else: 
+                SOmats_4d = np.array(self.SOmats.tolist(), dtype=np.complex128).reshape((self.SOmats.shape[0], self.SOmats.shape[1], self.SOmats[0,0].shape[0], self.SOmats[0,0].shape[1]))
+                SOmats_kidx = SOmats_4d[kidx]
         else: 
             SOmats_kidx = preComp_SOmats_kidx
 
@@ -783,9 +876,10 @@ class Hamiltonian:
             print("WARNING: Didn't find precomputed NL mats  stored in shared memory. This buildNLmat could drastically slow down multiprocessing parallelization.")
             if self.NLmats is None: 
                 print("DANGEROUS!!! WARNING. Attempting to build the NL mat, but 1) no precomputed NL mats are stored in shared memory, 2) no cached NL matrices in the ham class. \nCalculating the NLmats on the fly. ")
-                self.NLmats = self.initNLmat_fast()
-            NLmats_5d = np.array(self.NLmats.tolist(), dtype=np.complex128).reshape((self.NLmats.shape[0], self.NLmats.shape[1], self.NLmats.shape[2], self.NLmats[0,0,0].shape[0], self.NLmats[0,0,0].shape[1]))
-            NLmats_kidx = NLmats_5d[kidx]
+                NLmats_kidx = self.initNLmat_fast_oneKpt(kidx)
+            else: 
+                NLmats_5d = np.array(self.NLmats.tolist(), dtype=np.complex128).reshape((self.NLmats.shape[0], self.NLmats.shape[1], self.NLmats.shape[2], self.NLmats[0,0,0].shape[0], self.NLmats[0,0,0].shape[1]))
+                NLmats_kidx = NLmats_5d[kidx]
         else: 
             NLmats_kidx = preComp_NLmats_kidx
         
