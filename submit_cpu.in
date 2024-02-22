@@ -8,9 +8,10 @@
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=30           # Number of tasks (MPI processes) per node
 #SBATCH --cpus-per-task=1             # Number of CPU cores per task
-#SBATCH --mem=1024GB
+#SBATCH --mem=128GB
 #SBATCH --mail-user=tommy_lin@berkeley.edu
 #SBATCH --mail-type=ALL
 
-conda activate myenv
+source ~/.bashrc
+# python main.py CALCS/CsPbI3_xxx/inputs/ CALCS/CsPbI3_xxx/results/
 python eval_fullBand.py CALCS/CsPbI3_eval_fullBand/inputs/ CALCS/CsPbI3_eval_fullBand/results/
