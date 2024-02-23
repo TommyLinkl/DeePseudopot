@@ -2,7 +2,7 @@ import psutil
 import matplotlib.pyplot as plt 
 
 memory_usage_data = []
-DEBUG_MEMORY_FLAG = True
+DEBUG_MEMORY_FLAG = False
 
 def set_debug_memory_flag(value):
     global DEBUG_MEMORY_FLAG
