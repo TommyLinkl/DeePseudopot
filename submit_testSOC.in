@@ -13,4 +13,4 @@
 #SBATCH --mail-type=ALL
 
 source ~/.bashrc
-python -m test_ham.test_soc_correct
+python -m test_ham.test_soc_correct > test_ham/test_soc_correct_run.dat

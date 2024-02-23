@@ -102,16 +102,16 @@ class Hamiltonian:
             self.vb_vecs = {k : [] for k in range(nkpt)}
             self.cb_vecs = {k : [] for k in range(nkpt)}
 
-            if not isinstance(self.system.idx_vb, int):
+            if not isinstance(self.system.idxVB, int):
                 raise ValueError("need to specify vb, cb indices for coupling")
-            elif not isinstance(self.system.idx_cb, int):
+            elif not isinstance(self.system.idxCB, int):
                 raise ValueError("need to specify vb, cb indices for coupling")
-            elif not isinstance(self.system.idx_gap, int):
+            elif not isinstance(self.system.idxGap, int):
                 raise ValueError("need to specify kpt index of bandgap for coupling")
             else:
-                self.idx_vb = self.system.idx_vb
-                self.idx_cb = self.system.idx_cb
-                self.idx_gap = self.system.idx_gap
+                self.idx_vb = self.system.idxVB
+                self.idx_cb = self.system.idxCB
+                self.idx_gap = self.system.idxGap
 
             if SObool:
                 self.SOmats_couple, self.NLmats_couple = self.initCouplingMats()

@@ -6,7 +6,7 @@ import os
 pwd = pathlib.Path(__file__).parent.resolve()
 
 from utils.ham import Hamiltonian
-from utils.read import bulkSystem
+from utils.read import BulkSystem, read_NNConfigFile
 from utils.constants import *
 from utils.fit_mc import MonteCarloFit, read_mc_opts
 
@@ -15,7 +15,7 @@ device = torch.device("cpu")
 
 
 # read and set up system first system (no coupling)
-system1 = bulkSystem()
+system1 = BulkSystem()
 system1.setSystem(f"{pwd}/inputs/montecarlo/system_0.par")
 system1.setInputs(f"{pwd}/inputs/montecarlo/input_0.par")
 system1.setKPointsAndWeights(f"{pwd}/inputs/montecarlo/kpoints_0.par")
@@ -72,6 +72,6 @@ print(f"...writing output and chk files to {pwd}/mc_out/cpl/")
 
 mc_opts = read_mc_opts(f"{pwd}/inputs/montecarlo/mcOpts2.par")
 
-ham2 = Hamiltonian(system1, PPparams, atomPPorder, device, SObool=False, coupling=True)
+ham2 = Hamiltonian(system1, PPparams, atomPPorder, device, NNConfig, iSystem=0, SObool=False, coupling=True)
 optimizer = MonteCarloFit(ham2, f"{pwd}/mc_out/cpl/", paramSteps=paramSteps, **mc_opts)
 optimizer.run_mc()

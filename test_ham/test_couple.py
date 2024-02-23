@@ -9,7 +9,7 @@ from utils.nn_models import *
 from utils.init_NN_train import init_Zunger_data
 from utils.bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
 from utils.ham import Hamiltonian
-from utils.read import bulkSystem
+from utils.read import BulkSystem, read_NNConfigFile
 from utils.constants import *
 
 # just test on cpu
@@ -18,7 +18,7 @@ torch.set_printoptions(precision=8)
 
 # read and set up system
 pwd = pathlib.Path(__file__).parent.resolve()
-system = bulkSystem()
+system = BulkSystem()
 system.setSystem(f"{pwd}/inputs/couple/system_0.par")
 system.setInputs(f"{pwd}/inputs/couple/input_0.par")
 system.setKPointsAndWeights(f"{pwd}/inputs/couple/kpoints_0.par")
@@ -43,9 +43,10 @@ for atomType in atomPPorder:
     totalParams = torch.cat((totalParams, a.unsqueeze(0)), dim=0)
     PPparams[atomType] = a
 
+NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
 
 # construct initial hamiltonian for eigenvecs and for finite difference
-ham1 = Hamiltonian(system, PPparams, atomPPorder, device, SObool=False, coupling=True)
+ham1 = Hamiltonian(system, PPparams, atomPPorder, device, NNConfig, iSystem=0, SObool=False, coupling=True)
 h = ham1.buildHtot(ham1.idx_gap)
 h = h.numpy(force=True)
 vals, vecs = scipy.linalg.eigh(h, subset_by_index=[0,16], driver='evr')
@@ -110,7 +111,7 @@ for key in get_derivs:
 # compute dE/dy by loading a slightly deformed system along y
 print("\n\nConverging d/dy finite diff for Cd...")
 for sysid in range(7):
-    system_dx = bulkSystem()
+    system_dx = BulkSystem()
     system_dx.setSystem(f"{pwd}/inputs/couple/system_dx{sysid}.par")
     system_dx.setInputs(f"{pwd}/inputs/couple/input_0.par")
     system_dx.setKPointsAndWeights(f"{pwd}/inputs/couple/kpoints_0.par")
@@ -121,7 +122,7 @@ for sysid in range(7):
     for i in range(2):
         print(f"{system_dx.atomTypes[i]}: {system_dx.atomPos[i]}")
 
-    ham_dx = Hamiltonian(system_dx, PPparams, atomPPorder, device, SObool=False, coupling=False)
+    ham_dx = Hamiltonian(system_dx, PPparams, atomPPorder, device, NNConfig, sysid, SObool=False, coupling=False)
     hdx = ham_dx.buildHtot(ham1.idx_gap)
     hdx = hdx.numpy(force=True)
     vals_dx, vecs_dx = scipy.linalg.eigh(hdx, subset_by_index=[0,16], driver='evr')
@@ -195,7 +196,7 @@ for atomType in atomPPorder:
 
 
 # construct initial hamiltonian for eigenvecs and for finite difference
-ham1 = Hamiltonian(system, PPparams, atomPPorder, device, SObool=True, coupling=True)
+ham1 = Hamiltonian(system, PPparams, atomPPorder, device, NNConfig, iSystem=0, SObool=True, coupling=True)
 h = ham1.buildHtot(ham1.idx_gap)
 h = h.numpy(force=True)
 vals, vecs = scipy.linalg.eigh(h, subset_by_index=[0,32], driver='evr')
@@ -234,7 +235,7 @@ for key in get_derivs:
 # compute dE/dy by loading a slightly deformed system along y
 print("\n\nConverging d/dy finite diff for Cd...")
 for sysid in range(7):
-    system_dx = bulkSystem()
+    system_dx = BulkSystem()
     system_dx.setSystem(f"{pwd}/inputs/couple/system_dx{sysid}.par")
     system_dx.setInputs(f"{pwd}/inputs/couple/input_0.par")
     system_dx.setKPointsAndWeights(f"{pwd}/inputs/couple/kpoints_0.par")
@@ -244,7 +245,7 @@ for sysid in range(7):
     for i in range(2):
         print(f"{system_dx.atomTypes[i]}: {system_dx.atomPos[i]}")
 
-    ham_dx = Hamiltonian(system_dx, PPparams, atomPPorder, device, SObool=True, coupling=False)
+    ham_dx = Hamiltonian(system_dx, PPparams, atomPPorder, device, NNConfig, iSystem=0, SObool=True, coupling=False)
     hdx = ham_dx.buildHtot(ham1.idx_gap)
     hdx = hdx.numpy(force=True)
     vals_dx, vecs_dx = scipy.linalg.eigh(hdx, subset_by_index=[0,32], driver='evr')

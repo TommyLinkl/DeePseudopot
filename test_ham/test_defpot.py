@@ -6,7 +6,7 @@ pwd = pathlib.Path(__file__).parent.resolve()
 
 from utils.nn_models import *
 from utils.ham import Hamiltonian
-from utils.read import bulkSystem
+from utils.read import BulkSystem, read_NNConfigFile
 from utils.constants import *
 
 # just test on cpu
@@ -14,7 +14,7 @@ device = torch.device("cpu")
 
 
 # read and set up system first system (no soc)
-system1_nosoc = bulkSystem()
+system1_nosoc = BulkSystem()
 system1_nosoc.setSystem(f"{pwd}/inputs/defpot/system_0_nosoc.par")
 system1_nosoc.setInputs(f"{pwd}/inputs/defpot/input_0_nosoc.par")
 system1_nosoc.setKPointsAndWeights(f"{pwd}/inputs/defpot/kpoints_0_nosoc.par")
@@ -33,20 +33,20 @@ for atomType in atomPPorder:
 
 
 
-
-ham1 = Hamiltonian(system1_nosoc, PPparams, atomPPorder, device)
+NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
+ham1 = Hamiltonian(system1_nosoc, PPparams, atomPPorder, device, NNConfig, iSystem=0)
 bs1 = ham1.calcBandStruct()
 print("\ntesting no SOC first\n")
 print(f"no def vbm, cbm energies: {bs1[0,7]:.6f}, {bs1[0,8]:.6f}")
 
 # now read deformed system file (lattice param multiplied by 1.0001)
-system2_nosoc = bulkSystem()
+system2_nosoc = BulkSystem()
 system2_nosoc.setSystem(f"{pwd}/inputs/defpot/system_1_nosoc.par")
 system2_nosoc.setInputs(f"{pwd}/inputs/defpot/input_0_nosoc.par")
 system2_nosoc.setKPointsAndWeights(f"{pwd}/inputs/defpot/kpoints_0_nosoc.par")
 system2_nosoc.setExpBS(f"{pwd}/inputs/expBandStruct_0.par")
 
-ham2 = Hamiltonian(system2_nosoc, PPparams, atomPPorder, device)
+ham2 = Hamiltonian(system2_nosoc, PPparams, atomPPorder, device, NNConfig, iSystem=0)
 bs2 = ham2.calcBandStruct()
 print(f"DEF (system) vbm, cbm energies: {bs2[0,7]:.6f}, {bs2[0,8]:.6f}")
 
@@ -69,7 +69,7 @@ print(f"new, no def vbm, cbm: {bs_tmp[0,7]:.6f}, {bs_tmp[0,8]:.6f}")
 
 # now do with soc
 print("\n\nnow testing with SOC...\n")
-system1_soc = bulkSystem()
+system1_soc = BulkSystem()
 system1_soc.setSystem(f"{pwd}/inputs/defpot/system_0_soc.par")
 system1_soc.setInputs(f"{pwd}/inputs/defpot/input_0_soc.par")
 system1_soc.setKPointsAndWeights(f"{pwd}/inputs/defpot/kpoints_0_soc.par")
@@ -87,18 +87,18 @@ for atomType in atomPPorder:
     totalParams = torch.cat((totalParams, a.unsqueeze(0)), dim=0)
     PPparams[atomType] = a
 
-ham1 = Hamiltonian(system1_soc, PPparams, atomPPorder, device, SObool=True)
+ham1 = Hamiltonian(system1_soc, PPparams, atomPPorder, device, NNConfig, iSystem=0, SObool=True)
 bs1 = ham1.calcBandStruct()
 print(f"no def vbm, cbm energies: {bs1[0,25]:.6f}, {bs1[0,26]:.6f}")
 
 
-system2_soc = bulkSystem()
+system2_soc = BulkSystem()
 system2_soc.setSystem(f"{pwd}/inputs/defpot/system_1_soc.par")
 system2_soc.setInputs(f"{pwd}/inputs/defpot/input_0_soc.par")
 system2_soc.setKPointsAndWeights(f"{pwd}/inputs/defpot/kpoints_0_soc.par")
 system2_soc.setExpBS(f"{pwd}/inputs/soc/bandStruct_0.dat")
 
-ham2 = Hamiltonian(system2_soc, PPparams, atomPPorder, device, SObool=True)
+ham2 = Hamiltonian(system2_soc, PPparams, atomPPorder, device, NNConfig, iSystem=0, SObool=True)
 bs2 = ham2.calcBandStruct()
 print(f"DEF (system) vbm, cbm energies: {bs2[0,25]:.6f}, {bs2[0,26]:.6f}")
 

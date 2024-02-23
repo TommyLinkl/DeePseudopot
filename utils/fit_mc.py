@@ -94,9 +94,9 @@ class MonteCarloFit:
         if fitCoupling:
             self.expCpl = ham.system.expCouplingBands
             #self.cplBndWeight = ham.system.couplingBandWeights
-            self.idx_gap = ham.system.idx_gap
-            self.idx_vb = ham.system.idx_vb
-            self.idx_cb = ham.system.idx_cb
+            self.idx_gap = ham.system.idxGap
+            self.idx_vb = ham.system.idxVB
+            self.idx_cb = ham.system.idxCB
         if fitDefPot:
             self.expDef = ham.system.expDefPots
 
