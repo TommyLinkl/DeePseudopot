@@ -5,4 +5,5 @@ CALCS/
 CALCS/*
 .vscode/*
 test_parallel/results*/*
+test_parallel/*.dat
 *.log

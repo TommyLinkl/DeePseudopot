@@ -14,6 +14,7 @@ import gc
 from .constants import *
 from .pp_func import pot_func, pot_funcLR
 
+torch.set_default_dtype(torch.float64)
 
 class Hamiltonian:
     def __init__(
@@ -494,8 +495,6 @@ class Hamiltonian:
         else:
             nkp = self.system.getNKpts()
 
-        # SOmats_oneKpt = np.zeros((self.system.getNAtoms(), 2*nbv, 2*nbv), dtype=np.complex128)
-
         print(f"initializing SO: kpt {kidx+1}/{nkp}")
         sys.stdout.flush()
         if defbool:
@@ -741,8 +740,6 @@ class Hamiltonian:
         else:
             nkp = self.system.getNKpts()
         
-        # NLmats_oneKpt = np.zeros((self.system.getNAtoms(), 2, 2*nbv, 2*nbv), dtype=np.complex128)
-
         print(f"initializing NL pots: kpt {kidx+1}/{nkp}")
         sys.stdout.flush()
         if defbool:
@@ -822,7 +819,6 @@ class Hamiltonian:
                 SOmats_kidx = np.zeros((self.system.getNAtoms(), 2*self.basis.shape[0], 2*self.basis.shape[0]), dtype=np.complex128)
                 self.initSOmat_fast_oneKpt(kidx, SOmats_kidx)
             else: 
-                # SOmats_4d = np.array(self.SOmats.tolist(), dtype=np.complex128).reshape((self.SOmats.shape[0], self.SOmats.shape[1], self.SOmats[0,0].shape[0], self.SOmats[0,0].shape[1]))
                 SOmats_kidx = self.SOmats[kidx]
         else: 
             SOmats_kidx = preComp_SOmats_kidx
@@ -863,7 +859,6 @@ class Hamiltonian:
                 NLmats_kidx = np.zeros((self.system.getNAtoms(), 2, 2*self.basis.shape[0], 2*self.basis.shape[0]), dtype=np.complex128)
                 self.initNLmat_fast_oneKpt(kidx, NLmats_kidx)
             else: 
-                # NLmats_5d = np.array(self.NLmats.tolist(), dtype=np.complex128).reshape((self.NLmats.shape[0], self.NLmats.shape[1], self.NLmats.shape[2], self.NLmats[0,0,0].shape[0], self.NLmats[0,0,0].shape[1]))
                 NLmats_kidx = self.NLmats[kidx]
         else: 
             NLmats_kidx = preComp_NLmats_kidx
@@ -1680,25 +1675,7 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device):
             dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, iSys, SObool=NNConfig['SObool'])
 
             if dummy_ham.SOmats is not None: 
-                # reshape dummy_ham.SOmats into 4D arrays 
-                # of shape (nkpt)*(nAtoms)*(2*nbasis) x (2*nbasis)
-                """
-                tmpSOmats = dummy_ham.SOmats
-                tmpSOmats_4d = np.array(tmpSOmats.tolist(), dtype=np.complex128).reshape((tmpSOmats.shape[0], tmpSOmats.shape[1], tmpSOmats[0,0].shape[0], tmpSOmats[0,0].shape[1]))
-                for kidx in range(sys.getNKpts()):
-                    SOkey = f"SO_{iSys}_{kidx}"
-                    SOvalue = {'dtype': tmpSOmats_4d[kidx].dtype,
-                        'shape': tmpSOmats_4d[kidx].shape,
-                    }
-                    cachedMats_info[SOkey] = SOvalue
-
-                    # Move the SOmats to shared memory
-                    shm_dict_SO[f"shm_SO_{iSys}_{kidx}"] = shared_memory.SharedMemory(create=True, size=tmpSOmats_4d[kidx].nbytes, name=f"SOmats_{iSys}_{kidx}")
-                    tmp_arr = np.ndarray(cachedMats_info[f"SO_{iSys}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{iSys}_{kidx}"]['dtype'], buffer=shm_dict_SO[f"shm_SO_{iSys}_{kidx}"].buf)  # Create a NumPy array backed by shared memory
-                    tmp_arr[:] = tmpSOmats_4d[kidx][:]   # Copy the cached SOmat into shared memory
-
-                del tmpSOmats, tmpSOmats_4d
-                """
+                # reshape dummy_ham.SOmats has shape (nkpt)*(nAtoms)*(2*nbasis) x (2*nbasis)
                 dummy_ham.SOmats
                 for kidx in range(sys.getNKpts()):
                     SOkey = f"SO_{iSys}_{kidx}"
@@ -1713,25 +1690,7 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device):
                     tmp_arr[:] = dummy_ham.SOmats[kidx][:]   # Copy the cached SOmat into shared memory
 
             if dummy_ham.NLmats is not None: 
-                # reshape dummy_ham.NLmats into 5D arrays 
-                # of shape (nkpt)*(nAtoms)*(2)*(2*nbasis) x (2*nbasis)
-                """
-                tmpNLmats = dummy_ham.NLmats
-                tmpNLmats_5d = np.array(tmpNLmats.tolist(), dtype=np.complex128).reshape((tmpNLmats.shape[0], tmpNLmats.shape[1], tmpNLmats.shape[2], tmpNLmats[0,0,0].shape[0], tmpNLmats[0,0,0].shape[1]))
-                for kidx in range(sys.getNKpts()):
-                    NLkey = f"NL_{iSys}_{kidx}"
-                    NLvalue = {'dtype': tmpNLmats_5d[kidx].dtype,
-                        'shape': tmpNLmats_5d[kidx].shape,
-                    }
-                    cachedMats_info[NLkey] = NLvalue
-
-                    # Move the NLmats to shared memory
-                    shm_dict_NL[f"shm_NL_{iSys}_{kidx}"] = shared_memory.SharedMemory(create=True, size=tmpNLmats_5d[kidx].nbytes, name=f"NLmats_{iSys}_{kidx}")
-                    tmp_arr = np.ndarray(cachedMats_info[f"NL_{iSys}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{iSys}_{kidx}"]['dtype'], buffer=shm_dict_NL[f"shm_NL_{iSys}_{kidx}"].buf) 
-                    tmp_arr[:] = tmpNLmats_5d[kidx][:] 
-
-                del tmpNLmats, tmpNLmats_5d
-                """
+                # reshape dummy_ham.NLmats has shape (nkpt)*(nAtoms)*(2)*(2*nbasis) x (2*nbasis)
                 dummy_ham.NLmats
                 for kidx in range(sys.getNKpts()):
                     NLkey = f"NL_{iSys}_{kidx}"

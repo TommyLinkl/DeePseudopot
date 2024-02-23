@@ -6,9 +6,9 @@
 #SBATCH --qos=shared
 #SBATCH -t 01:00:00
 #SBATCH -N 1
-#SBATCH --ntasks-per-node=4          # Number of tasks (MPI processes) per node
+#SBATCH --ntasks-per-node=1          # Number of tasks (MPI processes) per node
 #SBATCH --cpus-per-task=1             # Number of CPU cores per task
-#SBATCH --mem=256GB    
+#SBATCH --mem=128GB    
 #SBATCH --mail-user=tommy_lin@berkeley.edu
 #SBATCH --mail-type=ALL
 

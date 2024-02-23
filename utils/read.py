@@ -6,6 +6,8 @@ import multiprocessing as mp
 from .constants import *
 from .nn_models import *
 
+torch.set_default_dtype(torch.float64)
+
 def read_NNConfigFile(filename):
     """
     This read function is able to skip empty lines, 

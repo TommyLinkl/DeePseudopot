@@ -43,8 +43,12 @@ A testing Jupyter notebook script that uses a neural network to fit the band str
 
 xxx
 
-## TODO
 
-- Add NN hyperparameter optimization (Maybe through RayTune)
+## Parameter order
+the order of the input params is:
 
-- Parallelize across multiple (x4 for Perlmutter) GPUs / multiple GPU cores. Look into data parallelism, Horovod, Model Parallelism for large models. 
+ppParams[0]-ppParams[3] = local Zunger potential, as before
+ppParams[4] = long-range constant (only defined for N-1 atom types, since there is a constraint)
+ppParams[5] = SOC constant
+ppParams[6]-ppParams[7] = nonlocal constants
+ppParams[8] = strain tensor constant

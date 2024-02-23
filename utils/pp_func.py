@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 mpl.rcParams['lines.markersize'] = 3
 from .constants import * 
 
+torch.set_default_dtype(torch.float64)
 
 def pot_func(x, params): 
     pot = (params[0]*(x*x - params[1]) / (params[2] * torch.exp(params[3]*x*x) - 1.0))

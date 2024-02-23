@@ -6,6 +6,7 @@ from torch.optim.lr_scheduler import ExponentialLR
 from .constants import *
 from .pp_func import pot_func, plotPP, plot_training_validation_cost
 
+torch.set_default_dtype(torch.float64)
 
 class init_Zunger_data(Dataset):
 

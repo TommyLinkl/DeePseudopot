@@ -7,6 +7,8 @@ import numpy as np
 from .constants import *
 from .pp_func import pot_func
 
+torch.set_default_dtype(torch.float64)
+
 def calcHamiltonianMatrix_GPU(NN_boolean, model, basisStates, atomPos, atomTypes, nAtoms, cellVolume, kVector, atomPPOrder, totalParams, device):
     torch.set_default_dtype(torch.float64)
     '''

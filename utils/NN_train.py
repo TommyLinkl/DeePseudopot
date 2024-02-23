@@ -1,5 +1,5 @@
 import torch
-import time
+import time, os
 from torch.optim.lr_scheduler import ExponentialLR
 import gc
 import multiprocessing as mp
@@ -7,6 +7,10 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt 
 mpl.rcParams['lines.markersize'] = 3
 
+torch.set_default_dtype(torch.float64)
+torch.set_num_threads(1)
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
 
 from .constants import *
 from .pp_func import plotPP, plot_training_validation_cost, plotBandStruct
