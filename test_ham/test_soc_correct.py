@@ -1,3 +1,4 @@
+import os
 import torch
 import numpy as np
 import time
@@ -9,7 +10,8 @@ from utils.read import BulkSystem, read_PPparams, read_NNConfigFile
 
 print("***************************")
 print("""for this test to pass, make sure the ...Integral_dan() functions
-are called when the hamiltonian is constructing SO and NL matrices.""")
+are called when the hamiltonian is constructing SO and NL matrices.
+This test needs at least 50GB of memory to cache the SO and NL matrices. """)
 print("***************************")
 # just test on cpu
 device = torch.device("cpu")
@@ -47,6 +49,7 @@ NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
 
 start_time = time.time()
 ham1 = Hamiltonian(system, PPparams, atomPPorder, device, NNConfig, iSystem=0, SObool=True)
+# ham1 = Hamiltonian(system, PPparams, atomPPorder, device, NNConfig, iSystem=0, SObool=True, cacheSO = False)
 bs_new = ham1.calcBandStruct()
 end_time = time.time()
 print(f"Finished calculating the SOC band structure... Elapsed time: {(end_time - start_time):.2f} seconds")

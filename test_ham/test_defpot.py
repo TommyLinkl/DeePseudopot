@@ -7,7 +7,7 @@ pwd = pathlib.Path(__file__).parent.resolve()
 from utils.nn_models import *
 from utils.ham import Hamiltonian
 from utils.read import bulkSystem
-from constants.constants import AUTOEV
+from utils.constants import *
 
 # just test on cpu
 device = torch.device("cpu")

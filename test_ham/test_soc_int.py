@@ -1,11 +1,8 @@
 import numpy as np
 import torch
-from torch.utils.data import DataLoader
 import pathlib
 
 from utils.nn_models import *
-from utils.init_NN_train import init_Zunger_data
-from utils.bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
 from utils.ham import Hamiltonian
 from utils.read import BulkSystem
 

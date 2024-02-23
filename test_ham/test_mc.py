@@ -7,7 +7,7 @@ pwd = pathlib.Path(__file__).parent.resolve()
 
 from utils.ham import Hamiltonian
 from utils.read import bulkSystem
-from constants.constants import AUTOEV
+from utils.constants import *
 from utils.fit_mc import MonteCarloFit, read_mc_opts
 
 # just test on cpu

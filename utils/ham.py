@@ -5,7 +5,7 @@ from scipy.special import erf
 from scipy.integrate import quad, quadrature, quad_vec
 import time
 import copy
-
+import gc
 from torch.utils.checkpoint import checkpoint
 import multiprocessing as mp
 from multiprocessing import Process, Queue, Pool, shared_memory
@@ -13,6 +13,7 @@ import gc
 
 from .constants import *
 from .pp_func import pot_func, pot_funcLR
+from .memory import print_memory_usage
 
 
 class Hamiltonian:
@@ -89,7 +90,7 @@ class Hamiltonian:
                 self.NLmats_def = None
        
         elif (SObool) and (not cacheSO) and (NNConfig['num_cores']==0):
-            print("WARNING: Calculation requires SObool, but we are not cache-ing the SOmats and NLmats. Without multiprocessing parallelization. This is not implemented. ")
+            print("WARNING: Calculation requires SObool, but we are not cache-ing the SOmats and NLmats. Without multiprocessing parallelization. This is not recommended. ")
 
         
         if self.coupling:
@@ -452,19 +453,24 @@ class Hamiltonian:
         else:
             nkp = self.system.getNKpts()
         
-        SOmats = np.empty([nkp, self.system.getNAtoms()], dtype=object)
-        for id1 in range(nkp):
-            for id2 in range(self.system.getNAtoms()):
-                SOmats[id1,id2] = np.zeros([2*nbv, 2*nbv], dtype=np.complex128)
+        SOmats_4d = np.zeros((nkp, self.system.getNAtoms(), 2*nbv, 2*nbv), dtype=np.complex128)
 
         # this can be parallelized over kpoints, but it's not critical since
         # this is only done once during initialization
-        for kidx in range(nkp):
-            SOmats_oneKpt = self.initSOmat_fast_oneKpt(kidx, SOwidth=0.7, defbool=False, idxGap=None)
-            for id2 in range(self.system.getNAtoms()):
-                SOmats[kidx, id2] = SOmats_oneKpt[id2]
+        if (self.NNConfig['num_cores']==0): 
+            for kidx in range(nkp):
+                SOmats_oneKpt_3d = self.initSOmat_fast_oneKpt(kidx, SOwidth, defbool, idxGap)
+                SOmats_4d[kidx, :, :, :] = SOmats_oneKpt_3d[:, :, :]
+                del SOmats_oneKpt_3d
+                gc.collect()
+                print_memory_usage()
+        else: # multiprocessing
+            args_list = [(kidx, SOwidth, defbool, idxGap) for kidx in range(nkp)]
+            with mp.Pool(self.NNConfig['num_cores']) as pool:
+                results = pool.starmap(self.initSOmat_fast_oneKpt, args_list)
+            SOmats_4d = np.array(results)
 
-        return SOmats
+        return SOmats_4d
 
 
     def initSOmat_fast_oneKpt(self, kidx, SOwidth=0.7, defbool=False, idxGap=None):
@@ -562,7 +568,9 @@ class Hamiltonian:
             im_part = prefactor * isum * (-0.5 * gcross[:,:, 0] * sfact_re + 0.5 * gcross[:,:, 1] * sfact_im)
             SOmats_oneKpt[alpha][nbv:, :nbv] = real_part + 1j * im_part
 
-        return SOmats_oneKpt
+        SOmats_oneKpt_3d = np.array(SOmats_oneKpt.tolist(), dtype=np.complex128).reshape((SOmats_oneKpt.shape[0], SOmats_oneKpt[0].shape[0], SOmats_oneKpt[0].shape[1]))
+
+        return SOmats_oneKpt_3d
 
 
     def initNLmat(self, width1=1.0, width2=1.0, shift=1.5, defbool=False, idxGap=None):
@@ -703,21 +711,24 @@ class Hamiltonian:
         else:
             nkp = self.system.getNKpts()
         
-        NLmats = np.empty([nkp, self.system.getNAtoms(), 2], dtype=object)
-        for id1 in range(nkp):
-            for id2 in range(self.system.getNAtoms()):
-                for id3 in [0,1]:
-                    NLmats[id1,id2,id3] = np.zeros([2*nbv, 2*nbv], dtype=np.complex128)
+        NLmats_5d = np.zeros((nkp, self.system.getNAtoms(), 2, 2*nbv, 2*nbv), dtype=np.complex128)
 
         # this can be parallelized over kpoints, but it's not critical since
         # this is only done once during initialization
-        for kidx in range(nkp):
-            NLmats_oneKpt = self.initNLmat_fast_oneKpt(kidx, width1=1.0, width2=1.0, shift=1.5, defbool=False, idxGap=None)
-            for id2 in range(self.system.getNAtoms()):
-                for id3 in [0,1]:
-                    NLmats[kidx,id2,id3] = NLmats_oneKpt[id2,id3]
+        if (self.NNConfig['num_cores']==0): 
+            for kidx in range(nkp):
+                NLmats_oneKpt_4d = self.initNLmat_fast_oneKpt(kidx, width1, width2, shift, defbool, idxGap)
+                NLmats_5d[kidx, :, :, :, :] = NLmats_oneKpt_4d[:, :, :, :]
+                del NLmats_oneKpt_4d
+                gc.collect()
+                print_memory_usage()
+        else: # multiprocessing
+            args_list = [(kidx, width1, width2, shift, defbool, idxGap) for kidx in range(nkp)]
+            with mp.Pool(self.NNConfig['num_cores']) as pool:
+                results = pool.starmap(self.initNLmat_fast_oneKpt, args_list)
+            NLmats_5d = np.array(results)
 
-        return NLmats
+        return NLmats_5d
     
 
     def initNLmat_fast_oneKpt(self, kidx, width1=1.0, width2=1.0, shift=1.5, defbool=False, idxGap=None):
@@ -821,7 +832,9 @@ class Hamiltonian:
             im_part = prefactor * isum2 * gdot * sfact_im
             NLmats_oneKpt[alpha,1][nbv:, nbv:] = real_part + 1j * im_part
 
-        return NLmats_oneKpt
+        NLmats_oneKpt_4d = np.array(NLmats_oneKpt.tolist(), dtype=np.complex128).reshape((NLmats_oneKpt.shape[0], NLmats_oneKpt.shape[1], NLmats_oneKpt[0,0].shape[0], NLmats_oneKpt[0,0].shape[1]))
+                
+        return NLmats_oneKpt_4d
     
     
     def buildSOmat(self, kidx, preComp_SOmats_kidx=None, addMat=None):
@@ -873,7 +886,7 @@ class Hamiltonian:
         which the local potential can be added. Might help save slightly on memory.
         """
         if preComp_NLmats_kidx is None: 
-            print("WARNING: Didn't find precomputed NLmats  stored in shared memory. This buildNLmat could drastically slow down multiprocessing parallelization.")
+            print("WARNING: Didn't find precomputed NLmats stored in shared memory. This buildNLmat could drastically slow down multiprocessing parallelization.")
             if self.NLmats is None: 
                 print("DANGEROUS!!! WARNING. Attempting to build the NLmat, but 1) no precomputed NLmats are stored in shared memory, 2) no cached NL matrices in the ham class. \nCalculating the NLmats on the fly. ")
                 NLmats_kidx = self.initNLmat_fast_oneKpt(kidx)

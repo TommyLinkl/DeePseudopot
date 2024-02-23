@@ -10,7 +10,7 @@ from utils.init_NN_train import init_Zunger_data
 from utils.bandStruct import calcHamiltonianMatrix_GPU, calcBandStruct_GPU
 from utils.ham import Hamiltonian
 from utils.read import bulkSystem
-from constants.constants import *
+from utils.constants import *
 
 # just test on cpu
 device = torch.device("cpu")
