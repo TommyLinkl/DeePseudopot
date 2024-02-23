@@ -91,7 +91,7 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
 
 def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder):
     """
-    Initializes the neural network pseudopotentials by 
+    Initializes the neural network pseudopotentials by either
     1. getting the NN parameters from {inputsFolder}init_PPmodel.pth
     OR
     2. trainining to the existing Zunger function form pseudopotential. 
@@ -117,10 +117,12 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
         validationloader = DataLoader(dataset = ZungerPPFunc_val, batch_size =ZungerPPFunc_val.len, shuffle=False)
 
         start_time = time.time()
-        init_Zunger_train_GPU(PPmodel, device, trainloader, validationloader, init_Zunger_criterion, init_Zunger_optimizer, init_Zunger_scheduler, 20, NNConfig['init_Zunger_num_epochs'], NNConfig['init_Zunger_plotEvery'], atomPPOrder, NNConfig['SHOWPLOTS'], resultsFolder)
+        (training_cost, validation_cost) = init_Zunger_train_GPU(PPmodel, device, trainloader, validationloader, init_Zunger_criterion, init_Zunger_optimizer, init_Zunger_scheduler, 20, NNConfig['init_Zunger_num_epochs'], NNConfig['init_Zunger_plotEvery'], atomPPOrder, NNConfig['SHOWPLOTS'], resultsFolder)
         end_time = time.time()
         elapsed_time = end_time - start_time
         print("Initialization elapsed time: %.2f seconds" % elapsed_time)
+        fig_cost = plot_training_validation_cost(training_cost, validation_cost, True, NNConfig['SHOWPLOTS']);
+        fig_cost.savefig(resultsFolder + 'init_train_cost.png')
 
         torch.save(PPmodel.state_dict(), resultsFolder + 'initZunger_PPmodel.pth')
 
