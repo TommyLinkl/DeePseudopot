@@ -13,6 +13,7 @@ import gc
 
 from .constants import *
 from .pp_func import pot_func, pot_funcLR
+from .read import init_critical_NNconfig
 
 torch.set_default_dtype(torch.float64)
 
@@ -23,8 +24,8 @@ class Hamiltonian:
         PPparams,
         atomPPorder,
         device, 
-        NNConfig, 
-        iSystem, 
+        NNConfig = None, 
+        iSystem = 0, 
         SObool = False,
         cacheSO = True,
         NN_locbool = False,
@@ -54,7 +55,12 @@ class Hamiltonian:
         self.atomPPorder = atomPPorder
         self.system = system
         self.device = device
-        self.NNConfig = NNConfig
+        if NNConfig == None:
+            self.NNConfig = init_critical_NNconfig()
+            print("\n~Warning: you didn't supply an NNConfig dict...")
+            print("Setting default values for parallelization, checkpointing, and timing\n")
+        else:
+            self.NNConfig = NNConfig
         self.iSystem = iSystem
         self.SObool = SObool
         self.cacheSO = cacheSO
@@ -1387,11 +1393,11 @@ class Hamiltonian:
                             if n_right > 1:
                                 right_vecs = torch.stack(self.cb_vecs[needKidx], dim=-1)
                             else:
-                                right_vecs = self.cb_vecs[needKidx].view(-1,1)
+                                right_vecs = self.cb_vecs[needKidx][0].view(-1,1)
                             if n_left > 1:
                                 left_vecs = torch.stack(self.cb_vecs[self.idx_gap], dim=0)
                             else:
-                                left_vecs = self.cb_vecs[self.idx_gap].view(1,-1)
+                                left_vecs = self.cb_vecs[self.idx_gap][0].view(1,-1)
                             tmp = torch.matmul(dV_dict[key], right_vecs)   # batched multiplication of all degenerate bands
                             tmp = torch.matmul(torch.conj(left_vecs), tmp) # n_right * n_left dot products in the elements of a matrix
                             mag = torch.sum(torch.sqrt(tmp.conj() * tmp)).real
@@ -1402,11 +1408,11 @@ class Hamiltonian:
                             if n_right > 1:
                                 right_vecs = torch.stack(self.vb_vecs[needKidx], dim=-1)
                             else:
-                                right_vecs = self.vb_vecs[needKidx].view(-1,1)
+                                right_vecs = self.vb_vecs[needKidx][0].view(-1,1)
                             if n_left > 1:
                                 left_vecs = torch.stack(self.vb_vecs[self.idx_gap], dim=0)
                             else:
-                                left_vecs = self.vb_vecs[self.idx_gap].view(1,-1)
+                                left_vecs = self.vb_vecs[self.idx_gap][0].view(1,-1)
                             tmp2 = torch.matmul(dV_dict[key], right_vecs) # batched multiplication of all degenerate bands
                             tmp2 = torch.matmul(torch.conj(left_vecs), tmp2) # n_right * n_left dot products in the elements of a matrix
                             mag2 = torch.sum(torch.sqrt(tmp2.conj() * tmp2)).real
@@ -1429,11 +1435,11 @@ class Hamiltonian:
                     if n_right > 1:
                         right_vecs = torch.stack(self.cb_vecs[needKidx], dim=-1)
                     else:
-                        right_vecs = self.cb_vecs[needKidx].view(-1,1)
+                        right_vecs = self.cb_vecs[needKidx][0].view(-1,1)
                     if n_left > 1:
                         left_vecs = torch.stack(self.cb_vecs[self.idx_gap], dim=0)
                     else:
-                        left_vecs = self.cb_vecs[self.idx_gap].view(1,-1)
+                        left_vecs = self.cb_vecs[self.idx_gap][0].view(1,-1)
                     cpl = torch.matmul(dV_dict[key], right_vecs) # batched multiplication of all degenerate bands
                     cpl = torch.matmul(torch.conj(left_vecs), cpl) # n_right * n_left dot products in the elements of a matrix
                     cpl_mag = torch.sum(torch.sqrt(cpl.conj() * cpl)).real
@@ -1444,11 +1450,11 @@ class Hamiltonian:
                     if n_right > 1:
                         right_vecs = torch.stack(self.vb_vecs[needKidx], dim=-1)
                     else:
-                        right_vecs = self.vb_vecs[needKidx].view(-1,1)
+                        right_vecs = self.vb_vecs[needKidx][0].view(-1,1)
                     if n_left > 1:
                         left_vecs = torch.stack(self.vb_vecs[self.idx_gap], dim=0)
                     else:
-                        left_vecs = self.vb_vecs[self.idx_gap].view(1,-1)
+                        left_vecs = self.vb_vecs[self.idx_gap][0].view(1,-1)
                     cpl = torch.matmul(dV_dict[key], right_vecs) # batched multiplication of all degenerate bands
                     cpl = torch.matmul(torch.conj(left_vecs), cpl) # n_right * n_left dot products in the elements of a matrix
                     cpl_mag = torch.sum(torch.sqrt(cpl.conj() * cpl)).real
@@ -1664,15 +1670,15 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device):
         # 2. SObool = True, no parallel --> Initialize ham with cache. No storage / moving is needed.
         # 3. SObool = True, yes parallel --> Do the complicated storage / moving. 
         if not NNConfig['SObool']: 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, iSys, SObool=NNConfig['SObool'])
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
         elif (NNConfig['SObool']) and (NNConfig['num_cores']==0): 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, iSys, SObool=NNConfig['SObool'])
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
         else: 
             cachedMats_info = {}
             shm_dict_SO = {}
             shm_dict_NL = {}
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, iSys, SObool=True, cacheSO=False)
-            dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, iSys, SObool=NNConfig['SObool'])
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=True, cacheSO=False)
+            dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
 
             if dummy_ham.SOmats is not None: 
                 # reshape dummy_ham.SOmats has shape (nkpt)*(nAtoms)*(2*nbasis) x (2*nbasis)

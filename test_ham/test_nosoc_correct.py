@@ -30,7 +30,7 @@ NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
 bs_old = calcBandStruct_GPU(True, PPmodel, system, atomPPorder, [], device)
 
 # new band structure
-ham1 = Hamiltonian(system, {}, atomPPorder, device, NNConfig, iSystem=0, SObool=False,
+ham1 = Hamiltonian(system, {}, atomPPorder, device, NNConfig=NNConfig, iSystem=0, SObool=False,
                    NN_locbool=True, model=PPmodel)
 bs_new = ham1.calcBandStruct()
 
@@ -49,7 +49,7 @@ for atomType in atomPPorder:
 
 bs_old = calcBandStruct_GPU(False, PPmodel, system, atomPPorder, totalParams, device)
 
-ham2 = Hamiltonian(system, PPparams, atomPPorder, device, NNConfig, iSystem=0)
+ham2 = Hamiltonian(system, PPparams, atomPPorder, device, NNConfig=NNConfig, iSystem=0)
 bs_new = ham2.calcBandStruct()
 
 print(f"no SOC, zunger pot: new and old band structure methods return same energies (in same format): {torch.allclose(bs_old, bs_new)}")

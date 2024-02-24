@@ -58,7 +58,7 @@ bs_old = system.expBandStruct
 
 PPparams, totalParams = read_PPparams(atomPPorder, f"{pwd}/inputs/sigFigs/init_")
 
-ham1 = Hamiltonian(system, PPparams, atomPPorder, device, NNConfig, SObool=True)
+ham1 = Hamiltonian(system, PPparams, atomPPorder, device, NNConfig=NNConfig, SObool=True)
 f = open(f"{pwd}/sigFigs_results/decimal_MSE.dat", "w")
 f.write("# decimalPoints       MSE(customedWeights)\n")
 
@@ -75,7 +75,7 @@ for decimal_places in range(8, 0, -1):
 
     plot_BS_list = []
     start_time = time.time()
-    bs_new = ham1.calcBandStruct_noGrad(NNConfig, iSystem=0, cachedMats_info=None)
+    bs_new = ham1.calcBandStruct_noGrad(cachedMats_info=None)
     bs_new.detach_()
     end_time = time.time()
     print(f"Finished calculating the SOC band structure... Elapsed time: {(end_time - start_time):.2f} seconds")

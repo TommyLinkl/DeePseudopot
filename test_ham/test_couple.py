@@ -46,7 +46,7 @@ for atomType in atomPPorder:
 NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
 
 # construct initial hamiltonian for eigenvecs and for finite difference
-ham1 = Hamiltonian(system, PPparams, atomPPorder, device, NNConfig, iSystem=0, SObool=False, coupling=True)
+ham1 = Hamiltonian(system, PPparams, atomPPorder, device, NNConfig=NNConfig, iSystem=0, SObool=False, coupling=True)
 h = ham1.buildHtot(ham1.idx_gap)
 h = h.numpy(force=True)
 vals, vecs = scipy.linalg.eigh(h, subset_by_index=[0,16], driver='evr')
@@ -122,7 +122,7 @@ for sysid in range(7):
     for i in range(2):
         print(f"{system_dx.atomTypes[i]}: {system_dx.atomPos[i]}")
 
-    ham_dx = Hamiltonian(system_dx, PPparams, atomPPorder, device, NNConfig, sysid, SObool=False, coupling=False)
+    ham_dx = Hamiltonian(system_dx, PPparams, atomPPorder, device, NNConfig=NNConfig, iSystem=sysid, SObool=False, coupling=False)
     hdx = ham_dx.buildHtot(ham1.idx_gap)
     hdx = hdx.numpy(force=True)
     vals_dx, vecs_dx = scipy.linalg.eigh(hdx, subset_by_index=[0,16], driver='evr')
@@ -196,7 +196,7 @@ for atomType in atomPPorder:
 
 
 # construct initial hamiltonian for eigenvecs and for finite difference
-ham1 = Hamiltonian(system, PPparams, atomPPorder, device, NNConfig, iSystem=0, SObool=True, coupling=True)
+ham1 = Hamiltonian(system, PPparams, atomPPorder, device, NNConfig=NNConfig, iSystem=0, SObool=True, coupling=True)
 h = ham1.buildHtot(ham1.idx_gap)
 h = h.numpy(force=True)
 vals, vecs = scipy.linalg.eigh(h, subset_by_index=[0,32], driver='evr')
@@ -245,7 +245,7 @@ for sysid in range(7):
     for i in range(2):
         print(f"{system_dx.atomTypes[i]}: {system_dx.atomPos[i]}")
 
-    ham_dx = Hamiltonian(system_dx, PPparams, atomPPorder, device, NNConfig, iSystem=0, SObool=True, coupling=False)
+    ham_dx = Hamiltonian(system_dx, PPparams, atomPPorder, device, NNConfig=NNConfig, iSystem=0, SObool=True, coupling=False)
     hdx = ham_dx.buildHtot(ham1.idx_gap)
     hdx = hdx.numpy(force=True)
     vals_dx, vecs_dx = scipy.linalg.eigh(hdx, subset_by_index=[0,32], driver='evr')

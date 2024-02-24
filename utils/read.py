@@ -14,16 +14,14 @@ def read_NNConfigFile(filename):
     able to ignore comments after # sign, 
     and not all keys are required. 
     """
-    config = {}
 
-    # Set default values for critical, optional keywords
+    # Set default values for critical keywords
+    config = init_critical_NNconfig()
+    # Set default value for some common, optional keywords
     config['memory_flag'] = False
-    config['runtime_flag'] = False
     config['SHOWPLOTS'] = False
     config['separateKptGrad'] = True
-    config['checkpoint'] = False
     config['SObool'] = False
-    config['num_cores'] = 0
 
     with open(filename, 'r') as file:
         for line in file:
@@ -63,6 +61,15 @@ def read_NNConfigFile(filename):
 
     print()
     return config
+
+
+def init_critical_NNconfig():
+    config = {}
+    config['runtime_flag'] = False
+    config['checkpoint'] = False
+    config['num_cores'] = 0
+    return config
+
 
 def read_PPparams(atomPPOrder, paramsFilePath): 
     PPparams = {}
@@ -127,9 +134,12 @@ class BulkSystem:
                     elif key in ['systemName']: 
                         attributes[key] = value
         vars(self).update(attributes)
-        self.idx_vb = attributes["idxVB"]
-        self.idx_cb = attributes["idxCB"]
-        self.idx_gap = attributes["idxGap"]
+        if "idxVB" in attributes:
+            self.idx_vb = attributes["idxVB"]
+        if "idxCB" in attributes:
+            self.idx_cb = attributes["idxCB"]
+        if "idxGap" in attributes:
+            self.idx_gap = attributes["idxGap"]
 
         
     def setSystem(self, systemFilename):

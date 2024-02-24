@@ -34,7 +34,7 @@ for atomType in atomPPorder:
 
 
 NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
-ham1 = Hamiltonian(system1_nosoc, PPparams, atomPPorder, device, NNConfig, iSystem=0)
+ham1 = Hamiltonian(system1_nosoc, PPparams, atomPPorder, device, NNConfig=NNConfig, iSystem=0)
 bs1 = ham1.calcBandStruct()
 print("\ntesting no SOC first\n")
 print(f"no def vbm, cbm energies: {bs1[0,7]:.6f}, {bs1[0,8]:.6f}")
@@ -46,7 +46,7 @@ system2_nosoc.setInputs(f"{pwd}/inputs/defpot/input_0_nosoc.par")
 system2_nosoc.setKPointsAndWeights(f"{pwd}/inputs/defpot/kpoints_0_nosoc.par")
 system2_nosoc.setExpBS(f"{pwd}/inputs/expBandStruct_0.par")
 
-ham2 = Hamiltonian(system2_nosoc, PPparams, atomPPorder, device, NNConfig, iSystem=0)
+ham2 = Hamiltonian(system2_nosoc, PPparams, atomPPorder, device, NNConfig=NNConfig, iSystem=0)
 bs2 = ham2.calcBandStruct()
 print(f"DEF (system) vbm, cbm energies: {bs2[0,7]:.6f}, {bs2[0,8]:.6f}")
 
@@ -87,7 +87,7 @@ for atomType in atomPPorder:
     totalParams = torch.cat((totalParams, a.unsqueeze(0)), dim=0)
     PPparams[atomType] = a
 
-ham1 = Hamiltonian(system1_soc, PPparams, atomPPorder, device, NNConfig, iSystem=0, SObool=True)
+ham1 = Hamiltonian(system1_soc, PPparams, atomPPorder, device, NNConfig=NNConfig, iSystem=0, SObool=True)
 bs1 = ham1.calcBandStruct()
 print(f"no def vbm, cbm energies: {bs1[0,25]:.6f}, {bs1[0,26]:.6f}")
 
@@ -98,7 +98,7 @@ system2_soc.setInputs(f"{pwd}/inputs/defpot/input_0_soc.par")
 system2_soc.setKPointsAndWeights(f"{pwd}/inputs/defpot/kpoints_0_soc.par")
 system2_soc.setExpBS(f"{pwd}/inputs/soc/bandStruct_0.dat")
 
-ham2 = Hamiltonian(system2_soc, PPparams, atomPPorder, device, NNConfig, iSystem=0, SObool=True)
+ham2 = Hamiltonian(system2_soc, PPparams, atomPPorder, device, NNConfig=NNConfig, iSystem=0, SObool=True)
 bs2 = ham2.calcBandStruct()
 print(f"DEF (system) vbm, cbm energies: {bs2[0,25]:.6f}, {bs2[0,26]:.6f}")
 

@@ -56,7 +56,7 @@ elif anyFile != len(atomPPorder):
 
 
 NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
-ham1 = Hamiltonian(system1, PPparams, atomPPorder, device, NNConfig, iSystem=0, SObool=False, coupling=False)
+ham1 = Hamiltonian(system1, PPparams, atomPPorder, device, NNConfig=NNConfig, iSystem=0, SObool=False, coupling=False)
 optimizer = MonteCarloFit(ham1, f"{pwd}/mc_out/nocpl/", paramSteps=paramSteps, **mc_opts)
 print("\ntesting no coupling first\n")
 print(f"...writing output and chk files to {pwd}/mc_out/nocpl/")
@@ -72,6 +72,6 @@ print(f"...writing output and chk files to {pwd}/mc_out/cpl/")
 
 mc_opts = read_mc_opts(f"{pwd}/inputs/montecarlo/mcOpts2.par")
 
-ham2 = Hamiltonian(system1, PPparams, atomPPorder, device, NNConfig, iSystem=0, SObool=False, coupling=True)
+ham2 = Hamiltonian(system1, PPparams, atomPPorder, device, NNConfig=NNConfig, iSystem=0, SObool=False, coupling=True)
 optimizer = MonteCarloFit(ham2, f"{pwd}/mc_out/cpl/", paramSteps=paramSteps, **mc_opts)
 optimizer.run_mc()
