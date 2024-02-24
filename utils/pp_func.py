@@ -56,22 +56,22 @@ def plotBandStruct(bulkSystem_list, bandStruct_list, SHOWPLOTS):
         numKpts = len(bandStruct_list[2*iSystem])
         for i in range(numBands): 
             if i==0: 
-                axs_flat[2*iSystem+0].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", alpha=0.8, markersize=4, label="Reference")
-                axs_flat[2*iSystem+1].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", alpha=0.8, markersize=4, label="Reference")
+                axs_flat[2*iSystem+0].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", alpha=0.5, markersize=2, label="Reference")
+                axs_flat[2*iSystem+1].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", alpha=0.5, markersize=2, label="Reference")
             else: 
-                axs_flat[2*iSystem+0].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", alpha=0.8, markersize=4)
-                axs_flat[2*iSystem+1].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", alpha=0.8, markersize=4)
+                axs_flat[2*iSystem+0].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", alpha=0.5, markersize=2)
+                axs_flat[2*iSystem+1].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", alpha=0.5, markersize=2)
                 
         # plot prediction
         numBands = len(bandStruct_list[2*iSystem+1][0])
         numKpts = len(bandStruct_list[2*iSystem+1])
         for i in range(numBands): 
             if i==0: 
-                axs_flat[2*iSystem+0].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-", alpha=0.8, label="NN prediction")
-                axs_flat[2*iSystem+1].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-", alpha=0.8, label="NN prediction")
+                axs_flat[2*iSystem+0].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-", alpha=0.6, label="NN prediction")
+                axs_flat[2*iSystem+1].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-", alpha=0.6, label="NN prediction")
             else: 
-                axs_flat[2*iSystem+0].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-", alpha=0.8)
-                axs_flat[2*iSystem+1].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-", alpha=0.8)
+                axs_flat[2*iSystem+0].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-", alpha=0.6)
+                axs_flat[2*iSystem+1].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-", alpha=0.6)
         axs_flat[2*iSystem+0].legend(frameon=False)
         refEList = bandStruct_list[2*iSystem][bandStruct_list[2*iSystem] > -50]
         refEmin = torch.min(refEList).item()

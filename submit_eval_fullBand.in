@@ -8,7 +8,7 @@
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=15          # Number of tasks (MPI processes) per node
 #SBATCH --cpus-per-task=1             # Number of CPU cores per task
-#SBATCH --mem=64GB
+#SBATCH --mem=32GB
 #SBATCH --mail-user=tommy_lin@berkeley.edu
 #SBATCH --mail-type=ALL
 
