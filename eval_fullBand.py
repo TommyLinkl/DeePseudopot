@@ -29,6 +29,11 @@ def eval_fullBand(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'result
     # Set up the neural network
     PPmodel = setNN(NNConfig, nPseudopot)
 
+    if not os.path.exists(inputsFolder + 'init_PPmodel.pth'):
+        raise FileNotFoundError("""WARNING: Can't find init_PPmodel.pth file. 
+              This routine performs a single-shot band structure calculation on an existing neural network model. 
+              Please provide init_PPmodel.pth in the input folder.""")
+
     # I can't store and cache all the SO and NL mats ahead of time due to memory limitations. 
     # I will need to calculate the SO and NL mats on the fly 
     print("\nInitializing the ham class for each BulkSystem. Not cache-ing the corresponding SO and NL mats for memory issues. ")
@@ -42,6 +47,9 @@ def eval_fullBand(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'result
 
     # Initialize the NN to the local pot function form
     PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder)
+
+    # Calculate bandStructure with the old function form with parameters given in PPparams
+    oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.png', 'Old Zunger BS', NNConfig, hams, systems)
 
     # Evaluate the band structures and pseudopotentials for the initialized NN
     print("\nEvaluating band structures using the initialized pseudopotentials. ")
