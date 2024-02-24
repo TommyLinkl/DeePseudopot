@@ -127,6 +127,10 @@ class BulkSystem:
                     elif key in ['systemName']: 
                         attributes[key] = value
         vars(self).update(attributes)
+        self.idx_vb = attributes["idxVB"]
+        self.idx_cb = attributes["idxCB"]
+        self.idx_gap = attributes["idxGap"]
+
         
     def setSystem(self, systemFilename):
         # scale, unitCellVectors_unscaled, atomTypes, atomPos
