@@ -2,7 +2,6 @@ SHOWPLOTS = 0
 nSystem = 1
 memory_flag = 0
 runtime_flag = 1
-num_cores = 1
 
 PPmodel = Net_relu_xavier_decayGaussian  # Net_relu_xavier_decay   
 PPmodel_decay_rate = 1.5
@@ -18,7 +17,7 @@ init_Zunger_num_epochs = 1000
 init_Zunger_plotEvery = 500
 optimizer_lr = 0.005
 scheduler_gamma = 0.90
-max_num_epochs = 1  # 3
+max_num_epochs = 3
 plotEvery = 1
 schedulerStep = 80
 patience = 500
