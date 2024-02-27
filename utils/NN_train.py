@@ -170,6 +170,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
                         merged_dict[key] = merged_dict.get(key, 0) + d[key]
                 return merged_dict
 
+            optimizer.zero_grad()
             args_list = [(kidx, hams[iSys], sys, criterion_singleKpt, optimizer, model, cachedMats_info) for kidx in range(sys.getNKpts())]
             with mp.Pool(NNConfig['num_cores']) as pool:
                 results_systemKpt = pool.starmap(calcEigValsAtK_wGrad_parallel, args_list)
