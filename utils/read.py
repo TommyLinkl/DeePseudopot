@@ -57,7 +57,7 @@ def read_NNConfigFile(filename):
 
     if config['memory_flag']: 
         print("\nWARNING: MEMORY_FLAG is ON. Please check to make sure that the script is run with:\n\tmprof run --output <mem_output_file> main.py <inputsFolder> <resultsFolder>\n\tmprof plot -o <mem_plot_file> <mem_output_file>\n")
-    print("RUNTIME_FLAG is ON") if config['runtime_flag'] else None
+    print("\nRUNTIME_FLAG is ON") if config['runtime_flag'] else None
 
     print()
     return config

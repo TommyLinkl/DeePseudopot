@@ -1,6 +1,7 @@
 import torch
 import time, os
 from torch.optim.lr_scheduler import ExponentialLR
+import numpy as np
 import gc
 import multiprocessing as mp
 import matplotlib as mpl
@@ -15,13 +16,24 @@ os.environ["MKL_NUM_THREADS"] = "1"
 from .constants import *
 from .pp_func import plotPP, plot_training_validation_cost, plotBandStruct
 
-def print_and_inspect_gradients(model): 
-    for name, param in model.named_parameters():
-        if param.grad is not None:
-            print(f'Parameter: {name}, Gradient shape: {param.grad.shape}')
-            print(f'Gradient values:\n{param.grad}\n')
-        else:
-            print(f'Parameter: {name}, Gradient: None (no gradient computed)\n')
+def print_and_inspect_gradients(model, filename=None): 
+    if filename is None: 
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                print(f'Parameter: {name}, Gradient shape: {param.grad.shape}')
+                print(f'Gradient values:\n{param.grad}\n')
+            else:
+                print(f'Parameter: {name}, Gradient: None (no gradient computed)\n')
+    else: 
+        with open(filename, 'w') as f:
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    f.write(f'Parameter: {name}, Gradient shape: {param.grad.shape}\n')
+                    grad_str = np.array2string(param.grad.numpy(), precision=4, suppress_small=True)
+                    print(grad_str)
+                    f.write(f'Gradient values:\n{grad_str}\n\n')
+                else:
+                    f.write(f'Parameter: {name}, Gradient: None (no gradient computed)\n\n')    
 
 
 def weighted_mse_bandStruct(bandStruct_hat, bulkSystem): 
@@ -216,6 +228,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
         training_COST.append(trainLoss.item())
         file_trainCost.write(f"{epoch+1}  {trainLoss.item()}\n")
         print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], training cost: {trainLoss.item():.4f}")
+        print_and_inspect_gradients(model, f'{resultsFolder}epoch_{epoch+1}_gradients.dat')
 
         # scheduler of learning rate
         if epoch > 0 and epoch % NNConfig['schedulerStep'] == 0:
@@ -236,6 +249,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
             model.to(device)
 
             torch.save(model.state_dict(), f'{resultsFolder}epoch_{epoch+1}_PPmodel.pth')
+            torch.save(optimizer.state_dict(), f'{resultsFolder}epoch_{epoch+1}_AdamState.pth')
             torch.cuda.empty_cache()
         '''
         # Dynamic stopping: Stop training if no improvement for 'patience' epochs

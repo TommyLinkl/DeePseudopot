@@ -207,3 +207,17 @@ def FT_converge_and_write_pp(atomPPOrder, qmax_array, nQGrid_array, nRGrid_array
     if SHOWPLOTS: 
         plt.show()
     return
+
+
+def plot_multiple_train_cost(*filenames):
+    all_cost = np.zeros(0)
+    
+    for filename in filenames:
+        data = np.loadtxt(filename)[:,1]
+        all_cost = np.hstack([all_cost, data])
+    
+    fig, axs = plt.subplots(1, 1, figsize=(6, 4))
+    axs.plot(all_cost, "-")
+    axs.set(xlabel='nEpoch', ylabel='Training cost')
+    fig.tight_layout()
+    return fig
