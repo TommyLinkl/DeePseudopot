@@ -5,7 +5,7 @@ import numpy as np
 
 from utils.read import read_NNConfigFile, setAllBulkSystems, setNN
 from utils.pp_func import FT_converge_and_write_pp
-from utils.init_NN_train import init_ZungerPP
+from utils.init_NN_train import init_ZungerPP, init_optimizer
 from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, bandStruct_train_GPU, evalBS_noGrad
 from utils.ham import initAndCacheHams
 
@@ -55,7 +55,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     print(f"\n{'#' * 40}\nStart training of the NN to fit to band structures. ")
     criterion_singleSystem = weighted_mse_bandStruct
     criterion_singleKpt = weighted_mse_energiesAtKpt
-    optimizer = torch.optim.Adam(PPmodel.parameters(), lr=NNConfig['optimizer_lr'])
+    optimizer = init_optimizer(inputsFolder, PPmodel, NNConfig, optimizerType='Adam')
     scheduler = ExponentialLR(optimizer, gamma=NNConfig['scheduler_gamma'])
 
     start_time = time.time()
