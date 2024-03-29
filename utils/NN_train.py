@@ -16,24 +16,36 @@ os.environ["MKL_NUM_THREADS"] = "1"
 from .constants import *
 from .pp_func import plotPP, plot_training_validation_cost, plotBandStruct
 
-def print_and_inspect_gradients(model, filename=None): 
-    if filename is None: 
+def print_and_inspect_gradients(model, filename=None, show=False): 
+    if (filename is None) and show: 
         for name, param in model.named_parameters():
             if param.grad is not None:
                 print(f'Parameter: {name}, Gradient shape: {param.grad.shape}')
                 print(f'Gradient values:\n{param.grad}\n')
             else:
                 print(f'Parameter: {name}, Gradient: None (no gradient computed)\n')
-    else: 
+    elif (filename is not None) and show: 
         with open(filename, 'w') as f:
             for name, param in model.named_parameters():
                 if param.grad is not None:
                     f.write(f'Parameter: {name}, Gradient shape: {param.grad.shape}\n')
-                    grad_str = np.array2string(param.grad.numpy(), precision=4, suppress_small=True)
-                    print(grad_str)
+                    grad_str = np.array2string(param.grad.numpy(), precision=5, suppress_small=True, max_line_width=999999, threshold=99*99)
                     f.write(f'Gradient values:\n{grad_str}\n\n')
                 else:
                     f.write(f'Parameter: {name}, Gradient: None (no gradient computed)\n\n')    
+
+
+def print_and_inspect_NNParams(model, filename=None, show=False): 
+    if (filename is None) and show: 
+        for name, param in model.named_parameters():
+            print(f'Parameter: {name}, Tensor shape: {param.shape}')
+            print(f'Parameter values:\n{param}\n')
+    elif (filename is not None) and show: 
+        with open(filename, 'w') as f:
+            for name, param in model.named_parameters():
+                f.write(f'Parameter: {name}, Tensor shape: {param.shape}\n')
+                tensor_str = np.array2string(param.detach().numpy(), precision=5, suppress_small=True, max_line_width=999999, threshold=99*99)
+                f.write(f'Gradient values:\n{tensor_str}\n\n')
 
 
 def weighted_mse_bandStruct(bandStruct_hat, bulkSystem): 
@@ -61,7 +73,7 @@ def weighted_mse_energiesAtKpt(calcEnergiesAtKpt, bulkSystem, kidx):
     return MSE
 
 
-def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None): 
+def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None, debug=False): 
     if (model is not None): 
         print(f"{runName}: Evaluating band structures using the NN-pp model. ")
         model.eval()
@@ -87,6 +99,10 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
         plot_bandStruct_list.append(evalBS)
         totalMSE += weighted_mse_bandStruct(evalBS, sys)
     fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
+    if debug: 
+        for iSys, sys in enumerate(systems):
+            write_BS_filename = BSplotFilename.rstrip('_plotBS.png') + f'_BS_sys{iSys}.dat'
+            np.savetxt(write_BS_filename, plot_bandStruct_list[iSys], fmt='%.5f')
     print(f"{runName}: totalMSE = {totalMSE:f}")
     fig.suptitle(f"{runName}: totalMSE = {totalMSE:f}")
     fig.savefig(BSplotFilename)
@@ -131,13 +147,13 @@ def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cac
         NN_outputs = hams[iSys].calcBandStruct_withGrad(cachedMats_info)
         
         systemLoss = criterion_singleSystem(NN_outputs, sys)
-        # print_and_inspect_gradients(model)
+        # print_and_inspect_gradients(model, show=True)
         trainLoss += systemLoss
 
     start_time = time.time() if runtime_flag else None
     optimizer.zero_grad()
     trainLoss.backward()
-    # print_and_inspect_gradients(model)
+    # print_and_inspect_gradients(model, show=True)
     optimizer.step()
     end_time = time.time() if runtime_flag else None
     print(f"loss_backward + optimizer.step, elapsed time: {(end_time - start_time):.2f} seconds") if runtime_flag else None
@@ -147,9 +163,18 @@ def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cac
 
 
 def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info=None): 
+    def merge_dicts(dicts):
+        merged_dict = {}
+        for d in dicts:
+            for key in d:
+                merged_dict[key] = merged_dict.get(key, 0) + d[key]
+        return merged_dict
+    
     trainLoss = 0.0
     total_gradients = {}
     for iSys, sys in enumerate(systems):
+        trainLoss_system = 0.0
+        gradients_system = {}
         hams[iSys].NN_locbool = True
         hams[iSys].set_NNmodel(model)
 
@@ -166,31 +191,28 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
 
                 for name, param in model.named_parameters():
                     if param.grad is not None:
-                        if name not in total_gradients:
-                            total_gradients[name] = param.grad.detach().clone() * sys.kptWeights[kidx]
+                        if name not in gradients_system:
+                            gradients_system[name] = param.grad.detach().clone() * sys.kptWeights[kidx]
                         else: 
-                            total_gradients[name] += param.grad.detach().clone() * sys.kptWeights[kidx]
-                trainLoss += systemKptLoss.detach().item() * sys.kptWeights[kidx]
+                            gradients_system[name] += param.grad.detach().clone() * sys.kptWeights[kidx]
+                trainLoss_system += systemKptLoss.detach().item() * sys.kptWeights[kidx]
                 del systemKptLoss
                 gc.collect()
 
         else: # multiprocessing
-            def merge_dicts(dicts):
-                merged_dict = {}
-                for d in dicts:
-                    for key in d:
-                        merged_dict[key] = merged_dict.get(key, 0) + d[key]
-                return merged_dict
-
             optimizer.zero_grad()
             args_list = [(kidx, hams[iSys], sys, criterion_singleKpt, optimizer, model, cachedMats_info) for kidx in range(sys.getNKpts())]
             with mp.Pool(NNConfig['num_cores']) as pool:
                 results_systemKpt = pool.starmap(calcEigValsAtK_wGrad_parallel, args_list)
                 gradients_systemKpt, trainLoss_systemKpt = zip(*results_systemKpt)
             gc.collect()
-            total_gradients = merge_dicts(gradients_systemKpt)
-            trainLoss = torch.sum(torch.tensor(trainLoss_systemKpt))
+            gradients_system = merge_dicts(gradients_systemKpt)
+            trainLoss_system = torch.sum(torch.tensor(trainLoss_systemKpt))
+        
+        total_gradients = merge_dicts([total_gradients, gradients_system])
+        trainLoss += trainLoss_system
 
+    # Write the manually accumulated gradients and loss values back into the NN model
     optimizer.zero_grad()
     with torch.no_grad():
         for name, param in model.named_parameters():
@@ -203,7 +225,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
     print(f"optimizer step, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
 
     torch.cuda.empty_cache()
-    # print_and_inspect_gradients(model)
+    # print_and_inspect_gradients(model, show=NNConfig['printGrad'])
 
     return model, trainLoss
 
@@ -228,10 +250,17 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
         training_COST.append(trainLoss.item())
         file_trainCost.write(f"{epoch+1}  {trainLoss.item()}\n")
         print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], training cost: {trainLoss.item():.4f}")
-        print_and_inspect_gradients(model, f'{resultsFolder}epoch_{epoch+1}_gradients.dat')
+        if (epoch<=9) or ((epoch + 1) % NNConfig['plotEvery'] == 0):
+            print_and_inspect_gradients(model, f'{resultsFolder}epoch_{epoch+1}_gradients.dat', show=True)
+            print_and_inspect_NNParams(model, f'{resultsFolder}epoch_{epoch+1}_params.dat', show=True)
+
+        # perturb the model
+        if (NNConfig['perturbEvery']>0) and (epoch>0) and (epoch % NNConfig['perturbEvery']==0): 
+            perturb_model(model, 0.10)
+            print("WARNING: We have randomly perturbed all the params of the model by 10%. \n")
 
         # scheduler of learning rate
-        if epoch > 0 and epoch % NNConfig['schedulerStep'] == 0:
+        if (epoch > 0) and (epoch % NNConfig['schedulerStep'] == 0):
             scheduler.step()
 
         # evaluation
@@ -268,3 +297,10 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
     fig_cost.savefig(resultsFolder + 'final_train_cost.png')
     torch.cuda.empty_cache()
     return (training_COST, validation_COST)
+
+
+def perturb_model(model, percentage=0.0): 
+    print(f"Perturbing the model by percentage: {percentage}\n")
+    for param in model.parameters():
+        perturbation = 1 + torch.rand_like(param) * (2 * percentage) - percentage
+        param.data *= perturbation
