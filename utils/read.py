@@ -290,7 +290,6 @@ class BulkSystem:
         gVector2 = prefactor * torch.cross(self.unitCellVectors[2], self.unitCellVectors[0])
         gVector3 = prefactor * torch.cross(self.unitCellVectors[0], self.unitCellVectors[1])
         gVectors = torch.cat((gVector1.unsqueeze(0), gVector2.unsqueeze(0), gVector3.unsqueeze(0)), dim=0).to(torch.float64)
-        print(gVectors)
         return gVectors
     
     def getNKpts(self): 
