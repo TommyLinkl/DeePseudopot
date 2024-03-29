@@ -274,7 +274,7 @@ class Net_relu_xavier_BN_dropout(nn.Module):
 
         for input_size, output_size in zip(Layers, Layers[1:]):
             linear = nn.Linear(input_size, output_size)
-            torch.nn.init.xavier_normal_(linear.weight)
+            torch.nn.init.xavier_normal_(linear.weight)     # xavier_uniform_
             self.hidden_l.append(linear)
             batchnorm = nn.BatchNorm1d(output_size)
             self.hidden_bn.append(batchnorm)
@@ -284,10 +284,37 @@ class Net_relu_xavier_BN_dropout(nn.Module):
         for (l, linear_transform, bn) in zip(range(L), self.hidden_l, self.hidden_bn):
             if l < L - 1:
                 x = torch.relu(bn(linear_transform(x)))
+                x = self.drop(x)
             else:
                 x = linear_transform(x)
         return x
     
+
+class Net_relu_xavier_BN(nn.Module):
+    # Constructor
+    def __init__(self, Layers):
+        super(Net_relu_xavier_BN, self).__init__()
+        self.hidden_l = nn.ModuleList()
+        self.hidden_bn = nn.ModuleList()
+
+        for input_size, output_size in zip(Layers, Layers[1:]):
+            linear = nn.Linear(input_size, output_size)
+            torch.nn.init.xavier_normal_(linear.weight)     # xavier_uniform_
+            self.hidden_l.append(linear)
+            batchnorm = nn.BatchNorm1d(output_size)
+            self.hidden_bn.append(batchnorm)
+    
+    # Prediction
+    def forward(self, x):
+        L = len(self.hidden_l)
+        for (l, linear_transform, bn) in zip(range(L), self.hidden_l, self.hidden_bn):
+            if l < L - 1:
+                x = torch.relu(bn(linear_transform(x)))
+            else:
+                x = linear_transform(x)
+        return x
+
+
 class ZeroFunction(nn.Module):
     def forward(self, x):
         batch_size = x.size(0)
@@ -331,6 +358,43 @@ class Net_relu_xavier_decayGaussian(nn.Module):
     def __init__(self, Layers, gaussian_std):
         super(Net_relu_xavier_decayGaussian, self).__init__()
         self.neural_network = Net_relu_xavier(Layers)
+        self.gaussian_std = torch.tensor(gaussian_std, requires_grad=False)
+    
+    def forward(self, x):
+        gaussian = torch.exp(-x**2/(2*self.gaussian_std**2))
+        output = self.neural_network(x) * gaussian
+        return output
+
+
+class Net_relu_HeInit_decayGaussian(nn.Module):
+    def __init__(self, Layers, gaussian_std):
+        super(Net_relu_HeInit_decayGaussian, self).__init__()
+        self.neural_network = Net_relu_HeInit(Layers)
+        self.gaussian_std = torch.tensor(gaussian_std, requires_grad=False)
+    
+    def forward(self, x):
+        gaussian = torch.exp(-x**2/(2*self.gaussian_std**2))
+        output = self.neural_network(x) * gaussian
+        return output
+    
+
+
+class Net_relu_xavier_BN_decayGaussian(nn.Module):
+    def __init__(self, Layers, gaussian_std):
+        super(Net_relu_xavier_BN_decayGaussian, self).__init__()
+        self.neural_network = Net_relu_xavier_BN(Layers)
+        self.gaussian_std = torch.tensor(gaussian_std, requires_grad=False)
+    
+    def forward(self, x):
+        gaussian = torch.exp(-x**2/(2*self.gaussian_std**2))
+        output = self.neural_network(x) * gaussian
+        return output
+    
+
+class Net_relu_xavier_BN_dropout_decayGaussian(nn.Module):
+    def __init__(self, Layers, gaussian_std):
+        super(Net_relu_xavier_BN_dropout_decayGaussian, self).__init__()
+        self.neural_network = Net_relu_xavier_BN_dropout(Layers)
         self.gaussian_std = torch.tensor(gaussian_std, requires_grad=False)
     
     def forward(self, x):

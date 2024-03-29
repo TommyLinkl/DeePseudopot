@@ -55,7 +55,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     print(f"\n{'#' * 40}\nStart training of the NN to fit to band structures. ")
     criterion_singleSystem = weighted_mse_bandStruct
     criterion_singleKpt = weighted_mse_energiesAtKpt
-    optimizer = init_optimizer(inputsFolder, PPmodel, NNConfig, optimizerType='Adam')
+    optimizer = init_optimizer(inputsFolder, PPmodel, NNConfig)
     scheduler = ExponentialLR(optimizer, gamma=NNConfig['scheduler_gamma'])
 
     start_time = time.time()

@@ -45,7 +45,7 @@ def eval_fullBand(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'result
         end_time = time.time()
         print(f"Elapsed time: {(end_time - start_time):.2f} seconds\n")
 
-    # Initialize the NN to the local pot function form
+    # Initialize the NN according to the provided file init_PPmodel.pth
     PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder)
 
     # Calculate bandStructure with the old function form with parameters given in PPparams
