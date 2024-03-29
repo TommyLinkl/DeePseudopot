@@ -22,6 +22,11 @@ def read_NNConfigFile(filename):
     config['SHOWPLOTS'] = False
     config['separateKptGrad'] = True
     config['SObool'] = False
+    config['optimizer'] = 'adam'
+    config['init_Zunger_optimizer'] = 'adam'
+    config['init_Zunger_printGrad'] = False
+    config['printGrad'] = False
+    config['perturbEvery'] = -1
 
     with open(filename, 'r') as file:
         for line in file:
@@ -31,11 +36,11 @@ def read_NNConfigFile(filename):
                 key, value = line.split('#')[0].strip().split('=')
                 key = key.strip()
                 value = value.strip()
-                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'memory_flag', 'runtime_flag']:
+                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'printGrad']:
                     config[key] = bool(int(value))
-                elif key in ['nSystem', 'num_cores', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience']:
+                elif key in ['nSystem', 'num_cores', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery']:
                     config[key] = int(value)
-                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma']:
+                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2']:
                     config[key] = float(value)
                 elif key in ['hiddenLayers']: 
                     config[key] = [int(x) for x in value.split()]
@@ -171,7 +176,7 @@ class BulkSystem:
                     atomCoords.append([float(parts[1]), float(parts[2]), float(parts[3])])
             
         self.scale = scale
-        self.unitCellVectors = scale * torch.tensor(cell)
+        self.unitCellVectors = scale * torch.tensor(cell, dtype=torch.float64)
         self.atomTypes = np.array(atomTypes).flatten()
         self.atomPos = torch.tensor(atomCoords) @ self.unitCellVectors
         # self.systemName = ''.join(self.atomTypes)
@@ -180,6 +185,7 @@ class BulkSystem:
     def setKPointsAndWeights(self, kPointsFilename):
         with open(kPointsFilename, 'r') as file:
             data = np.loadtxt(file)
+            data = np.atleast_2d(data)
             kpts = data[:, :3]
             kptWeights = data[:, 3]
             gVectors = self.getGVectors()
@@ -201,7 +207,7 @@ class BulkSystem:
 
     def setExpBS(self, expBSFilename):
         with open(expBSFilename, 'r') as file:
-            self.expBandStruct = torch.tensor(np.loadtxt(file)[:, 1:], dtype=torch.float64)
+            self.expBandStruct = torch.tensor(np.atleast_2d(np.loadtxt(file))[:, 1:], dtype=torch.float64)
 
     def setBandWeights(self, bandWeightsFilename): 
         try:
@@ -284,6 +290,7 @@ class BulkSystem:
         gVector2 = prefactor * torch.cross(self.unitCellVectors[2], self.unitCellVectors[0])
         gVector3 = prefactor * torch.cross(self.unitCellVectors[0], self.unitCellVectors[1])
         gVectors = torch.cat((gVector1.unsqueeze(0), gVector2.unsqueeze(0), gVector3.unsqueeze(0)), dim=0).to(torch.float64)
+        print(gVectors)
         return gVectors
     
     def getNKpts(self): 
@@ -301,8 +308,8 @@ class BulkSystem:
         j = torch.arange(-numMaxBasisVectors, numMaxBasisVectors+1, dtype=torch.float64).repeat_interleave((2*numMaxBasisVectors+1)).repeat((2*numMaxBasisVectors+1))
         i = torch.arange(-numMaxBasisVectors, numMaxBasisVectors+1, dtype=torch.float64).repeat_interleave((2*numMaxBasisVectors+1)**2)
         allGrid = torch.vstack((i, j, k)).T
-        transform = gVectors.T
-        allBasisSet = allGrid @ transform
+        # transform = gVectors.T
+        allBasisSet = allGrid @ gVectors
     
         row_norms = torch.norm(allBasisSet, dim=1)
         condition = (HBAR*0.5*row_norms**2 / MASS < self.maxKE)
@@ -356,7 +363,7 @@ def setNN(config, nPseudopot):
     if config['PPmodel'] in globals() and callable(globals()[config['PPmodel']]):
         if config['PPmodel']=='Net_relu_xavier_decay': 
             PPmodel = globals()[config['PPmodel']](layers, decay_rate=config['PPmodel_decay_rate'], decay_center=config['PPmodel_decay_center'])
-        elif config['PPmodel']=='Net_relu_xavier_decayGaussian': 
+        elif config['PPmodel'] in ['Net_relu_xavier_decayGaussian', 'Net_relu_xavier_BN_decayGaussian', 'Net_relu_xavier_BN_dropout_decayGaussian', 'Net_relu_HeInit_decayGaussian']: 
             PPmodel = globals()[config['PPmodel']](layers, gaussian_std=config['PPmodel_gaussian_std'])
         else: 
             PPmodel = globals()[config['PPmodel']](layers)
