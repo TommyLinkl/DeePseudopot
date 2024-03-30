@@ -95,14 +95,13 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
         evalBS.detach_()
         end_time = time.time()
         print(f"{runName}: Finished evaluating {iSys}-th band structure with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds")
+        if debug: 
+            write_BS_filename = BSplotFilename.rstrip('_plotBS.png') + f'_BS_sys{iSys}.dat'
+            np.savetxt(write_BS_filename, evalBS, fmt='%.5f')
         plot_bandStruct_list.append(sys.expBandStruct)
         plot_bandStruct_list.append(evalBS)
         totalMSE += weighted_mse_bandStruct(evalBS, sys)
     fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
-    if debug: 
-        for iSys, sys in enumerate(systems):
-            write_BS_filename = BSplotFilename.rstrip('_plotBS.png') + f'_BS_sys{iSys}.dat'
-            np.savetxt(write_BS_filename, plot_bandStruct_list[iSys], fmt='%.5f')
     print(f"{runName}: totalMSE = {totalMSE:f}")
     fig.suptitle(f"{runName}: totalMSE = {totalMSE:f}")
     fig.savefig(BSplotFilename)

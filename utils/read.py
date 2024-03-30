@@ -78,7 +78,7 @@ def init_critical_NNconfig():
 
 def read_PPparams(atomPPOrder, paramsFilePath): 
     PPparams = {}
-    totalParams = torch.empty(0,9) # see the readme for definition of all 9 params.
+    totalParams = torch.empty(0,9, dtype=torch.float64) # see the readme for definition of all 9 params.
                                    # They are not all used in this test. Only
                                    # params 0-3,5-7 are used (local pot, SOC,
                                    # and nonlocal, no long range or strain)
@@ -86,12 +86,11 @@ def read_PPparams(atomPPOrder, paramsFilePath):
         file_path = f"{paramsFilePath}{atomType}Params.par"
         if os.path.isfile(file_path):
             with open(file_path, 'r') as file:
-                a = torch.tensor([float(line.strip()) for line in file])
+                a = torch.tensor([float(line.strip()) for line in file], dtype=torch.float64)
             totalParams = torch.cat((totalParams, a.unsqueeze(0)), dim=0)
             PPparams[atomType] = a
         else:
             raise FileNotFoundError("Error: File " + file_path + " cannot be found. This atom cannot be initialized. ")
-            
     return PPparams, totalParams
 
 class BulkSystem:
@@ -178,7 +177,7 @@ class BulkSystem:
         self.scale = scale
         self.unitCellVectors = scale * torch.tensor(cell, dtype=torch.float64)
         self.atomTypes = np.array(atomTypes).flatten()
-        self.atomPos = torch.tensor(atomCoords) @ self.unitCellVectors
+        self.atomPos = torch.tensor(atomCoords, dtype=torch.float64) @ self.unitCellVectors
         # self.systemName = ''.join(self.atomTypes)
         
     
