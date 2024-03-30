@@ -1,0 +1,16 @@
+#!/bin/bash
+#SBATCH -A m2206
+#SBATCH -J wz-III-V_1
+#SBATCH -o wz-III-V_1.log
+#SBATCH -C cpu
+#SBATCH --qos=shared
+#SBATCH -t 23:00:00
+#SBATCH -N 1
+#SBATCH --ntasks-per-node=11          # Number of tasks (MPI processes) per node
+#SBATCH --cpus-per-task=1             # Number of CPU cores per task
+#SBATCH --mem=128GB
+#SBATCH --mail-user=tommy_lin@berkeley.edu
+#SBATCH --mail-type=ALL
+
+source ~/.bashrc
+python main.py CALCS/wz-III-V/inputs_1/ CALCS/wz-III-V/results_1/
