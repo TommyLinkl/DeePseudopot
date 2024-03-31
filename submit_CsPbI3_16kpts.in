@@ -1,0 +1,16 @@
+#!/bin/bash
+#SBATCH -A m2206
+#SBATCH -J CsPbI3_16kpts_sparseadam
+#SBATCH -o CsPbI3_16kpts_sparseadam.log
+#SBATCH -C cpu
+#SBATCH --qos=shared
+#SBATCH -t 06:00:00  # 23:00:00
+#SBATCH -N 1
+#SBATCH --ntasks-per-node=16          # Number of tasks (MPI processes) per node
+#SBATCH --cpus-per-task=1             # Number of CPU cores per task
+#SBATCH --mem=228GB
+#SBATCH --mail-user=tommy_lin@berkeley.edu
+#SBATCH --mail-type=ALL
+
+source ~/.bashrc
+python main.py CALCS/CsPbI3_16kpts/inputs_sparseadam/ CALCS/CsPbI3_16kpts/results_sparseadam/
