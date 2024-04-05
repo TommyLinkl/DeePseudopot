@@ -6,7 +6,7 @@ import numpy as np
 from utils.read import read_NNConfigFile, setAllBulkSystems, setNN
 from utils.pp_func import FT_converge_and_write_pp
 from utils.init_NN_train import init_ZungerPP, init_optimizer
-from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, bandStruct_train_GPU, evalBS_noGrad
+from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, bandStruct_train_GPU, evalBS_noGrad, runMC_NN
 from utils.ham import initAndCacheHams
 
 def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
@@ -51,18 +51,29 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     PPmodel.eval()
     FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, f'{resultsFolder}initZunger_plotPP', f'{resultsFolder}initZunger_pot', NNConfig['SHOWPLOTS'])
 
-    ############# Fit NN to band structures ############# 
-    print(f"\n{'#' * 40}\nStart training of the NN to fit to band structures. ")
-    criterion_singleSystem = weighted_mse_bandStruct
-    criterion_singleKpt = weighted_mse_energiesAtKpt
-    optimizer = init_optimizer(inputsFolder, PPmodel, NNConfig)
-    scheduler = ExponentialLR(optimizer, gamma=NNConfig['scheduler_gamma'])
 
-    start_time = time.time()
-    (training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, NNConfig, systems, hams, atomPPOrder, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, ZungerPPFunc_val, resultsFolder, cachedMats_info)
-    end_time = time.time()
-    print(f"Total training + evaluation elapsed time: {end_time - start_time:.2f} seconds")
-    torch.cuda.empty_cache()
+    ############# Fit NN to band structures ############# 
+    if (not NNConfig['mc_bool']): 
+        print(f"\n{'#' * 40}\nStart training of the NN to fit to band structures. ")
+        criterion_singleSystem = weighted_mse_bandStruct
+        criterion_singleKpt = weighted_mse_energiesAtKpt
+        optimizer = init_optimizer(inputsFolder, PPmodel, NNConfig)
+        scheduler = ExponentialLR(optimizer, gamma=NNConfig['scheduler_gamma'])
+
+        start_time = time.time()
+        (training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, NNConfig, systems, hams, atomPPOrder, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, ZungerPPFunc_val, resultsFolder, cachedMats_info)
+        end_time = time.time()
+        print(f"Total training + evaluation elapsed time: {end_time - start_time:.2f} seconds")
+        torch.cuda.empty_cache()
+
+    ############# Run Monte Carlo on NN ############# 
+    else: 
+        print(f"\n{'#' * 40}\nRunning Monte Carlo on the NN model. ")
+        start_time = time.time()
+        (trial_COST, accepted_COST) = runMC_NN(PPmodel, NNConfig, systems, hams, atomPPOrder, ZungerPPFunc_val, resultsFolder, cachedMats_info)
+        end_time = time.time()
+        print(f"Monte Carlo elapsed time: {end_time - start_time:.2f} seconds")
+        torch.cuda.empty_cache()
 
     ############# Writing the trained NN PP ############# 
     print(f"\n{'#' * 40}\nWriting the NN pseudopotentials")

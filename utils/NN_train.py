@@ -7,6 +7,7 @@ import multiprocessing as mp
 import matplotlib as mpl
 import matplotlib.pyplot as plt 
 mpl.rcParams['lines.markersize'] = 3
+import copy
 
 torch.set_default_dtype(torch.float64)
 torch.set_num_threads(1)
@@ -14,7 +15,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 
 from .constants import *
-from .pp_func import plotPP, plot_training_validation_cost, plotBandStruct
+from .pp_func import plotPP, plot_training_validation_cost, plotBandStruct, plot_mc_cost
 
 def print_and_inspect_gradients(model, filename=None, show=False): 
     if (filename is None) and show: 
@@ -303,3 +304,59 @@ def perturb_model(model, percentage=0.0):
     for param in model.parameters():
         perturbation = 1 + torch.rand_like(param) * (2 * percentage) - percentage
         param.data *= perturbation
+    return model
+
+
+def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFolder, cachedMats_info=None):
+    file_trainCost = open(f'{resultsFolder}MC_training_cost.dat', "w")
+    file_trainCost.write("# iter      newLoss      accept?      currLoss\n")
+    
+    bestModel = model
+    bestLoss = evalBS_noGrad(bestModel, f'{resultsFolder}mc_iter_0_plotBS.png', f'mc_iter_0', NNConfig, hams, systems, cachedMats_info)
+    currModel = model
+    currLoss = bestLoss
+    trial_COST = [currLoss]
+    accepted_COST = [currLoss]
+
+    for iter in range(NNConfig['mc_iter']):
+        print(f"Iteration [{iter+1}/{NNConfig['mc_iter']}]: ")
+        newModel = perturb_model(currModel, percentage=NNConfig['mc_percentage'])
+        print_and_inspect_NNParams(newModel, f'{resultsFolder}mc_iter_{iter+1}_params.dat', show=True)
+        newLoss = evalBS_noGrad(newModel, f'{resultsFolder}mc_iter_{iter+1}_plotBS.png', f'mc_iter_{iter+1}', NNConfig, hams, systems, cachedMats_info)
+        print(f"newLoss={newLoss.item():.4f}. ")
+        
+
+        mc_rand = np.exp(-1 * NNConfig['mc_beta'] * (np.sqrt(newLoss) - np.sqrt(currLoss)))
+        mc_accept_bool = mc_rand > np.random.uniform(low=0.0, high=1.0)
+
+        if newLoss < bestLoss:   # accept
+            bestLoss = newLoss
+            bestModel = newModel
+            currLoss = newLoss
+            currModel = newModel
+            file_trainCost.write(f"{iter+1}    {newLoss.item()}    {1}    {currLoss.item()}\n")
+            print(f"Accepted. currLoss={currLoss.item():.4f}")
+        elif mc_accept_bool:   # new loss is higher, but we still accept.
+            currLoss = newLoss
+            currModel = newModel
+            file_trainCost.write(f"{iter+1}    {newLoss.item()}    {1}    {currLoss.item()}\n")
+            print(f"Accepted. currLoss={currLoss.item():.4f}")
+        else:   # don't accept
+            file_trainCost.write(f"{iter+1}    {newLoss.item()}    {0}    {currLoss.item()}\n")
+            print(f"Not accepted. currLoss={currLoss.item():.4f}")
+        
+        trial_COST.append(newLoss.item())
+        accepted_COST.append(currLoss.item())
+    
+        fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, currModel(val_dataset.q), "ZungerForm", f"mc_iter_{iter+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+        fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
+        torch.save(currModel.state_dict(), f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth')
+        plt.close('all')
+        torch.cuda.empty_cache()
+
+    model = currModel
+        
+    fig_cost = plot_mc_cost(trial_COST, accepted_COST, True, NNConfig['SHOWPLOTS']);
+    fig_cost.savefig(resultsFolder + 'final_mc_cost.png')
+    file_trainCost.close()
+    return (trial_COST, accepted_COST)

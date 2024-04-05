@@ -222,3 +222,23 @@ def plot_multiple_train_cost(*filenames):
     axs.set(xlabel='nEpoch', ylabel='Training cost')
     fig.tight_layout()
     return fig
+
+
+def plot_mc_cost(trial_cost, accepted_cost, ylogBoolean, SHOWPLOTS): 
+    fig, axs = plt.subplots(1, 1, figsize=(6, 4))
+    
+    iter = range(0, len(trial_cost))
+    axs.plot(np.array(iter)+1, trial_cost, "b-", label='Trial Cost')
+    axs.plot(np.array(iter)+1, accepted_cost, "b-", label='Accepted Cost')
+
+    if ylogBoolean:
+        axs.set_yscale('log')
+    else:
+        axs.set_yscale('linear')
+    axs.set(xlabel="Iterations", ylabel="Cost", title="Trial and Accepted Costs")
+    axs.legend(frameon=False)
+    axs.grid(True)
+    fig.tight_layout()
+    if SHOWPLOTS:
+        plt.show()
+    return fig

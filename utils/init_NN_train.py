@@ -108,6 +108,8 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
         print(f"\n{'#' * 40}\nInitializing the NN with file {inputsFolder}init_PPmodel.pth.")
         PPmodel.load_state_dict(torch.load(inputsFolder + 'init_PPmodel.pth'))
         print(f"Done with NN initialization to the file {inputsFolder}init_PPmodel.pth.")
+    elif ('init_Zunger_num_epochs' not in NNConfig) or (NNConfig['init_Zunger_num_epochs']==0): 
+        print("\nWARNING: Not initializing the NN to the Zunger function form. Could lead to slow convergence. \n")
     else:
         print(f"\n{'#' * 40}\nInitializing the NN by training to the Zunger function form of pseudopotentials. ")
         PPmodel.cpu()
@@ -117,7 +119,7 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
 
         init_Zunger_criterion = init_Zunger_weighted_mse
 
-        if NNConfig['init_Zunger_optimizer']=='adam': 
+        if (NNConfig['init_Zunger_optimizer']=='adam') or ('init_Zunger_optimizer' not in NNConfig): 
             init_Zunger_optimizer = torch.optim.Adam(PPmodel.parameters(), lr=NNConfig['init_Zunger_optimizer_lr'])
         elif NNConfig['init_Zunger_optimizer']=='sgd': 
             init_Zunger_optimizer = torch.optim.SGD(PPmodel.parameters(), lr=NNConfig['init_Zunger_optimizer_lr'])
@@ -145,7 +147,7 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
 
 
 def init_optimizer(inputsFolder, model, NNConfig):
-    if NNConfig['optimizer']=='adam': 
+    if (NNConfig['optimizer']=='adam') or ('optimizer' not in NNConfig): 
         optimizer = torch.optim.Adam(model.parameters(), lr=NNConfig['optimizer_lr'])
         if os.path.exists(inputsFolder + 'init_AdamState.pth'):
             print(f"Reading in the stored Adam optimizer 1st and 2nd momentum from {inputsFolder}init_AdamState.pth to initialize the optimizer.")
@@ -185,6 +187,6 @@ def init_optimizer(inputsFolder, model, NNConfig):
     elif NNConfig['optimizer']=='rmsprop': 
         optimizer = torch.optim.RMSprop(model.parameters(), lr=NNConfig['optimizer_lr'])
     else: 
-        raise ValueError("We only support 'adam' and 'sgd' for the band structure fitting. ")
+        raise ValueError("We don't support the optimizer you provided in the band structure fitting. ")
     
     return optimizer

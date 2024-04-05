@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A m2206
-#SBATCH -J CsPbI3_16kpts_largerNN_2
-#SBATCH -o CsPbI3_16kpts_largerNN_2.log
+#SBATCH -J mcCsPbI3_16kpts_7_perturb
+#SBATCH -o mcCsPbI3_16kpts_7_perturb.log
 #SBATCH -C cpu
 #SBATCH --qos=shared
 #SBATCH -t 24:00:00
@@ -13,4 +13,4 @@
 #SBATCH --mail-type=ALL
 
 source ~/.bashrc
-python main.py CALCS/CsPbI3_16kpts/inputs_largerNN_2/ CALCS/CsPbI3_16kpts/results_largerNN_2/
+python main.py CALCS/mc_CsPbI3_16kpts/inputs_7_perturb/ CALCS/mc_CsPbI3_16kpts/results_7_perturb/

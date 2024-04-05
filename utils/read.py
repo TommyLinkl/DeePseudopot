@@ -15,18 +15,11 @@ def read_NNConfigFile(filename):
     and not all keys are required. 
     """
 
-    # Set default values for critical keywords
+    # Set default values for required keywords
     config = init_critical_NNconfig()
-    # Set default value for some common, optional keywords
-    config['memory_flag'] = False
-    config['SHOWPLOTS'] = False
-    config['separateKptGrad'] = True
-    config['SObool'] = False
-    config['optimizer'] = 'adam'
-    config['init_Zunger_optimizer'] = 'adam'
-    config['init_Zunger_printGrad'] = False
-    config['printGrad'] = False
-    config['perturbEvery'] = -1
+    config['init_Zunger_num_epochs'] = 0
+    config['mc_bool'] = False
+    config['max_num_epochs'] = 0
 
     with open(filename, 'r') as file:
         for line in file:
@@ -36,18 +29,23 @@ def read_NNConfigFile(filename):
                 key, value = line.split('#')[0].strip().split('=')
                 key = key.strip()
                 value = value.strip()
-                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'printGrad']:
+                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'printGrad', 'mc_bool']:
                     config[key] = bool(int(value))
-                elif key in ['nSystem', 'num_cores', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery']:
+                elif key in ['nSystem', 'num_cores', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter']:
                     config[key] = int(value)
-                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2']:
+                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2', 'mc_percentage', 'mc_beta']:
                     config[key] = float(value)
                 elif key in ['hiddenLayers']: 
                     config[key] = [int(x) for x in value.split()]
                 else:
                     config[key] = value
 
+    # Warning messages to address 1) input conflicts, 2) missing inputs, before running into errors. 
     print("All settings: ")
+
+    if ('PPmodel' not in config) or ('nSystem' not in config) or ('hiddenLayers' not in config): 
+        raise ValueError("One or more required parameters are missing: 'PPmodel', 'nSystem', 'hiddenLayers'.")
+    
     if (config["checkpoint"]==1) and (config["separateKptGrad"]==1): 
         raise ValueError("############################################\n# Please don't turn on both checkpoint and separateKptGrad. \n############################################\n")
     elif (config["checkpoint"]==1) and (config["separateKptGrad"]==0):
@@ -64,6 +62,25 @@ def read_NNConfigFile(filename):
         print("\nWARNING: MEMORY_FLAG is ON. Please check to make sure that the script is run with:\n\tmprof run --output <mem_output_file> main.py <inputsFolder> <resultsFolder>\n\tmprof plot -o <mem_plot_file> <mem_output_file>\n")
     print("\nRUNTIME_FLAG is ON") if config['runtime_flag'] else None
 
+    if config['init_Zunger_num_epochs']>0:
+        if ('init_Zunger_plotEvery' not in config) or ('init_Zunger_optimizer_lr' not in config) or ('init_Zunger_scheduler_gamma' not in config): 
+            raise ValueError("'init_Zunger_num_epochs'>0. But some required parameters for init_Zunger are missing.")
+
+    if config['mc_bool']: 
+        if ('mc_iter' not in config) or ('mc_percentage' not in config) or ('mc_beta' not in config): 
+            raise ValueError("Input error: 'mc_iter', 'mc_percentage', and 'mc_beta' must be specified when 'mc_bool' is True.")
+
+    if ('max_num_epochs' in config) and (config['max_num_epochs']>0): 
+        if config['mc_bool']: 
+            raise ValueError("Both doing Monte Carlo ('mc_bool') and doing NN training ('max_num_epochs'). This combination is invalid. Please use the 'perturbEvery' keyword if training + random perturbation is desired. ")
+        config['mc_bool'] = False
+        if ('plotEvery' not in config) or ('schedulerStep' not in config) or ('optimizer_lr' not in config) or ('scheduler_gamma' not in config): 
+            raise ValueError("Missing required keys when 'max_num_epochs' > 0: 'plotEvery', 'schedulerStep', 'optimizer_lr', 'scheduler_gamma'")
+        if ('patience' not in config): 
+            config['patience'] = config['max_num_epochs']+1
+        if ('perturbEvery' not in config): 
+            config['perturbEvery'] = -1
+            
     print()
     return config
 
@@ -71,8 +88,12 @@ def read_NNConfigFile(filename):
 def init_critical_NNconfig():
     config = {}
     config['runtime_flag'] = False
+    config['memory_flag'] = False
     config['checkpoint'] = False
     config['num_cores'] = 0
+    config['SHOWPLOTS'] = False
+    config['separateKptGrad'] = True
+    config['SObool'] = False
     return config
 
 
