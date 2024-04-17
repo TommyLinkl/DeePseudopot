@@ -80,6 +80,44 @@ class Net_relu_xavier(nn.Module):
                 x = linear_transform(x)
         return x
 
+class Net_sigmoid_xavier(nn.Module):
+    def __init__(self, Layers):
+        super(Net_sigmoid_xavier, self).__init__()
+        self.hidden_l = nn.ModuleList()
+
+        for input_size, output_size in zip(Layers, Layers[1:]):
+            linear = nn.Linear(input_size, output_size)
+            torch.nn.init.xavier_normal_(linear.weight)
+            self.hidden_l.append(linear)
+
+    def forward(self, x):
+        L = len(self.hidden_l)
+        for (l, linear_transform) in zip(range(L), self.hidden_l):
+            if l < L - 1:
+                x = torch.sigmoid(linear_transform(x))
+            else:
+                x = linear_transform(x)
+        return x
+
+class Net_celu_HeInit(nn.Module):
+    def __init__(self, Layers):
+        super(Net_celu_HeInit, self).__init__()
+        self.hidden_l = nn.ModuleList()
+
+        for input_size, output_size in zip(Layers, Layers[1:]):
+            linear = nn.Linear(input_size, output_size)
+            nn.init.kaiming_normal_(linear.weight, mode='fan_in', nonlinearity='relu')
+            self.hidden_l.append(linear)
+
+    def forward(self, x):
+        L = len(self.hidden_l)
+        for (l, linear_transform) in zip(range(L), self.hidden_l):
+            if l < L - 1:
+                x = nn.CELU()(linear_transform(x))
+            else:
+                x = linear_transform(x)
+        return x
+
 # sigmoid activation + uniform initialization
 class Net_sig_UniformInit(nn.Module):
     def __init__(self, Layers):
@@ -366,6 +404,30 @@ class Net_relu_xavier_decayGaussian(nn.Module):
         return output
 
 
+class Net_sigmoid_xavier_decayGaussian(nn.Module):
+    def __init__(self, Layers, gaussian_std):
+        super(Net_sigmoid_xavier_decayGaussian, self).__init__()
+        self.neural_network = Net_sigmoid_xavier(Layers)
+        self.gaussian_std = torch.tensor(gaussian_std, requires_grad=False)
+    
+    def forward(self, x):
+        gaussian = torch.exp(-x**2/(2*self.gaussian_std**2))
+        output = self.neural_network(x) * gaussian
+        return output
+
+
+class Net_celu_HeInit_decayGaussian(nn.Module):
+    def __init__(self, Layers, gaussian_std):
+        super(Net_celu_HeInit_decayGaussian, self).__init__()
+        self.neural_network = Net_celu_HeInit(Layers)
+        self.gaussian_std = torch.tensor(gaussian_std, requires_grad=False)
+    
+    def forward(self, x):
+        gaussian = torch.exp(-x**2/(2*self.gaussian_std**2))
+        output = self.neural_network(x) * gaussian
+        return output
+
+
 class Net_relu_HeInit_decayGaussian(nn.Module):
     def __init__(self, Layers, gaussian_std):
         super(Net_relu_HeInit_decayGaussian, self).__init__()
@@ -377,7 +439,6 @@ class Net_relu_HeInit_decayGaussian(nn.Module):
         output = self.neural_network(x) * gaussian
         return output
     
-
 
 class Net_relu_xavier_BN_decayGaussian(nn.Module):
     def __init__(self, Layers, gaussian_std):
