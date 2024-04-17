@@ -7,3 +7,4 @@ CALCS/*
 test_parallel/results*/*
 test_parallel/*.dat
 *.log
+log_files/
