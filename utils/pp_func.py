@@ -74,12 +74,12 @@ def plotBandStruct(bulkSystem_list, bandStruct_list, SHOWPLOTS):
                 axs_flat[2*iSystem+0].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-", alpha=0.6)
                 axs_flat[2*iSystem+1].plot(np.arange(numKpts), bandStruct_list[2*iSystem+1][:, i].detach().numpy(), "r-", alpha=0.6)
         axs_flat[2*iSystem+0].legend(frameon=False)
-        refEList = bandStruct_list[2*iSystem][bandStruct_list[2*iSystem] > -50]
-        refEmin = torch.min(refEList).item()
-        refEmax = torch.max(refEList).item()
-        predEList = bandStruct_list[2*iSystem+1][bandStruct_list[2*iSystem+1] > -50]
-        predEmin = torch.min(predEList).item()
-        predEmax = torch.max(predEList).item()
+        # refEList = bandStruct_list[2*iSystem][bandStruct_list[2*iSystem] > -50]
+        # refEmin = torch.min(refEList).item()
+        # refEmax = torch.max(refEList).item()
+        # predEList = bandStruct_list[2*iSystem+1][bandStruct_list[2*iSystem+1] > -50]
+        # predEmin = torch.min(predEList).item()
+        # predEmax = torch.max(predEList).item()
         # axs_flat[2*iSystem+0].set(ylim=(min(refEmin, predEmin)-0.5, max(refEmax, predEmax)+0.5))
         axs_flat[2*iSystem+0].set(ylim=(bulkSystem_list[iSystem].BS_plot_center-bulkSystem_list[iSystem].BS_plot_CBVB_range, bulkSystem_list[iSystem].BS_plot_center+bulkSystem_list[iSystem].BS_plot_CBVB_range))
         axs_flat[2*iSystem+1].set(ylim=(bulkSystem_list[iSystem].BS_plot_center-bulkSystem_list[iSystem].BS_plot_CBVB_range_zoom, bulkSystem_list[iSystem].BS_plot_center+bulkSystem_list[iSystem].BS_plot_CBVB_range_zoom), title=systemNames[iSystem])
@@ -210,34 +210,46 @@ def FT_converge_and_write_pp(atomPPOrder, qmax_array, nQGrid_array, nRGrid_array
     return
 
 
-def plot_multiple_train_cost(*filenames):
-    all_cost = np.zeros(0)
+def plot_multiple_train_cost(*file_groups, labels=None, ylogBoolean=False, ymin=None, ymax=None, xlabel='nEpoch', ylabel='Training cost'):
+    fig, ax = plt.subplots(1, 1, figsize=(6, 4))
     
-    for filename in filenames:
-        data = np.loadtxt(filename)[:,1]
-        all_cost = np.hstack([all_cost, data])
+    if labels is None:
+        labels = [f'Group {i+1}' for i in range(len(file_groups))]
     
-    fig, axs = plt.subplots(1, 1, figsize=(6, 4))
-    axs.plot(all_cost, "-")
-    axs.set(xlabel='nEpoch', ylabel='Training cost')
+    for i, file_group in enumerate(file_groups):
+        all_cost = np.zeros(0)
+        for filename in file_group:
+            data = np.loadtxt(filename)[:,1]
+            all_cost = np.hstack([all_cost, data])
+        ax.plot(all_cost, "-", alpha=0.7, label=labels[i])
+    
+    if ylogBoolean:
+        ax.set_yscale('log')
+    if (ymin is not None) or (ymax is not None):
+        current_ylim = ax.get_ylim()
+        new_ylim = (ymin if ymin is not None else current_ylim[0], ymax if ymax is not None else current_ylim[1])
+        ax.set_ylim(new_ylim)
+
+    ax.set(xlabel=xlabel, ylabel=ylabel)
+    ax.legend()
     fig.tight_layout()
     return fig
 
 
 def plot_mc_cost(trial_cost, accepted_cost, ylogBoolean, SHOWPLOTS): 
-    fig, axs = plt.subplots(1, 1, figsize=(6, 4))
+    fig, ax = plt.subplots(1, 1, figsize=(6, 4))
     
     iter = range(0, len(trial_cost))
-    axs.plot(np.array(iter)+1, trial_cost, "b-", label='Trial Cost')
-    axs.plot(np.array(iter)+1, accepted_cost, "b-", label='Accepted Cost')
+    ax.plot(np.array(iter)+1, trial_cost, "b-", label='Trial Cost')
+    ax.plot(np.array(iter)+1, accepted_cost, "r:", label='Accepted Cost')
 
     if ylogBoolean:
-        axs.set_yscale('log')
+        ax.set_yscale('log')
     else:
-        axs.set_yscale('linear')
-    axs.set(xlabel="Iterations", ylabel="Cost", title="Trial and Accepted Costs")
-    axs.legend(frameon=False)
-    axs.grid(True)
+        ax.set_yscale('linear')
+    ax.set(xlabel="Iterations", ylabel="Cost", title="Trial and Accepted Costs")
+    ax.legend(frameon=False)
+    ax.grid(True)
     fig.tight_layout()
     if SHOWPLOTS:
         plt.show()

@@ -40,7 +40,7 @@ def eval_fullBand(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'result
     hams = []
     for iSys, sys in enumerate(systems):
         start_time = time.time()
-        ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, iSys, SObool=True, cacheSO=False)
+        ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, iSys, SObool=NNConfig['SObool'], cacheSO=False)
         hams.append(ham)
         end_time = time.time()
         print(f"Elapsed time: {(end_time - start_time):.2f} seconds\n")
@@ -49,19 +49,23 @@ def eval_fullBand(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'result
     PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder)
 
     # Calculate bandStructure with the old function form with parameters given in PPparams
-    oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.png', 'Old Zunger BS', NNConfig, hams, systems)
+    oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.png', 'Old Zunger BS', NNConfig, hams, systems, writeBS=True)
 
     # Evaluate the band structures and pseudopotentials for the initialized NN
-    print("\nEvaluating band structures using the initialized pseudopotentials. ")
-    init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}initZunger_plotBS.png', 'Init NN BS', NNConfig, hams, systems)
+    print("\nEvaluating band structures using the input NN pseudopotentials. ")
+    init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}eval_plotBS.png', 'Eval NN BS', NNConfig, hams, systems, writeBS=True)
 
-    print("Converge the pseudopotentials in the real and reciprocal space for the initialized NN. ")
+    # Write BS to file
+
+    print("Converge the pseudopotentials in the real and reciprocal space. ")
     qmax = np.array([10.0, 20.0, 30.0])
     nQGrid = np.array([2048, 4096])
     nRGrid = np.array([2048, 4096])
     torch.cuda.empty_cache()
     PPmodel.eval()
-    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, f'{resultsFolder}initZunger_plotPP', f'{resultsFolder}initZunger_pot', NNConfig['SHOWPLOTS'])
+    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, f'{resultsFolder}eval_plotPP', f'{resultsFolder}eval_pot', NNConfig['SHOWPLOTS'])
+
+    # Write pot.dat to file
 
 
 

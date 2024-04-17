@@ -119,7 +119,7 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
 
         init_Zunger_criterion = init_Zunger_weighted_mse
 
-        if (NNConfig['init_Zunger_optimizer']=='adam') or ('init_Zunger_optimizer' not in NNConfig): 
+        if ('init_Zunger_optimizer' not in NNConfig) or (NNConfig['init_Zunger_optimizer']=='adam'): 
             init_Zunger_optimizer = torch.optim.Adam(PPmodel.parameters(), lr=NNConfig['init_Zunger_optimizer_lr'])
         elif NNConfig['init_Zunger_optimizer']=='sgd': 
             init_Zunger_optimizer = torch.optim.SGD(PPmodel.parameters(), lr=NNConfig['init_Zunger_optimizer_lr'])
@@ -147,7 +147,7 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
 
 
 def init_optimizer(inputsFolder, model, NNConfig):
-    if (NNConfig['optimizer']=='adam') or ('optimizer' not in NNConfig): 
+    if ('optimizer' not in NNConfig) or (NNConfig['optimizer']=='adam'): 
         optimizer = torch.optim.Adam(model.parameters(), lr=NNConfig['optimizer_lr'])
         if os.path.exists(inputsFolder + 'init_AdamState.pth'):
             print(f"Reading in the stored Adam optimizer 1st and 2nd momentum from {inputsFolder}init_AdamState.pth to initialize the optimizer.")

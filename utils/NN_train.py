@@ -74,7 +74,7 @@ def weighted_mse_energiesAtKpt(calcEnergiesAtKpt, bulkSystem, kidx):
     return MSE
 
 
-def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None, debug=False): 
+def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None, writeBS=False): 
     if (model is not None): 
         print(f"{runName}: Evaluating band structures using the NN-pp model. ")
         model.eval()
@@ -96,9 +96,15 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
         evalBS.detach_()
         end_time = time.time()
         print(f"{runName}: Finished evaluating {iSys}-th band structure with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds")
-        if debug: 
-            write_BS_filename = BSplotFilename.rstrip('_plotBS.png') + f'_BS_sys{iSys}.dat'
-            np.savetxt(write_BS_filename, evalBS, fmt='%.5f')
+        if writeBS: 
+            if not BSplotFilename.endswith('_plotBS.png'):
+                raise ValueError("BSplotFilename must end with '_plotBS.png' to write BS.dat files. ")
+            else:
+                write_BS_filename = BSplotFilename.replace('_plotBS.png', f'_BS_sys{iSys}.dat')
+            kptDistInputs_vertical = sys.kptDistInputs.view(-1, 1)
+            write_tensor = torch.cat((kptDistInputs_vertical, evalBS), dim=1)
+            np.savetxt(write_BS_filename, write_tensor, fmt='%.5f')
+            print(f"{runName}: Wrote BS to file {write_BS_filename}. ")
         plot_bandStruct_list.append(sys.expBandStruct)
         plot_bandStruct_list.append(evalBS)
         totalMSE += weighted_mse_bandStruct(evalBS, sys)
@@ -266,7 +272,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
         # evaluation
         if (epoch + 1) % NNConfig['plotEvery'] == 0:
             model.eval()
-            val_MSE = evalBS_noGrad(model, f'{resultsFolder}epoch_{epoch+1}_plotBS.png', f'epoch_{epoch+1}', NNConfig, hams, systems, cachedMats_info)
+            val_MSE = evalBS_noGrad(model, f'{resultsFolder}epoch_{epoch+1}_plotBS.png', f'epoch_{epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True)
             
             validation_COST.append(val_MSE)
             print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], validation cost: {val_MSE:.4f}")
@@ -300,7 +306,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
 
 
 def perturb_model(model, percentage=0.0): 
-    print(f"Perturbing the model by percentage: {percentage}\n")
+    print(f"Perturbing the model by percentage: {percentage}")
     for param in model.parameters():
         perturbation = 1 + torch.rand_like(param) * (2 * percentage) - percentage
         param.data *= perturbation
@@ -319,12 +325,10 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
     accepted_COST = [currLoss]
 
     for iter in range(NNConfig['mc_iter']):
-        print(f"Iteration [{iter+1}/{NNConfig['mc_iter']}]: ")
+        print(f"\nIteration [{iter+1}/{NNConfig['mc_iter']}]: ")
         newModel = perturb_model(currModel, percentage=NNConfig['mc_percentage'])
-        print_and_inspect_NNParams(newModel, f'{resultsFolder}mc_iter_{iter+1}_params.dat', show=True)
         newLoss = evalBS_noGrad(newModel, f'{resultsFolder}mc_iter_{iter+1}_plotBS.png', f'mc_iter_{iter+1}', NNConfig, hams, systems, cachedMats_info)
         print(f"newLoss={newLoss.item():.4f}. ")
-        
 
         mc_rand = np.exp(-1 * NNConfig['mc_beta'] * (np.sqrt(newLoss) - np.sqrt(currLoss)))
         mc_accept_bool = mc_rand > np.random.uniform(low=0.0, high=1.0)
@@ -336,11 +340,20 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             currModel = newModel
             file_trainCost.write(f"{iter+1}    {newLoss.item()}    {1}    {currLoss.item()}\n")
             print(f"Accepted. currLoss={currLoss.item():.4f}")
+            print_and_inspect_NNParams(newModel, f'{resultsFolder}mc_iter_{iter+1}_params.dat', show=True)
+
+            fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, currModel(val_dataset.q), "ZungerForm", f"mc_iter_{iter+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+            fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
+            torch.save(currModel.state_dict(), f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth')
         elif mc_accept_bool:   # new loss is higher, but we still accept.
             currLoss = newLoss
             currModel = newModel
             file_trainCost.write(f"{iter+1}    {newLoss.item()}    {1}    {currLoss.item()}\n")
             print(f"Accepted. currLoss={currLoss.item():.4f}")
+
+            fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, currModel(val_dataset.q), "ZungerForm", f"mc_iter_{iter+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+            fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
+            torch.save(currModel.state_dict(), f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth')
         else:   # don't accept
             file_trainCost.write(f"{iter+1}    {newLoss.item()}    {0}    {currLoss.item()}\n")
             print(f"Not accepted. currLoss={currLoss.item():.4f}")
@@ -348,9 +361,6 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
         trial_COST.append(newLoss.item())
         accepted_COST.append(currLoss.item())
     
-        fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, currModel(val_dataset.q), "ZungerForm", f"mc_iter_{iter+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
-        fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
-        torch.save(currModel.state_dict(), f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth')
         plt.close('all')
         torch.cuda.empty_cache()
 

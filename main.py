@@ -34,14 +34,14 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     hams, cachedMats_info, shm_dict_SO, shm_dict_NL = initAndCacheHams(systems, NNConfig, PPparams, atomPPOrder, device)
 
     # Calculate bandStructure with the old function form with parameters given in PPparams
-    oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.png', 'Old Zunger BS', NNConfig, hams, systems, cachedMats_info)
+    oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.png', 'Old Zunger BS', NNConfig, hams, systems, cachedMats_info, writeBS=True)
 
     # Initialize the NN to the local pot function form
     PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder)
 
     # Evaluate the band structures and pseudopotentials for the initialized NN
     print("\nEvaluating band structures using the initialized pseudopotentials. ")
-    init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}initZunger_plotBS.png', 'Init NN BS', NNConfig, hams, systems, cachedMats_info)
+    init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}initZunger_plotBS.png', 'Init NN BS', NNConfig, hams, systems, cachedMats_info, writeBS=True)
 
     print("Converge the pseudopotentials in the real and reciprocal space for the initialized NN. ")
     qmax = np.array([10.0, 20.0, 30.0])
