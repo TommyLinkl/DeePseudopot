@@ -67,6 +67,11 @@ def perturb(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'results_eval
         for shm in shm_dict_NL.values():
             shm.close()
             shm.unlink()
+    for ham in hams:
+        if ham.shm_eVec is not None:
+            for shm in ham.shm_eVec.values():
+                shm.close()
+                shm.unlink()
 
 
 if len(sys.argv) != 3:

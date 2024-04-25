@@ -89,6 +89,12 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
         for shm in shm_dict_NL.values():
             shm.close()
             shm.unlink()
+    for ham in hams:
+        if ham.shm_eVec is not None:
+            for shm in ham.shm_eVec.values():
+                shm.close()
+                shm.unlink()
+    
 
 if __name__ == "__main__":
     torch.set_num_threads(1)

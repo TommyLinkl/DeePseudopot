@@ -3,6 +3,7 @@ import torch
 import numpy as np
 from scipy.special import erf
 from scipy.integrate import quad, quadrature, quad_vec
+from scipy.optimize import linear_sum_assignment
 import time
 import copy
 import gc
@@ -67,6 +68,7 @@ class Hamiltonian:
         self.NN_locbool = NN_locbool
         self.model = model
         self.coupling = coupling   # fit the e-ph couplings? boolean
+        self.physicalBandOrdering = system.physicalBandOrdering
 
         self.LRgamma = 0.2   # erf attenuation parameter for long-range 
                              # component of potential. This is a good value
@@ -121,6 +123,10 @@ class Hamiltonian:
 
             if SObool:
                 self.SOmats_couple, self.NLmats_couple = self.initCouplingMats()
+
+        # For storing the shared eigenvector information and data
+        self.eVec_info = {}
+        self.shm_eVec = {}
 
         # send things to gpu, if enabled ??
         # Or is it better to send some things at the last minute before diagonalization?
@@ -893,14 +899,15 @@ class Hamiltonian:
         return NLmatf
 
 
-    def calcEigValsAtK(self, kidx, cachedMats_info=None, requires_grad=True, verbosity=0):
+    def calcEigValsAtK(self, kidx, cachedMats_info=None, requires_grad=True, verbosity=0, parallelization=True, writeEVecsToFile=False, writeEVecsFolderName=""):
         '''
         This function builds the Htot at a certain kpoint that is given as the input, 
         digonalizes the Htot, and obtains the eigenvalues at this kpoint. 
+
+        By default, it also calculates the eigenvectors in order to re-order the eigenvalues. 
         '''
 
         nbands = self.system.nBands
-        eigVals = torch.zeros(nbands)
 
         if (cachedMats_info is None) and (self.SObool==False):    # proceed as normal. Won't even go into buildSO or buildNL. Need to pass None into buildSO and buildNL
             preComp_SOmats_kidx = None
@@ -909,6 +916,7 @@ class Hamiltonian:
             preComp_SOmats_kidx = None
             preComp_NLmats_kidx = None     # functions buildSOmat and buildNLmat will handle these cases
         elif (cachedMats_info is not None): 
+            # Load SOmats and NLmats from shared memory
             start_time = time.time() if self.NNConfig['runtime_flag'] else None
             shm_SOmats = shared_memory.SharedMemory(name=f"SOmats_{self.iSystem}_{kidx}")
             preComp_SOmats_kidx = np.ndarray(cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_SOmats.buf)
@@ -917,7 +925,7 @@ class Hamiltonian:
             end_time = time.time() if self.NNConfig['runtime_flag'] else None
             print(f"Loading shared memory, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
         else: 
-            raise ValueError("Error in calcEigValsAtK. ")
+            raise ValueError("Error in calcEigValsAtK, in loading the cached SO and NL mats. ")
 
         start_time = time.time() if self.NNConfig['runtime_flag'] else None
         H = self.buildHtot(kidx, preComp_SOmats_kidx, preComp_NLmats_kidx, requires_grad)
@@ -927,10 +935,18 @@ class Hamiltonian:
         print(f"Building Htot, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
 
         start_time = time.time() if self.NNConfig['runtime_flag'] else None
-        if not self.coupling:
+        if (not self.coupling) and (not self.physicalBandOrdering):     # Fastest. Don't need any eigenvector information. 
             energies = torch.linalg.eigvalsh(H)
             energiesEV = energies * AUTOEV
-        else:
+
+            if not self.SObool:
+                # 2-fold degeneracy for spin. Not sure why this is necessary, but
+                # it is included in Tommy's code...
+                energiesEV = energiesEV.repeat_interleave(2)
+                # dont need to interleave eigenvecs (if stored) since we only
+                # store the vb and cb anyways.
+            energiesEV = energiesEV[:nbands]
+        elif (self.coupling) and (not self.physicalBandOrdering):       # NOTE!!! This is not made compatible with the physicalBandOrdering parameter.  
             # this will be slower than necessary, since torch seems to only support
             # full diagonalization including all eigenvectors. 
             # If computing couplings, it would be faster to
@@ -939,6 +955,15 @@ class Hamiltonian:
             # diagonalization algorithms (e.g. the ?heevr driver).
             ens, vecs = torch.linalg.eigh(H)
             energiesEV = ens * AUTOEV
+
+            if not self.SObool:
+                # 2-fold degeneracy for spin. Not sure why this is necessary, but
+                # it is included in Tommy's code...
+                energiesEV = energiesEV.repeat_interleave(2)
+                # dont need to interleave eigenvecs (if stored) since we only
+                # store the vb and cb anyways.
+            energiesEV = energiesEV[:nbands]
+
             self.vb_vecs[kidx].append(vecs[:, self.idx_vb])
             self.cb_vecs[kidx].append(vecs[:, self.idx_cb])
             # NOTE!!! that using the eigenvectors with torch autodiff can result in non-uniqueness
@@ -976,16 +1001,49 @@ class Hamiltonian:
                 print(f"\nWARNING: spin-orbit calc but cb spin states are not degenerate to 1e-10, kidx={kidx}\n")
             if verbosity >= 3:
                 print(f"kidx={kidx}, cb_vec[0:5]= {self.cb_vecs[kidx, :5]}")
+        elif (not self.coupling) and (self.physicalBandOrdering): 
+            ens, evecs = torch.linalg.eigh(H)
+            energiesEV = ens * AUTOEV
+            evecs = evecs.detach().numpy()
 
-        if not self.SObool:
-            # 2-fold degeneracy for spin. Not sure why this is necessary, but
-            # it is included in Tommy's code...
-            energiesEV = energiesEV.repeat_interleave(2)
-            # dont need to interleave eigenvecs (if stored) since we only
-            # store the vb and cb anyways.
-        eigVals[:] = energiesEV[:nbands]
+            if not self.SObool:
+                # 2-fold degeneracy for spin. Not sure why this is necessary, but
+                # it is included in Tommy's code...
+                energiesEV = energiesEV.repeat_interleave(2)
+                # dont need to interleave eigenvecs (if stored) since we only
+                # store the vb and cb anyways.
+            energiesEV = energiesEV[:nbands]
+
+            write_evec_list = []
+            for bandIdx in range(nbands):  
+                eVecKey = f"currIter_eVec_{kidx}_{bandIdx}"
+                eVecValue = {'dtype': evecs[:, bandIdx].dtype, 'shape': evecs[:, bandIdx].shape}
+
+                if eVecKey in self.shm_eVec:    # Check if the shm object already exists
+                    self.shm_eVec[eVecKey].close()
+                    self.shm_eVec[eVecKey].unlink()
+                    del self.shm_eVec[eVecKey]
+                    del self.eVec_info[eVecKey]
+
+                self.eVec_info[eVecKey] = eVecValue
+                # Move eVecs to shared memory
+                self.shm_eVec[eVecKey] = shared_memory.SharedMemory(create=True, size=evecs[:, bandIdx].nbytes, name=eVecKey)
+                tmp_arr = np.copy(np.ndarray(evecs[:, bandIdx].shape, dtype=evecs[:, bandIdx].dtype, buffer=self.shm_eVec[eVecKey].buf))  # Create a NumPy array backed by shared memory
+                tmp_arr[:] = evecs[:, bandIdx]
+                
+                # print(f"Eigenvector {bandIdx}: ")
+                # print(evecs[:, bandIdx])
+                write_evec_list.append(evecs[:, bandIdx])
+            if writeEVecsToFile: 
+                np.savez(f"{writeEVecsFolderName}eigVec_k{kidx}.npz", *write_evec_list)
+
+            newOrder = self.reorder_bands(kidx, parallelization)
+            energiesEV = energiesEV[newOrder]
+        else: 
+            raise NotImplementedError("Currently function calcEigValsAtK doesn't support both self.physicalBandOrdering and self.coupling. ")
+
         end_time = time.time() if self.NNConfig['runtime_flag'] else None
-        print(f"eigvalsh and storing energies, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
+        print(f"Diagonalization (in some cases includes eigvecs), elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
 
         '''
         # Testing with random matrix
@@ -997,10 +1055,157 @@ class Hamiltonian:
         print(f"Generating and diagonalizing a random 2000x2000 matrix. Time: {total_time:.2f} seconds") if self.NNConfig['runtime_flag'] else None
         '''
         
-        if requires_grad: 
-            return eigVals
+        if not requires_grad: 
+            energiesEV = energiesEV.detach()
+        return energiesEV
+
+
+    def overlapMatrix(self, shm_key_kIdx1, shm_key_kIdx2, verbosity=0): 
+        """
+        shm_key_kIdx1 and 2 would look like the following: 
+        f"currIter_eVec_{kidx}"
+        f"prevIter_eVec_{kidx}" 
+        
+        We will need to concatenate f"_{bandIdx}" to its end to use it. 
+        """
+        nbands = self.system.nBands
+        evec_list_kIdx1 = []
+        evec_list_kIdx2 = []
+        print(f"Loading eigenvectors from shm with names: {shm_key_kIdx1}_xxx(bands) and {shm_key_kIdx2}_xxx(bands). ") if verbosity>0 else None
+        for bandIdx in range(nbands): 
+            # Load eigenvectors from shm objects, assuming they all exist
+            callName = shm_key_kIdx1 + f"_{bandIdx}"
+            try:
+                shm_obj = shared_memory.SharedMemory(name=callName)
+                tmp_eVec = np.copy(np.ndarray(self.eVec_info[callName]['shape'], dtype=self.eVec_info[callName]['dtype'], buffer=shm_obj.buf))
+                evec_list_kIdx1.append(tmp_eVec)
+            except FileNotFoundError:
+                print(f"Shared memory object {callName} does not exist.")
+                continue
+
+            callName = shm_key_kIdx2 + f"_{bandIdx}"
+            try:
+                shm_obj = shared_memory.SharedMemory(name=callName)
+                tmp_eVec = np.copy(np.ndarray(self.eVec_info[callName]['shape'], dtype=self.eVec_info[callName]['dtype'], buffer=shm_obj.buf))
+                evec_list_kIdx2.append(tmp_eVec)
+            except FileNotFoundError:
+                print(f"Shared memory object {callName} does not exist.")
+                continue
+        
+        M = np.zeros((nbands, nbands), dtype=np.float64)
+        for i in range(nbands):
+            for j in range(nbands): 
+                M[i,j] = overlap_2eigVec(evec_list_kIdx1[i], evec_list_kIdx2[j])
+       
+        if verbosity>1: 
+            diff = M - np.eye(M.shape[0])
+            if np.allclose(diff, 0, atol=1e-4):
+                print("YES! The overlap matrix is effectively identity.")
+            else:
+                print("NO! The overlap matrix is not close to identity.")
+        if verbosity>2: 
+            np.set_printoptions(formatter={'float': lambda x: "{: .3f}".format(x)})
+            print(M)
+        # np.savetxt(f"CALCS/CsPbI3_test/results/overlap_{kIdx1}_{kIdx2}.dat", M, fmt='%.4f')
+
+        return M
+
+
+    def reorder_bands(self, kIdx, parallelization=True, verbosity=0): 
+        """
+        Reorder bands at kIdx based on cost matrices.
+        If each kpoint is diagonalized in parallel, then we don't have information about
+        the overlap matrix between the current k-point and others. And thus, we rely on 
+        overlap matrix calculated against the previous iteration. 
+
+        If no parallelization is implemented, we can access all previous k-points since 
+        they are calculated and diagonalized in order. 
+
+        In either case, the band order at the kIdx is computed by solving the linear sum 
+        assignment problem between the following chain of k-points:
+        a) prevIter_eVec_{0}, ..., prevIter_eVec_{kIdx-1}, currIter_eVec_{kIdx}
+        b) currIter_eVec_{0}, ..., currIter_eVec_{kIdx-1}, currIter_eVec_{kIdx}
+        """
+        print(f"We are re-ordering the bands at kIdx {kIdx}. ")
+        nbands = self.system.nBands
+        newOrder = np.arange(nbands)
+        if kIdx == 0: 
+            return newOrder
+
+        if parallelization: 
+            keys_to_check = [f"prevIter_eVec_{k}_{b}" for k in range(kIdx) for b in range(nbands)] + [f"currIter_eVec_{kIdx}_{b}" for b in range(nbands)]
+            if not all(key in self.eVec_info for key in keys_to_check):
+                print("Some eigenvectors are missing in the shared memory INFO DICT. I can't do band re-ordering. ")
+                return newOrder
+            if not all(key in self.shm_eVec for key in keys_to_check):
+                print("Some eigenvectors are missing in the shared memory SHM DICT. I can't do band re-ordering. ")
+                return newOrder
+
+            for k in range(kIdx-1): 
+                costMatrix = self.overlapMatrix(f"prevIter_eVec_{k}", f"prevIter_eVec_{k+1}", verbosity)
+                _, col_ind = linear_sum_assignment(costMatrix, maximize=True)
+                newOrder = newOrder[col_ind]
+            
+            costMatrix = self.overlapMatrix(f"prevIter_eVec_{kIdx-1}", f"currIter_eVec_{kIdx}", verbosity)
+            _, col_ind = linear_sum_assignment(costMatrix, maximize=True)
+            newOrder = newOrder[col_ind]
+
+            print(f"New band order at kIdx: {newOrder}") if verbosity>0 else None
+            return newOrder
         else: 
-            return eigVals.detach()
+            keys_to_check = [f"currIter_eVec_{k}_{b}" for k in range(kIdx+1) for b in range(nbands)]
+            if not all(key in self.eVec_info for key in keys_to_check):
+                print("Some eigenvectors are missing in the shared memory INFO DICT. I can't do band re-ordering. ")
+                return newOrder
+            if not all(key in self.shm_eVec for key in keys_to_check):
+                print("Some eigenvectors are missing in the shared memory SHM DICT. I can't do band re-ordering. ")
+                return newOrder
+
+            for k in range(kIdx): 
+                costMatrix = self.overlapMatrix(f"currIter_eVec_{k}", f"currIter_eVec_{k+1}", verbosity)
+                _, col_ind = linear_sum_assignment(costMatrix, maximize=True)
+                newOrder = newOrder[col_ind]
+
+            print(f"New band order at kIdx: {newOrder}") if verbosity>0 else None
+            return newOrder
+
+
+    def _copy_currIter_to_prevIter_shm(self): 
+        """
+        This routine deals with the shared memory objects of eigenvectors. 
+        It copies copy "currIter..." shared memory objects to "prevIter..."
+        In both parallel and non-parallel cases, this function should: 
+        - NOT be called unless all calcEigValsAtK have been completed for all kpoints
+        - be called at the end of every band structure calculation. 
+        """
+        ########## NOTE: I need to deal with situations where the dictionary entry is None!
+        nbands = self.system.nBands
+        nkpt = self.system.getNKpts()
+        for kidx in range(nkpt):
+            for bandIdx in range(nbands):  
+                curr_eVecKey = f"currIter_eVec_{kidx}_{bandIdx}"
+                prev_eVecKey = f"prevIter_eVec_{kidx}_{bandIdx}"
+                if curr_eVecKey not in self.eVec_info:
+                    print(f"Skipping copying {curr_eVecKey} to {prev_eVecKey} because it's not found in eVec_info. ")
+                    continue
+                self.eVec_info[prev_eVecKey] = self.eVec_info[curr_eVecKey]
+
+                if prev_eVecKey in self.shm_eVec:    # Check if shared memory with the prev_key already exists
+                    self.shm_eVec[prev_eVecKey].unlink()
+                    self.shm_eVec[prev_eVecKey].close()
+                    del self.shm_eVec[prev_eVecKey]
+                    del self.eVec_info[prev_eVecKey]
+                
+                # Read from curr_key shm object
+                shm_obj = shared_memory.SharedMemory(name=curr_eVecKey)
+                tmp_eVec = np.copy(np.ndarray(self.eVec_info[curr_eVecKey]['shape'], dtype=self.eVec_info[curr_eVecKey]['dtype'], buffer=shm_obj.buf))
+
+                # Create and copy to prev_key shm object
+                self.shm_eVec[prev_eVecKey] = shared_memory.SharedMemory(create=True, size=tmp_eVec.nbytes, name=prev_eVecKey)
+                tmp_arr = np.copy(np.ndarray(tmp_eVec.shape, dtype=tmp_eVec.dtype, buffer=self.shm_eVec[prev_eVecKey].buf))  # Create a NumPy array backed by shared memory
+                tmp_arr[:] = tmp_eVec
+        return
+
 
 
     def calcBandStruct(self, grad=False, cachedMats_info=None): 
@@ -1012,16 +1217,17 @@ class Hamiltonian:
 
     def calcBandStruct_withGrad(self, cachedMats_info=None):
         '''
-        Multiprocessing is not implemented due to the requirement to keep gradients.
+        Multiprocessing is not implemented.
         '''
         
         nbands = self.system.nBands
         nkpt = self.system.getNKpts()
         bandStruct = torch.zeros([nkpt, nbands])
         for kidx in range(nkpt):
-            eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=True)
+            eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=True, parallelization=False)
             bandStruct[kidx,:] = eigValsAtK
-        
+        self._copy_currIter_to_prevIter_shm()
+                    
         return bandStruct
 
 
@@ -1034,20 +1240,24 @@ class Hamiltonian:
         nkpt = self.system.getNKpts()
 
         bandStruct = torch.zeros([nkpt, nbands], requires_grad=False)
-        if (self.NNConfig['num_cores']==0): 
-            # No multiprocessing
+        if (self.NNConfig['num_cores']==0):     # No multiprocessing
             for kidx in range(nkpt):
-                eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False)
+                eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False)
                 bandStruct[kidx,:] = eigValsAtK
-        else: # multiprocessing
+            self._copy_currIter_to_prevIter_shm()
+        else:       # multiprocessing
             torch.set_num_threads(1)
             os.environ["OMP_NUM_THREADS"] = "1"
             os.environ["MKL_NUM_THREADS"] = "1"
             # print(f"The size of cachedMats_info is: {sys.getsizeof(cachedMats_info)/1024} KB")
-            args_list = [(kidx, cachedMats_info, False) for kidx in range(nkpt)]
+            
+            # args_list = [(kidx, cachedMats_info, False) for kidx in range(nkpt)]
+            args_list = [(kidx, cachedMats_info, False, 0, True) for kidx in range(nkpt)]     # requires_grad=False, verbosity=0, parallelization=True
             with mp.Pool(self.NNConfig['num_cores']) as pool:
                 eigValsList = pool.starmap(self.calcEigValsAtK, args_list)
             bandStruct = torch.stack(eigValsList)
+            self._copy_currIter_to_prevIter_shm()
+
         return bandStruct
 
 
@@ -1647,6 +1857,12 @@ class Hamiltonian:
         parts of the PP.
         """
         self.PPparams = newparams
+
+
+def overlap_2eigVec(a, b):
+    a_conj = np.conj(a)
+    overlap = np.dot(a_conj, b)
+    return np.abs(overlap)
 
 
 def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device):

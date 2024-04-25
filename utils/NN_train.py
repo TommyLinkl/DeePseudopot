@@ -124,7 +124,7 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, criterion_singleKpt, op
     For performance, it is recommended that the ham in the argument doesn't have SOmat and NLmat initialized. 
     """
     singleKptGradients = {}
-    calcEnergies = ham.calcEigValsAtK(kidx, cachedMats_info, requires_grad=True)
+    calcEnergies = ham.calcEigValsAtK(kidx, cachedMats_info, requires_grad=True, parallelization=True)
 
     systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem, kidx)
     start_time = time.time() if ham.NNConfig['runtime_flag'] else None
@@ -168,7 +168,7 @@ def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cac
     return model, trainLoss
 
 
-def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info=None): 
+def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, resultsFolder, cachedMats_info=None): 
     def merge_dicts(dicts):
         merged_dict = {}
         for d in dicts:
@@ -186,7 +186,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
 
         if (NNConfig['num_cores']==0):   # No multiprocessing
             for kidx in range(sys.getNKpts()): 
-                calcEnergies = hams[iSys].calcEigValsAtK(kidx, cachedMats_info, requires_grad=True)
+                calcEnergies = hams[iSys].calcEigValsAtK(kidx, cachedMats_info, requires_grad=True, parallelization=False)   # writeEVecsToFile=True, writeEVecsFolderName=resultsFolder)
                 systemKptLoss = criterion_singleKpt(calcEnergies, sys, kidx)
 
                 start_time = time.time() if NNConfig['runtime_flag'] else None
@@ -217,6 +217,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
         
         total_gradients = merge_dicts([total_gradients, gradients_system])
         trainLoss += trainLoss_system
+        hams[iSys]._copy_currIter_to_prevIter_shm()
 
     # Write the manually accumulated gradients and loss values back into the NN model
     optimizer.zero_grad()
@@ -252,7 +253,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
         if NNConfig['separateKptGrad']==0: 
             model, trainLoss = trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info, NNConfig['runtime_flag'])
         else: 
-            model, trainLoss = trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info)
+            model, trainLoss = trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, resultsFolder, cachedMats_info)
         training_COST.append(trainLoss.item())
         file_trainCost.write(f"{epoch+1}  {trainLoss.item()}\n")
         print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], training cost: {trainLoss.item():.4f}")
