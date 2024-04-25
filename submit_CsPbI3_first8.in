@@ -1,16 +1,16 @@
 #!/bin/bash
 #SBATCH -A m2206
-#SBATCH -J wz-zb-InGaP_5
-#SBATCH -o wz-zb-InGaP_5.log
+#SBATCH -J CsPbI3_first8_1
+#SBATCH -o CsPbI3_first8_1.log
 #SBATCH -C cpu
 #SBATCH --qos=shared
 #SBATCH -t 24:00:00
 #SBATCH -N 1
-#SBATCH --ntasks-per-node=16          # Number of tasks (MPI processes) per node
+#SBATCH --ntasks-per-node=8          # Number of tasks (MPI processes) per node
 #SBATCH --cpus-per-task=1             # Number of CPU cores per task
-#SBATCH --mem=96GB
+#SBATCH --mem=228GB
 #SBATCH --mail-user=tommy_lin@berkeley.edu
 #SBATCH --mail-type=ALL
 
 source ~/.bashrc
-python main.py CALCS/wz-zb-InGaP/inputs_5/ CALCS/wz-zb-InGaP/results_5/
+python main.py CALCS/CsPbI3_first8/inputs_1/ CALCS/CsPbI3_first8/results_1/
