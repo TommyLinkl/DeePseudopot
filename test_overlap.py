@@ -31,8 +31,8 @@ def overlap_2eigVec(a, b):
 
 
 def overlapMatrix(kIdx1, kIdx2, deg=1, verbosity=0): 
-    evec_list_kIdx1 = read_npz(f"CALCS/CsPbI3_test/results_64kpts/eigVec_k{kIdx1}.npz")
-    evec_list_kIdx2 = read_npz(f"CALCS/CsPbI3_test/results_64kpts/eigVec_k{kIdx2}.npz")
+    evec_list_kIdx1 = read_npz(f"CALCS/CsPbI3_test/results_{testCase}kpts/eigVec_k{kIdx1}.npz")
+    evec_list_kIdx2 = read_npz(f"CALCS/CsPbI3_test/results_{testCase}kpts/eigVec_k{kIdx2}.npz")
     if len(evec_list_kIdx1) != len(evec_list_kIdx2):
         raise ValueError("Error! kIdx1 and kIdx2 don't have the same number of eigenvectors!!!")
     else: 
@@ -153,8 +153,26 @@ def plotBandStruct_reorder(refGWBS, defaultBS, newOrderBS, bandIdx):
 
 
 ########################## main ##########################
-refGWBS = np.loadtxt("CALCS/CsPbI3_test/inputs_64kpts/expBandStruct_0.par")
-currentBS = np.loadtxt("CALCS/CsPbI3_test/results_64kpts/epoch_1_BS_sys0.dat")
+testCase = 64
+refGWBS = np.loadtxt(f"CALCS/CsPbI3_test/inputs_{testCase}kpts/expBandStruct_0.par")
+currentBS = np.loadtxt(f"CALCS/CsPbI3_test/results_{testCase}kpts/epoch_1_BS_sys0.dat")
+
+systems, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams = setAllBulkSystems(1, f"CALCS/CsPbI3_test/inputs_{testCase}kpts/", f"CALCS/CsPbI3_test/results_{testCase}kpts/")
+sys = systems[0]
+
+basis = sys.basis().numpy()
+print(basis[:4])
+kpts = sys.kpts.numpy()
+# print(kpts)
+kpts_diff = np.diff(kpts, axis=0)
+print(kpts_diff)
+print(kpts_diff[39])
+print(kpts_diff[40])
+print(np.max(kpts_diff))
+
+
+
+
 
 '''
 dict_orderSwap = {}
@@ -179,7 +197,7 @@ for bandIdx in range(32):
 '''
 
 
-
+'''
 dict_orderSwap = {}
 for i in range(63):
     j = i+1
@@ -199,6 +217,8 @@ for bandIdx in range(32):
     fig = plotBandStruct_reorder(refGWBS[:,1:], currentBS[:,1:], newBS, bandIdx)
     fig.savefig(f"CALCS/CsPbI3_test/results_64kpts/newBand_deg2_{bandIdx}.png")
     plt.close()
+'''
+
 
 '''
 # Verify transmissibility, strict! 

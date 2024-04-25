@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH -A m2206
-#SBATCH -J CsPbI3_test_3kpts_fit
-#SBATCH -o CsPbI3_test_3kpts_fit.log
+#SBATCH -J CsPbI3_test_150kpts
+#SBATCH -o CsPbI3_test_150kpts.log
 #SBATCH -C cpu
 #SBATCH --qos=shared
-#SBATCH -t 2:00:00
+#SBATCH -t 4:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=32          # Number of tasks (MPI processes) per node
 #SBATCH --cpus-per-task=1             # Number of CPU cores per task
@@ -13,4 +13,4 @@
 #SBATCH --mail-type=ALL
 
 source ~/.bashrc
-python main.py CALCS/CsPbI3_test/inputs_3kpts_fit/ CALCS/CsPbI3_test/results_3kpts_fit/
+python main.py CALCS/CsPbI3_test/inputs_150kpts/ CALCS/CsPbI3_test/results_150kpts/

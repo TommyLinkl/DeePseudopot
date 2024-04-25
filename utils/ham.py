@@ -1055,6 +1055,8 @@ class Hamiltonian:
         print(f"Generating and diagonalizing a random 2000x2000 matrix. Time: {total_time:.2f} seconds") if self.NNConfig['runtime_flag'] else None
         '''
         
+        print(f"On this subprocess, we are working with kIdx {kidx}. The current self.eVec_info has length {len(self.eVec_info)} and looks like the following. We should see the length increase although multiprocessing. ")
+        print(self.eVec_info)
         if not requires_grad: 
             energiesEV = energiesEV.detach()
         return energiesEV
@@ -1243,6 +1245,10 @@ class Hamiltonian:
         if (self.NNConfig['num_cores']==0):     # No multiprocessing
             for kidx in range(nkpt):
                 eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False)
+                
+                # !!! FOR TESTING ONLY: 
+                # eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False, writeEVecsToFile=True, writeEVecsFolderName="CALCS/CsPbI3_test/results_150kpts/")
+
                 bandStruct[kidx,:] = eigValsAtK
             self._copy_currIter_to_prevIter_shm()
         else:       # multiprocessing
