@@ -114,6 +114,7 @@ def read_PPparams(atomPPOrder, paramsFilePath):
             raise FileNotFoundError("Error: File " + file_path + " cannot be found. This atom cannot be initialized. ")
     return PPparams, totalParams
 
+
 class BulkSystem:
     def __init__(self, scale=1.0, unitCellVectors_unscaled=None, atomTypes=None, atomPos_unscaled=None, kpts_recipLatVec=None, expBandStruct=None, nBands=16, maxKE=5, BS_plot_center=-5.0, BS_plot_CBVB_range=10.0, BS_plot_CBVB_range_zoom=5.0, systemName='No_Name'):
         if unitCellVectors_unscaled is None:
@@ -143,6 +144,7 @@ class BulkSystem:
         self.BS_plot_CBVB_range = BS_plot_CBVB_range
         self.BS_plot_CBVB_range_zoom = BS_plot_CBVB_range_zoom
         self.systemName = systemName
+        self.physicalBandOrdering = True
         
         
     def setInputs(self, inputFilename):
@@ -155,6 +157,8 @@ class BulkSystem:
                     value = value.strip()
                     if key in ['maxKE', 'BS_plot_center', 'BS_plot_CBVB_range', 'BS_plot_CBVB_range_zoom']:
                         attributes[key] = float(value)
+                    elif key in ['physicalBandOrdering']: 
+                        attributes[key] = bool(value)
                     elif key in ['nBands', 'idxVB', 'idxCB', 'idxGap']:            # nBands can be redundant
                         attributes[key] = int(float(value))
                     elif key in ['systemName']: 
@@ -362,6 +366,7 @@ class BulkSystem:
         np.savetxt(basisStateFileName, sorted_basisSet, fmt=['%d']+['%f']*(sorted_basisSet.shape[1]-1), delimiter='\t')
         return
 
+
 def setAllBulkSystems(nSystem, inputsFolder, resultsFolder):
     atomPPOrder = []
     systemsList = [BulkSystem() for _ in range(nSystem)]
@@ -380,6 +385,7 @@ def setAllBulkSystems(nSystem, inputsFolder, resultsFolder):
     PPparams, totalParams = read_PPparams(atomPPOrder, inputsFolder + "init_")
     localPotParams = totalParams[:,:4]
     return systemsList, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams
+
 
 def setNN(config, nPseudopot):
     layers = [1] + config['hiddenLayers'] + [nPseudopot]
