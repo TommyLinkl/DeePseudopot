@@ -153,7 +153,8 @@ def plotBandStruct_reorder(refGWBS, defaultBS, newOrderBS, bandIdx):
 
 
 ########################## main ##########################
-testCase = 64
+testCase = 150
+reorderDeg = 2
 refGWBS = np.loadtxt(f"CALCS/CsPbI3_test/inputs_{testCase}kpts/expBandStruct_0.par")
 currentBS = np.loadtxt(f"CALCS/CsPbI3_test/results_{testCase}kpts/epoch_1_BS_sys0.dat")
 
@@ -170,20 +171,15 @@ print(kpts_diff[39])
 print(kpts_diff[40])
 print(np.max(kpts_diff))
 
-
-
-
-
-'''
 dict_orderSwap = {}
-for i in range(63):
+for i in range(testCase-1):
     j = i+1
-    newOrder = reorder_bands(i, j, deg=1, max_distance=4, verbosity=1)
+    newOrder = reorder_bands(i, j, deg=reorderDeg, max_distance=4, verbosity=0)
     dict_orderSwap[f"{i}_to_{j}"] = newOrder
 
 newBS = currentBS[0,1:]
 currKidx_order = np.arange(32)
-for kidx in range(1,64):
+for kidx in range(1,testCase):
     oldE = currentBS[kidx,1:]
     currKidx_order = currKidx_order[dict_orderSwap[f"{kidx-1}_to_{kidx}"]]
     newE = currentBS[kidx,1:][currKidx_order]
@@ -192,33 +188,8 @@ for kidx in range(1,64):
 
 for bandIdx in range(32):
     fig = plotBandStruct_reorder(refGWBS[:,1:], currentBS[:,1:], newBS, bandIdx)
-    fig.savefig(f"CALCS/CsPbI3_test/results_64kpts/newBand_{bandIdx}.png")
+    fig.savefig(f"CALCS/CsPbI3_test/results_{testCase}kpts/newBand_deg{reorderDeg}_{bandIdx}.png")
     plt.close()
-'''
-
-
-'''
-dict_orderSwap = {}
-for i in range(63):
-    j = i+1
-    newOrder = reorder_bands(i, j, deg=2, max_distance=2, verbosity=1) 
-    dict_orderSwap[f"{i}_to_{j}"] = newOrder
-
-newBS = currentBS[0,1:]
-currKidx_order = np.arange(32)
-for kidx in range(1,64):
-    oldE = currentBS[kidx,1:]
-    currKidx_order = currKidx_order[dict_orderSwap[f"{kidx-1}_to_{kidx}"]]
-    newE = currentBS[kidx,1:][currKidx_order]
-    newBS = np.vstack((newBS, newE))
-# print(newBS)
-
-for bandIdx in range(32):
-    fig = plotBandStruct_reorder(refGWBS[:,1:], currentBS[:,1:], newBS, bandIdx)
-    fig.savefig(f"CALCS/CsPbI3_test/results_64kpts/newBand_deg2_{bandIdx}.png")
-    plt.close()
-'''
-
 
 '''
 # Verify transmissibility, strict! 

@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -A m2206
-#SBATCH -J CsPbI3_test_150kpts
-#SBATCH -o CsPbI3_test_150kpts.log
+#SBATCH -J CsPbI3_test_64kpts_fit
+#SBATCH -o CsPbI3_test_64kpts_fit.log
 #SBATCH -C cpu
 #SBATCH --qos=shared
 #SBATCH -t 4:00:00
@@ -13,4 +13,4 @@
 #SBATCH --mail-type=ALL
 
 source ~/.bashrc
-python main.py CALCS/CsPbI3_test/inputs_150kpts/ CALCS/CsPbI3_test/results_150kpts/
+python main.py CALCS/CsPbI3_test/inputs_64kpts_fit/ CALCS/CsPbI3_test/results_64kpts_fit/
