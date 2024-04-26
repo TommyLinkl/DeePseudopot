@@ -128,7 +128,7 @@ class Hamiltonian:
         # self.eVec_info = {}
         # self.shm_eVec = {}
         self.eVec_info = mp.Manager().dict()
-        self.eVec_info = mp.Manager().dict()
+        self.shm_eVec = mp.Manager().dict()
 
         # send things to gpu, if enabled ??
         # Or is it better to send some things at the last minute before diagonalization?
