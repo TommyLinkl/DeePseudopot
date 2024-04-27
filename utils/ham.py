@@ -128,7 +128,7 @@ class Hamiltonian:
         # self.eVec_info = {}
         # self.shm_eVec = {}
         self.eVec_info = mp.Manager().dict()
-        self.shm_eVec = mp.Manager().dict()
+        # self.shm_eVec = mp.Manager().dict()
 
         # send things to gpu, if enabled ??
         # Or is it better to send some things at the last minute before diagonalization?
@@ -1020,17 +1020,17 @@ class Hamiltonian:
             for bandIdx in range(nbands):  
                 eVecKey = f"currIter_eVec_{kidx}_{bandIdx}"
                 eVecValue = {'dtype': evecs[:, bandIdx].dtype, 'shape': evecs[:, bandIdx].shape}
-
-                if eVecKey in self.shm_eVec:    # Check if the shm object already exists
-                    self.shm_eVec[eVecKey].close()
-                    self.shm_eVec[eVecKey].unlink()
-                    del self.shm_eVec[eVecKey]
+                if eVecKey in self.eVec_info:    # Check if the shm object already exists
+                    shm_obj = shared_memory.SharedMemory(name=eVecKey)
+                    shm_obj.close()
+                    shm_obj.unlink()
+                    del shm_obj
                     del self.eVec_info[eVecKey]
-
                 self.eVec_info[eVecKey] = eVecValue
+
                 # Move eVecs to shared memory
-                self.shm_eVec[eVecKey] = shared_memory.SharedMemory(create=True, size=evecs[:, bandIdx].nbytes, name=eVecKey)
-                tmp_arr = np.copy(np.ndarray(evecs[:, bandIdx].shape, dtype=evecs[:, bandIdx].dtype, buffer=self.shm_eVec[eVecKey].buf))  # Create a NumPy array backed by shared memory
+                shm = shared_memory.SharedMemory(create=True, size=evecs[:, bandIdx].nbytes, name=eVecKey)
+                tmp_arr = np.copy(np.ndarray(evecs[:, bandIdx].shape, dtype=evecs[:, bandIdx].dtype, buffer=shm.buf))  # Create a NumPy array backed by shared memory
                 tmp_arr[:] = evecs[:, bandIdx]
                 
                 # print(f"Eigenvector {bandIdx}: ")
@@ -1058,7 +1058,6 @@ class Hamiltonian:
         '''
         
         print(f"On this subprocess, we are working with kIdx {kidx}. The current self.eVec_info has length {len(self.eVec_info)} and looks like the following. We should see the length increase although multiprocessing. ")
-        print(self.eVec_info)
         if not requires_grad: 
             energiesEV = energiesEV.detach()
         return energiesEV
@@ -1141,9 +1140,11 @@ class Hamiltonian:
             if not all(key in self.eVec_info for key in keys_to_check):
                 print("Some eigenvectors are missing in the shared memory INFO DICT. I can't do band re-ordering. ")
                 return newOrder
+            '''
             if not all(key in self.shm_eVec for key in keys_to_check):
                 print("Some eigenvectors are missing in the shared memory SHM DICT. I can't do band re-ordering. ")
                 return newOrder
+            '''
 
             for k in range(kIdx-1): 
                 costMatrix = self.overlapMatrix(f"prevIter_eVec_{k}", f"prevIter_eVec_{k+1}", verbosity)
@@ -1161,9 +1162,11 @@ class Hamiltonian:
             if not all(key in self.eVec_info for key in keys_to_check):
                 print("Some eigenvectors are missing in the shared memory INFO DICT. I can't do band re-ordering. ")
                 return newOrder
+            '''
             if not all(key in self.shm_eVec for key in keys_to_check):
                 print("Some eigenvectors are missing in the shared memory SHM DICT. I can't do band re-ordering. ")
                 return newOrder
+            '''
 
             for k in range(kIdx): 
                 costMatrix = self.overlapMatrix(f"currIter_eVec_{k}", f"currIter_eVec_{k+1}", verbosity)
@@ -1192,21 +1195,21 @@ class Hamiltonian:
                 if curr_eVecKey not in self.eVec_info:
                     print(f"Skipping copying {curr_eVecKey} to {prev_eVecKey} because it's not found in eVec_info. ")
                     continue
-                self.eVec_info[prev_eVecKey] = self.eVec_info[curr_eVecKey]
-
-                if prev_eVecKey in self.shm_eVec:    # Check if shared memory with the prev_key already exists
-                    self.shm_eVec[prev_eVecKey].unlink()
-                    self.shm_eVec[prev_eVecKey].close()
-                    del self.shm_eVec[prev_eVecKey]
+                if prev_eVecKey in self.eVec_info:    # Check if the shm object already exists
+                    shm_obj = shared_memory.SharedMemory(name=prev_eVecKey)
+                    shm_obj.close()
+                    shm_obj.unlink()
+                    del shm_obj
                     del self.eVec_info[prev_eVecKey]
+                self.eVec_info[prev_eVecKey] = self.eVec_info[curr_eVecKey]
                 
                 # Read from curr_key shm object
                 shm_obj = shared_memory.SharedMemory(name=curr_eVecKey)
                 tmp_eVec = np.copy(np.ndarray(self.eVec_info[curr_eVecKey]['shape'], dtype=self.eVec_info[curr_eVecKey]['dtype'], buffer=shm_obj.buf))
 
                 # Create and copy to prev_key shm object
-                self.shm_eVec[prev_eVecKey] = shared_memory.SharedMemory(create=True, size=tmp_eVec.nbytes, name=prev_eVecKey)
-                tmp_arr = np.copy(np.ndarray(tmp_eVec.shape, dtype=tmp_eVec.dtype, buffer=self.shm_eVec[prev_eVecKey].buf))  # Create a NumPy array backed by shared memory
+                shm = shared_memory.SharedMemory(create=True, size=tmp_eVec.nbytes, name=prev_eVecKey)
+                tmp_arr = np.copy(np.ndarray(tmp_eVec.shape, dtype=tmp_eVec.dtype, buffer=shm.buf))  # Create a NumPy array backed by shared memory
                 tmp_arr[:] = tmp_eVec
         return
 

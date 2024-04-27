@@ -64,8 +64,8 @@ def overlapMatrix(kIdx1, kIdx2, deg=1, verbosity=0):
 
     # np.set_printoptions(formatter={'float': lambda x: "{: .3f}".format(x)})
     # print(M)
-
-    # np.savetxt(f"CALCS/CsPbI3_test/results/overlap_{kIdx1}_{kIdx2}.dat", M, fmt='%.4f')
+    if deg==1:
+        np.savetxt(f"CALCS/CsPbI3_test/results_{testCase}kpts/overlap_kIdx_{kIdx1}_{kIdx2}_CBQuad.dat", M[-6:,-6:], fmt='%.4f')
 
     return M
 
@@ -153,23 +153,32 @@ def plotBandStruct_reorder(refGWBS, defaultBS, newOrderBS, bandIdx):
 
 
 ########################## main ##########################
-testCase = 150
-reorderDeg = 2
+testCase = 128    # 16 64 128 150 
+reorderDeg = 1
+
+
+
+for i in range(80, 100):
+    constrained_cost_matrix = np.loadtxt(f"CALCS/CsPbI3_test/results_{testCase}kpts/overlap_kIdx_{i}_{i+1}_CBQuad.dat")
+    row_ind, col_ind = linear_sum_assignment(-constrained_cost_matrix)
+    # print(row_ind)
+    print(col_ind)
+
+
+'''
 refGWBS = np.loadtxt(f"CALCS/CsPbI3_test/inputs_{testCase}kpts/expBandStruct_0.par")
 currentBS = np.loadtxt(f"CALCS/CsPbI3_test/results_{testCase}kpts/epoch_1_BS_sys0.dat")
+print(f"Test Case of {testCase} kpoints. Algorithm assumes strict degeneracy of {reorderDeg}. \n")
 
 systems, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams = setAllBulkSystems(1, f"CALCS/CsPbI3_test/inputs_{testCase}kpts/", f"CALCS/CsPbI3_test/results_{testCase}kpts/")
 sys = systems[0]
 
 basis = sys.basis().numpy()
-print(basis[:4])
+print(f"The first 4 entries of the basis vectors: \n {basis[:4]} \n")
 kpts = sys.kpts.numpy()
 # print(kpts)
 kpts_diff = np.diff(kpts, axis=0)
-print(kpts_diff)
-print(kpts_diff[39])
-print(kpts_diff[40])
-print(np.max(kpts_diff))
+print(f"The maximum kpts_diff in any of the three dimensions: {np.max(kpts_diff)}\n")
 
 dict_orderSwap = {}
 for i in range(testCase-1):
@@ -191,12 +200,4 @@ for bandIdx in range(32):
     fig.savefig(f"CALCS/CsPbI3_test/results_{testCase}kpts/newBand_deg{reorderDeg}_{bandIdx}.png")
     plt.close()
 
-'''
-# Verify transmissibility, strict! 
-for a in range(16):
-    for b in range(16): 
-        if (a+b<=15):
-            oneStep = np.arange(32)[dict_orderSwap[f"0_to_{a+b}"]]
-            twoStep = np.arange(32)[dict_orderSwap[f"0_to_{a}"]][dict_orderSwap[f"{a}_to_{a+b}"]]
-            print(0, a, a+b, np.allclose(oneStep, twoStep))
 '''

@@ -2,6 +2,7 @@ import os, time, sys
 import torch
 import numpy as np
 from torch.optim.lr_scheduler import ExponentialLR
+from multiprocessing import shared_memory
 
 from utils.read import read_NNConfigFile, setAllBulkSystems, setNN
 from utils.pp_func import FT_converge_and_write_pp
@@ -68,10 +69,11 @@ def perturb(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'results_eval
             shm.close()
             shm.unlink()
     for ham in hams:
-        if ham.shm_eVec is not None:
-            for shm in ham.shm_eVec.values():
-                shm.close()
-                shm.unlink()
+        if ham.eVec_info is not None:
+            for key in ham.eVec_info:
+                shm_obj = shared_memory.SharedMemory(name=key)
+                shm_obj.close()
+                shm_obj.unlink()
 
 
 if len(sys.argv) != 3:
