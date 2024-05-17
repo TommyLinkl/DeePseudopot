@@ -94,6 +94,40 @@ def plotBandStruct(bulkSystem_list, bandStruct_list, SHOWPLOTS):
     return fig
 
 
+def plotBandStructFromFile(refFile, calcFile): 
+    refBS = np.loadtxt(refFile)[:, 1:]
+    calcBS = np.loadtxt(calcFile)[:, 1:]
+
+    fig, axs = plt.subplots(1, 2, figsize=(9, 4))
+    # plot ref
+    numBands = len(refBS[0])
+    numKpts = len(refBS)
+    for i in range(numBands): 
+        if i==0: 
+            axs[0].plot(np.arange(numKpts), refBS[:, i], "bo", alpha=0.5, markersize=2, label="Reference")
+            axs[1].plot(np.arange(numKpts), refBS[:, i], "bo", alpha=0.5, markersize=2, label="Reference")
+        else: 
+            axs[0].plot(np.arange(numKpts), refBS[:, i], "bo", alpha=0.5, markersize=2)
+            axs[1].plot(np.arange(numKpts), refBS[:, i], "bo", alpha=0.5, markersize=2)
+            
+    # plot prediction
+    numBands = len(calcBS[0])
+    numKpts = len(calcBS)
+    for i in range(numBands): 
+        if i==0: 
+            axs[0].plot(np.arange(numKpts), calcBS[:, i], "r-", alpha=0.6, label="Calc")
+            axs[1].plot(np.arange(numKpts), calcBS[:, i], "r-", alpha=0.6, label="Calc")
+        else: 
+            axs[0].plot(np.arange(numKpts), calcBS[:, i], "r-", alpha=0.6)
+            axs[1].plot(np.arange(numKpts), calcBS[:, i], "r-", alpha=0.6)
+    axs[0].legend(frameon=False)
+    axs[0].set(ylim=(-3000, -1000))
+    axs[1].set(ylim=(-9.5, -1.5))
+        
+    fig.tight_layout()
+    return fig
+
+
 def plotPP(atomPPOrder, ref_q, pred_q, ref_vq_atoms, pred_vq_atoms, ref_labelName, pred_labelName, lineshape_array, boolPlotDiff, SHOWPLOTS):
     # ref_vq_atoms and pred_vq_atoms are 2D tensors. Each tensor contains the pseudopotential (either ref or pred)
     # for atoms in the order of atomPPOrder. 

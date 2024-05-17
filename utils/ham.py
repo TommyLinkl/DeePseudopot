@@ -948,6 +948,11 @@ class Hamiltonian:
                 # dont need to interleave eigenvecs (if stored) since we only
                 # store the vb and cb anyways.
             energiesEV = energiesEV[:nbands]
+
+            # reorder the energies according to the manual input in self.system.bandOrderMatrix
+            energiesEV = energiesEV[self.system.bandOrderMatrix[kidx, :]]
+
+
         elif (self.coupling) and (not self.physicalBandOrdering):       # NOTE!!! This is not made compatible with the physicalBandOrdering parameter.  
             # this will be slower than necessary, since torch seems to only support
             # full diagonalization including all eigenvectors. 
@@ -1215,6 +1220,7 @@ class Hamiltonian:
 
 
 
+
     def calcBandStruct(self, grad=False, cachedMats_info=None): 
         if grad: 
             return self.calcBandStruct_withGrad(cachedMats_info)
@@ -1252,7 +1258,7 @@ class Hamiltonian:
                 eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False)
                 
                 # !!! FOR TESTING ONLY: 
-                # eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False, writeEVecsToFile=True, writeEVecsFolderName="CALCS/CsPbI3_test/results_150kpts/")
+                # eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False, writeEVecsToFile=True, writeEVecsFolderName="CALCS/CsPbI3_test/results_32kpts/")
 
                 bandStruct[kidx,:] = eigValsAtK
             self._copy_currIter_to_prevIter_shm()
