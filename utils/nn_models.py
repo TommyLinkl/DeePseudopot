@@ -1,5 +1,7 @@
 import torch
 import torch.nn as nn
+import random
+import numpy as np
 
 torch.set_default_dtype(torch.float64)
 
@@ -108,6 +110,40 @@ class Net_celu_HeInit(nn.Module):
             linear = nn.Linear(input_size, output_size)
             nn.init.kaiming_normal_(linear.weight, mode='fan_in', nonlinearity='relu')
             self.hidden_l.append(linear)
+
+    def forward(self, x):
+        L = len(self.hidden_l)
+        for (l, linear_transform) in zip(range(L), self.hidden_l):
+            if l < L - 1:
+                x = nn.CELU()(linear_transform(x))
+            else:
+                x = linear_transform(x)
+        return x
+
+class Net_celu_RandInit(nn.Module):
+    def __init__(self, Layers):
+        super(Net_celu_RandInit, self).__init__()
+        self.hidden_l = nn.ModuleList()
+
+        # Save the current random state
+        current_random_state = torch.get_rng_state()
+        current_numpy_state = np.random.get_state()
+        current_python_state = random.getstate()
+
+        # Optionally: set a new random seed, or leave it random
+        # torch.manual_seed(some_new_seed) # if you want to explicitly set a different seed
+
+        for input_size, output_size in zip(Layers, Layers[1:]):
+            linear = nn.Linear(input_size, output_size)
+            # Custom normal distribution initialization
+            std = 1.0 / (input_size ** 0.5)
+            nn.init.normal_(linear.weight, mean=0.0, std=std)
+            self.hidden_l.append(linear)
+
+        # Restore the original random state
+        torch.set_rng_state(current_random_state)
+        np.random.set_state(current_numpy_state)
+        random.setstate(current_python_state)
 
     def forward(self, x):
         L = len(self.hidden_l)
@@ -420,6 +456,18 @@ class Net_celu_HeInit_decayGaussian(nn.Module):
     def __init__(self, Layers, gaussian_std):
         super(Net_celu_HeInit_decayGaussian, self).__init__()
         self.neural_network = Net_celu_HeInit(Layers)
+        self.gaussian_std = torch.tensor(gaussian_std, requires_grad=False)
+    
+    def forward(self, x):
+        gaussian = torch.exp(-x**2/(2*self.gaussian_std**2))
+        output = self.neural_network(x) * gaussian
+        return output
+
+
+class Net_celu_RandInit_decayGaussian(nn.Module):
+    def __init__(self, Layers, gaussian_std):
+        super(Net_celu_RandInit_decayGaussian, self).__init__()
+        self.neural_network = Net_celu_RandInit(Layers)
         self.gaussian_std = torch.tensor(gaussian_std, requires_grad=False)
     
     def forward(self, x):
