@@ -386,7 +386,7 @@ def setNN(config, nPseudopot):
     if config['PPmodel'] in globals() and callable(globals()[config['PPmodel']]):
         if config['PPmodel']=='Net_relu_xavier_decay': 
             PPmodel = globals()[config['PPmodel']](layers, decay_rate=config['PPmodel_decay_rate'], decay_center=config['PPmodel_decay_center'])
-        elif config['PPmodel'] in ['Net_relu_xavier_decayGaussian', 'Net_relu_xavier_BN_decayGaussian', 'Net_relu_xavier_BN_dropout_decayGaussian', 'Net_relu_HeInit_decayGaussian', 'Net_sigmoid_xavier_decayGaussian', 'Net_celu_HeInit_decayGaussian']: 
+        elif config['PPmodel'] in ['Net_relu_xavier_decayGaussian', 'Net_relu_xavier_BN_decayGaussian', 'Net_relu_xavier_BN_dropout_decayGaussian', 'Net_relu_HeInit_decayGaussian', 'Net_sigmoid_xavier_decayGaussian', 'Net_celu_HeInit_decayGaussian', 'Net_celu_RandInit_decayGaussian']: 
             PPmodel = globals()[config['PPmodel']](layers, gaussian_std=config['PPmodel_gaussian_std'])
         else: 
             PPmodel = globals()[config['PPmodel']](layers)
