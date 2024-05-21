@@ -130,8 +130,8 @@ class Net_celu_RandInit(nn.Module):
         current_numpy_state = np.random.get_state()
         current_python_state = random.getstate()
 
-        # Optionally: set a new random seed, or leave it random
-        # torch.manual_seed(some_new_seed) # if you want to explicitly set a different seed
+        # Set a new random seed
+        torch.manual_seed(random.randint(0, 2**32 - 1))
 
         for input_size, output_size in zip(Layers, Layers[1:]):
             linear = nn.Linear(input_size, output_size)
