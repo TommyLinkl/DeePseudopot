@@ -90,12 +90,6 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
         for shm in shm_dict_NL.values():
             shm.close()
             shm.unlink()
-    for ham in hams:
-        if ham.eVec_info is not None:
-            for key in ham.eVec_info:
-                shm_obj = shared_memory.SharedMemory(name=key)
-                shm_obj.close()
-                shm_obj.unlink()
     
 
 if __name__ == "__main__":

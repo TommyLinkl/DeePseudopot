@@ -125,7 +125,7 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, criterion_singleKpt, op
     For performance, it is recommended that the ham in the argument doesn't have SOmat and NLmat initialized. 
     """
     singleKptGradients = {}
-    calcEnergies = ham.calcEigValsAtK(kidx, cachedMats_info, requires_grad=True, parallelization=True)
+    calcEnergies = ham.calcEigValsAtK(kidx, cachedMats_info, requires_grad=True)
 
     systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem, kidx)
     start_time = time.time() if ham.NNConfig['runtime_flag'] else None
@@ -263,7 +263,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
 
         if (NNConfig['num_cores']==0):   # No multiprocessing
             for kidx in range(sys.getNKpts()): 
-                calcEnergies = hams[iSys].calcEigValsAtK(kidx, cachedMats_info, requires_grad=True, parallelization=False)   # writeEVecsToFile=True, writeEVecsFolderName=resultsFolder)
+                calcEnergies = hams[iSys].calcEigValsAtK(kidx, cachedMats_info, requires_grad=True)   # writeEVecsToFile=True, writeEVecsFolderName=resultsFolder)
                 systemKptLoss = criterion_singleKpt(calcEnergies, sys, kidx)
 
                 start_time = time.time() if NNConfig['runtime_flag'] else None
@@ -294,7 +294,6 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
         
         total_gradients = merge_dicts([total_gradients, gradients_system])
         trainLoss += trainLoss_system
-        hams[iSys]._copy_currIter_to_prevIter_shm()
 
     # Write the manually accumulated gradients and loss values back into the NN model
     optimizer.zero_grad()
