@@ -220,7 +220,7 @@ class BulkSystem:
 
         # Define manual band ordering if the file "kpoints_0_orderMatrix.par" exist
         self.bandOrderMatrix = np.arange(self.nBands)[np.newaxis, :].repeat(self.getNKpts(), axis=0)
-        bandOrderFilename = kPointsFilename.split(".")[0] + "orderMatrix.par"
+        bandOrderFilename = kPointsFilename.split(".")[0] + "_orderMatrix.par"
         if os.path.exists(bandOrderFilename):
             self.bandOrderMatrix = np.loadtxt(bandOrderFilename, dtype=int)
             print(f"We are reading and using the fixed order of bands from the file '{bandOrderFilename}'. ")
