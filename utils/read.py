@@ -49,13 +49,20 @@ def read_NNConfigFile(filename):
     if (config["checkpoint"]==1) and (config["separateKptGrad"]==1): 
         raise ValueError("############################################\n# Please don't turn on both checkpoint and separateKptGrad. \n############################################\n")
     elif (config["checkpoint"]==1) and (config["separateKptGrad"]==0):
+        print("This is the designed usage of this branch. Please ignore the following warning. ")
         print("WARNING: Using checkpointing! Please use this as a last resort, only for pseudopotential fitting where memory limit is a major issue. The code will run slower due to checkpointing. \n")
     elif (config["checkpoint"]==0) and (config["separateKptGrad"]==1): 
+        raise ValueError("""On this branch, only naiive training without parallelization is implemented. 
+            Please make sure to set 'separateKptGrad' keyword to False. """)
         print("\tUsing separateKptGrad. This can decrease the peak memory load during the fitting code.")
 
     if (config['num_cores']==0): 
         print("\tNot doing multiprocessing.")
+        print("\tThis is the designed usage of this branch. ")
     else:
+        raise ValueError("""On this branch, only naiive training without parallelization is implemented. 
+            Parallel version of fitting won't be allowed. 
+            Please make sure to set 'num_cores' to 0. """)
         print(f"\tUsing num_cores = {config['num_cores']} parallelization out of {mp.cpu_count()} total CPUs available.")
 
     if config['memory_flag']: 
