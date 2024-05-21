@@ -342,8 +342,8 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
 
         else: 
             raise ValueError("""On this branch, only naiive training without parallelization is implemented. 
-                             Parallel version of fitting won't be allowed. 
-                             Please make sure to set 'separateKptGrad' keyword to False. """)
+            Parallel version of fitting won't be allowed. 
+            Please make sure to set 'separateKptGrad' keyword to False. """)
             model, trainLoss = trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, resultsFolder, cachedMats_info)
         training_COST.append(trainLoss.item())
         file_trainCost.write(f"{epoch+1}  {trainLoss.item()}\n")
