@@ -1239,7 +1239,8 @@ class Hamiltonian:
         for kidx in range(nkpt):
             eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=True, parallelization=False)
             bandStruct[kidx,:] = eigValsAtK
-        self._copy_currIter_to_prevIter_shm()
+        # self._copy_currIter_to_prevIter_shm()   # Muting this for this branch only
+
                     
         return bandStruct
 
