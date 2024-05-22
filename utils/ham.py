@@ -1813,6 +1813,7 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device):
             ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
         elif (NNConfig['SObool']) and (NNConfig['num_cores']==0): 
             ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
+            print("TESTING: Done with function 'initAndCacheHams' in this run. ")
         else: 
             cachedMats_info = {}
             shm_dict_SO = {}
