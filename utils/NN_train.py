@@ -15,7 +15,8 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 
 from .constants import *
-from .pp_func import plotPP, plot_training_validation_cost, plotBandStruct, plot_mc_cost
+from .pp_func import plotPP, plot_training_validation_cost, plotBandStruct, plot_mc_cost, plotBandStruct_reorder
+from .smooth_order import reorder_smoothness_deg2_tensors
 
 def print_and_inspect_gradients(model, filename=None, show=False): 
     if (filename is None) and show: 
@@ -144,6 +145,47 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, criterion_singleKpt, op
     return singleKptGradients, trainLoss_systemKpt
 
 
+def calcEigValsAtK_wGrad_parallel_smoothReorder(kidx, ham, bulkSystem, optimizer, model, cachedMats_info=None):
+    nbands = bulkSystem.nBands
+    lin_grad_kpt = [None for _ in range(nbands)]
+    quad_grad_kpt = [None for _ in range(nbands)]
+
+    calcEnergies = ham.calcEigValsAtK(kidx, cachedMats_info, requires_grad=True)
+    energies_detach = calcEnergies.detach()
+
+    start_time = time.time() if ham.NNConfig['runtime_flag'] else None
+    for bandIdx, bandEne in enumerate(calcEnergies):
+        optimizer.zero_grad()
+        bandEne.backward(retain_graph=True)
+
+        tmp_grad = {}
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                tmp_grad[name] = tmp_grad.get(name, 0) + param.grad.detach().clone()
+        lin_grad_kpt[bandIdx] = tmp_grad
+
+        optimizer.zero_grad()
+        bandEneQuadratic = bandEne ** 2
+        bandEneQuadratic.backward(retain_graph=True)
+
+        tmp_grad = {}
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                tmp_grad[name] = tmp_grad.get(name, 0) + param.grad.detach().clone()
+        quad_grad_kpt[bandIdx] = tmp_grad
+
+        bandEne.detach()
+        del bandEne
+        del bandEneQuadratic
+        torch.cuda.empty_cache()
+        gc.collect()
+
+    end_time = time.time() if ham.NNConfig['runtime_flag'] else None
+    print(f"Backprop on individual energies + storing all the gradients, elapsed time: {(end_time - start_time):.2f} seconds") if ham.NNConfig['runtime_flag'] else None
+        
+    return energies_detach, lin_grad_kpt, quad_grad_kpt
+
+
 def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info=None, runtime_flag=False):
     trainLoss = torch.tensor(0.0)
     for iSys, sys in enumerate(systems):
@@ -236,6 +278,143 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
     return model, trainLoss
 
 
+def trainIter_naive_smoothReorder(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info=None, runtime_flag=False):
+    trainLoss = torch.tensor(0.0)
+    for iSys, sys in enumerate(systems):
+        hams[iSys].NN_locbool = True
+        hams[iSys].set_NNmodel(model)
+
+        NN_outputs = hams[iSys].calcBandStruct_withGrad(cachedMats_info)
+
+        # reorder NN_outputs
+        order_table, newBS, extrapolated_points = reorder_smoothness_deg2_tensors(NN_outputs)
+        systemLoss = criterion_singleSystem(newBS, sys)
+        trainLoss += systemLoss
+
+    start_time = time.time() if runtime_flag else None
+    optimizer.zero_grad()
+    trainLoss.backward()
+    optimizer.step()
+    end_time = time.time() if runtime_flag else None
+    print(f"loss_backward + optimizer.step, elapsed time: {(end_time - start_time):.2f} seconds") if runtime_flag else None
+
+    torch.cuda.empty_cache()
+    return model, trainLoss, order_table, newBS, extrapolated_points
+
+
+def trainIter_separateKptGrad_smoothReorder(model, systems, hams, NNConfig, optimizer, cachedMats_info=None): 
+    def merge_dicts(dicts):
+        merged_dict = {}
+        for d in dicts:
+            for key in d:
+                merged_dict[key] = merged_dict.get(key, 0) + d[key]
+        return merged_dict
+    
+    trainLoss = 0.0
+    total_gradients = {}
+    for iSys, sys in enumerate(systems):
+        hams[iSys].NN_locbool = True
+        hams[iSys].set_NNmodel(model)
+        nbands = sys.nBands
+        nkpt = sys.getNKpts()
+
+        # A list of lists of dictionaries. I will copy out, detach, and store all the parameter gradients. 
+        lin_grad = [[None] * nbands for _ in range(nkpt)]
+        quad_grad = [[None] * nbands for _ in range(nkpt)]
+        calcBS_nograd = torch.zeros([nkpt, nbands], requires_grad=False)
+        if (NNConfig['num_cores']==0):   # No multiprocessing
+            for kidx in range(nkpt): 
+                calcEnergies = hams[iSys].calcEigValsAtK(kidx, cachedMats_info, requires_grad=True)
+                calcBS_nograd[kidx,:] = calcEnergies.detach()
+
+                start_time = time.time() if NNConfig['runtime_flag'] else None
+                for bandIdx, bandEne in enumerate(calcEnergies):
+                    print(f"kIdx = {kidx}, bandIdx = {bandIdx}")
+                    optimizer.zero_grad()
+                    bandEne.backward(retain_graph=True)
+
+                    tmp_grad = {}
+                    for name, param in model.named_parameters():
+                        if param.grad is not None:
+                            tmp_grad[name] = tmp_grad.get(name, 0) + param.grad.detach().clone()
+                    lin_grad[kidx][bandIdx] = tmp_grad
+
+                    optimizer.zero_grad()
+                    bandEneQuadratic = bandEne ** 2
+                    bandEneQuadratic.backward(retain_graph=True)
+
+                    tmp_grad = {}
+                    for name, param in model.named_parameters():
+                        if param.grad is not None:
+                            tmp_grad[name] = tmp_grad.get(name, 0) + param.grad.detach().clone()
+                    quad_grad[kidx][bandIdx] = tmp_grad
+
+                    bandEne.detach()
+                    del bandEne
+                    del bandEneQuadratic
+                    torch.cuda.empty_cache()
+                    gc.collect()
+
+                end_time = time.time() if NNConfig['runtime_flag'] else None
+                print(f"Backprop on individual energies + storing all the gradients, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
+
+        else: # multiprocessing
+            optimizer.zero_grad()
+            args_list = [(kidx, hams[iSys], sys, optimizer, model, cachedMats_info) for kidx in range(sys.getNKpts())]
+            with mp.Pool(NNConfig['num_cores']) as pool:
+                results = pool.starmap(calcEigValsAtK_wGrad_parallel_smoothReorder, args_list)
+
+                energies_detach_list, lin_grad, quad_grad = zip(*results)
+                calcBS_nograd = torch.stack(energies_detach_list, dim=1)
+            gc.collect()
+
+        # Reorder the bands according to smoothness
+        order_table, newBS, extrapolated_points = reorder_smoothness_deg2_tensors(calcBS_nograd)
+
+        # Reorder the list of lists of dictionaries using order_table
+        calcBS_nograd_reorder = calcBS_nograd[torch.arange(calcBS_nograd.size(0))[:, None], order_table]
+        lin_grad_reorder = [[lin_grad[i][j] for j in order_table[i]] for i in range(len(lin_grad))]
+        quad_grad_reorder = [[quad_grad[i][j] for j in order_table[i]] for i in range(len(quad_grad))]
+
+        # Calculate the actual loss and gradients according to smoothness
+        trainLoss_system = 0.0
+        gradients_system = {key: 0.0 for key in lin_grad_reorder[0][0]}
+        # Add weights to kpts and bands. bandWeights follow reference order! 
+        bandWeights = sys.bandWeights
+        kptWeights = sys.kptWeights
+        if (len(bandWeights)!=nbands) or (len(kptWeights)!=nkpt): 
+            raise ValueError("bandWeights or kptWeights lengths aren't correct. ")
+        newBandWeights = bandWeights.view(1, -1).expand(nkpt, -1)
+        newKptWeights = kptWeights.view(-1, 1).expand(-1, nbands)
+
+        trainLoss_system = torch.sum((calcBS_nograd_reorder - sys.expBandStruct)**2 * newBandWeights * newKptWeights)
+
+        for kIdx in range(nkpt):
+            for bandIdx in range(nbands):
+                for key in gradients_system:
+                    gradients_system[key] += (quad_grad_reorder[kIdx][bandIdx][key]
+                                             - 2*sys.expBandStruct[kIdx, bandIdx] * lin_grad_reorder[kIdx][bandIdx][key])* newBandWeights * newKptWeights
+
+        
+        total_gradients = merge_dicts([total_gradients, gradients_system])
+        trainLoss += trainLoss_system
+
+    # Write the manually accumulated gradients and loss values back into the NN model
+    optimizer.zero_grad()
+    with torch.no_grad():
+        for name, param in model.named_parameters():
+            if name in total_gradients:
+                param.grad = total_gradients[name].detach().clone()
+
+    start_time = time.time() if NNConfig['runtime_flag'] else None
+    optimizer.step()
+    end_time = time.time() if NNConfig['runtime_flag'] else None
+    print(f"optimizer step, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
+    torch.cuda.empty_cache()
+
+    return model, trainLoss
+
+
 def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, val_dataset, resultsFolder, cachedMats_info=None):
     training_COST=[]
     validation_COST=[]
@@ -250,9 +429,26 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
         # train
         model.train()
         if NNConfig['separateKptGrad']==0: 
-            model, trainLoss = trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info, NNConfig['runtime_flag'])
-        else: 
-            model, trainLoss = trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info)
+            if NNConfig['smooth_reorder']: 
+                model, trainLoss, order_table, newBS, extrapolated_points = trainIter_naive_smoothReorder(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info, NNConfig['runtime_flag'])
+                for bandIdx in range(newBS.shape[1]):
+                    fig, ax = plotBandStruct_reorder(newBS.detach().numpy(), bandIdx)
+                    ax.plot(np.arange(len(newBS)), extrapolated_points[:, bandIdx].detach().numpy(), "gx:", alpha=0.8, markersize=4)
+                    ax.set(ylim=(min(extrapolated_points[:, bandIdx])-0.1, max(extrapolated_points[:, bandIdx])+0.1))
+                    # plot_highlight_kpt(ax, [0,3,6,13,19,26,34,40,50,60,65,70,79,90,100,108])
+                    fig.savefig(f"{resultsFolder}epoch_{epoch+1}_newBand_{bandIdx}.png")
+                    fig.savefig(f"{resultsFolder}epoch_{epoch+1}_newBand_{bandIdx}.pdf")
+                    plt.close()
+
+            else: 
+                model, trainLoss = trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info, NNConfig['runtime_flag'])
+
+        else:
+            if NNConfig['smooth_reorder']: 
+                model, trainLoss = trainIter_separateKptGrad_smoothReorder(model, systems, hams, NNConfig, optimizer, cachedMats_info)
+            else: 
+                model, trainLoss = trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info)
+
         training_COST.append(trainLoss.item())
         file_trainCost.write(f"{epoch+1}  {trainLoss.item()}\n")
         print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], training cost: {trainLoss.item():.4f}")

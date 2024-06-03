@@ -94,6 +94,64 @@ def plotBandStruct(bulkSystem_list, bandStruct_list, SHOWPLOTS):
     return fig
 
 
+def plotBandStructFromFile(refFile, calcFile): 
+    refBS = np.loadtxt(refFile)[:, 1:]
+    calcBS = np.loadtxt(calcFile)[:, 1:]
+
+    fig, axs = plt.subplots(1, 2, figsize=(9, 4))
+    # plot ref
+    numBands = len(refBS[0])
+    numKpts = len(refBS)
+    for i in range(numBands): 
+        if i==0: 
+            axs[0].plot(np.arange(numKpts), refBS[:, i], "bo", alpha=0.5, markersize=2, label="Reference")
+            axs[1].plot(np.arange(numKpts), refBS[:, i], "bo", alpha=0.5, markersize=2, label="Reference")
+        else: 
+            axs[0].plot(np.arange(numKpts), refBS[:, i], "bo", alpha=0.5, markersize=2)
+            axs[1].plot(np.arange(numKpts), refBS[:, i], "bo", alpha=0.5, markersize=2)
+            
+    # plot prediction
+    numBands = len(calcBS[0])
+    numKpts = len(calcBS)
+    for i in range(numBands): 
+        if i==0: 
+            axs[0].plot(np.arange(numKpts), calcBS[:, i], "r-", alpha=0.6, label="Calc")
+            axs[1].plot(np.arange(numKpts), calcBS[:, i], "r-", alpha=0.6, label="Calc")
+        else: 
+            axs[0].plot(np.arange(numKpts), calcBS[:, i], "r-", alpha=0.6)
+            axs[1].plot(np.arange(numKpts), calcBS[:, i], "r-", alpha=0.6)
+    axs[0].legend(frameon=False)
+    axs[0].set(ylim=(-3000, -1000))
+    axs[1].set(ylim=(-9.5, -1.5))
+        
+    fig.tight_layout()
+    return fig
+
+
+def plotBandStruct_reorder(newOrderBS, bandIdx): 
+    fig, ax = plt.subplots(1, 1, figsize=(8,8))
+
+    numBands = len(newOrderBS[0])
+    numKpts = len(newOrderBS)
+    for i in range(numBands): 
+        if i==0: 
+            ax.plot(np.arange(numKpts), newOrderBS[:, i], "bo-", alpha=0.1, markersize=2)
+        else: 
+            ax.plot(np.arange(numKpts), newOrderBS[:, i], "bo-", alpha=0.1, markersize=2)
+
+    # plot new ordering
+    numKpts = len(newOrderBS)
+    ax.plot(np.arange(numKpts), newOrderBS[:, bandIdx], "ro-", alpha=0.8, markersize=2, label=f"band{bandIdx}")
+    ax.legend()
+    ax.set(ylim=(min(newOrderBS[:, bandIdx])-0.2, max(newOrderBS[:, bandIdx])+0.2))
+    # ax.get_xaxis().set_ticks([0, 10, 20, 30, 40, 50, 60, 70, 79, 80, 90, 100, 108, 110, 120, 130, 140, 149])
+    # ax.get_xaxis().set_ticklabels(["R", 10, 20, 30, 40, r"$\Gamma$", 60, 70, "X", 80, 90, 100, "M", 110, 120, 130, 140, r"$\Gamma$"])
+    ax.grid(alpha=0.5)
+
+    fig.tight_layout()
+    return fig, ax
+
+
 def plotPP(atomPPOrder, ref_q, pred_q, ref_vq_atoms, pred_vq_atoms, ref_labelName, pred_labelName, lineshape_array, boolPlotDiff, SHOWPLOTS):
     # ref_vq_atoms and pred_vq_atoms are 2D tensors. Each tensor contains the pseudopotential (either ref or pred)
     # for atoms in the order of atomPPOrder. 
