@@ -1,6 +1,6 @@
 #!/bin/bash
 
-testCases_list=('checkpoint' 'separateKpts' 'vanilla')
+testCases_list=('checkpoint' 'separateKpts' 'vanilla' 'sepKptsAndChkpnt')
 
 for testCase in "${testCases_list[@]}"; do
     output_file="mprofile_output_${testCase}.dat"

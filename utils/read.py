@@ -47,7 +47,7 @@ def read_NNConfigFile(filename):
         raise ValueError("One or more required parameters are missing: 'PPmodel', 'nSystem', 'hiddenLayers'.")
     
     if (config["checkpoint"]==1) and (config["separateKptGrad"]==1): 
-        raise ValueError("############################################\n# Please don't turn on both checkpoint and separateKptGrad. \n############################################\n")
+        print("WARNING: Both checkpoint and separateKptGrad are turned on. \n")
     elif (config["checkpoint"]==1) and (config["separateKptGrad"]==0):
         print("WARNING: Using checkpointing! Please use this as a last resort, only for pseudopotential fitting where memory limit is a major issue. The code will run slower due to checkpointing. \n")
     elif (config["checkpoint"]==0) and (config["separateKptGrad"]==1): 

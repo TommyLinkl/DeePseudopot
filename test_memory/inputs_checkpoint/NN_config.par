@@ -4,11 +4,11 @@ memory_flag = 0
 runtime_flag = 0
 num_cores = 0
 
-PPmodel = Net_relu_xavier_decayGaussian
+PPmodel = Net_celu_HeInit_decayGaussian
 PPmodel_decay_rate = 1.5
 PPmodel_decay_center = 5.0
-PPmodel_gaussian_std = 3.0
-hiddenLayers = 20 20 20
+PPmodel_gaussian_std = 2.0
+hiddenLayers = 32 32 32
 separateKptGrad = 0
 checkpoint = 1
 SObool = 1
