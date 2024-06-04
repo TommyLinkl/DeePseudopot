@@ -155,28 +155,23 @@ def calcEigValsAtK_wGrad_parallel_smoothReorder(kidx, ham, bulkSystem, optimizer
 
     start_time = time.time() if ham.NNConfig['runtime_flag'] else None
     for bandIdx, bandEne in enumerate(calcEnergies):
-        optimizer.zero_grad()
-        bandEne.backward(retain_graph=True)
+        # optimizer.zero_grad()
+        grads = torch.autograd.grad(bandEne, model.parameters(), retain_graph=True)
 
         tmp_grad = {}
-        for name, param in model.named_parameters():
-            if param.grad is not None:
-                tmp_grad[name] = tmp_grad.get(name, 0) + param.grad.detach().clone()
+        for i, (name, param) in enumerate(model.named_parameters()):
+            if grads[i] is not None:
+                tmp_grad[name] = tmp_grad.get(name, 0) + grads[i].detach().clone()
         lin_grad_kpt[bandIdx] = tmp_grad
 
-        optimizer.zero_grad()
-        bandEneQuadratic = bandEne ** 2
-        bandEneQuadratic.backward(retain_graph=True)
-
         tmp_grad = {}
-        for name, param in model.named_parameters():
-            if param.grad is not None:
-                tmp_grad[name] = tmp_grad.get(name, 0) + param.grad.detach().clone()
-        quad_grad_kpt[bandIdx] = tmp_grad
+        for i, (name, param) in enumerate(model.named_parameters()):
+            if grads[i] is not None:
+                tmp_grad[name] = tmp_grad.get(name, 0) + 2 * bandEne.detach().clone() * grads[i].detach().clone()
+        quad_grad_kpt[kidx][bandIdx] = tmp_grad
 
         bandEne.detach()
         del bandEne
-        del bandEneQuadratic
         torch.cuda.empty_cache()
         gc.collect()
 
@@ -327,36 +322,40 @@ def trainIter_separateKptGrad_smoothReorder(model, systems, hams, NNConfig, opti
                 calcEnergies = hams[iSys].calcEigValsAtK(kidx, cachedMats_info, requires_grad=True)
                 calcBS_nograd[kidx,:] = calcEnergies.detach()
 
-                start_time = time.time() if NNConfig['runtime_flag'] else None
+                start_time = time.time()
+                grads = torch.autograd.grad(torch.sum(calcEnergies ** 2), model.parameters(), retain_graph=True)
+                end_time = time.time()
+                print(f"Test, backprop on the MSE of all energies, elapsed time: {(end_time - start_time):.2f} seconds\n")
+
                 for bandIdx, bandEne in enumerate(calcEnergies):
                     print(f"kIdx = {kidx}, bandIdx = {bandIdx}")
-                    optimizer.zero_grad()
-                    bandEne.backward(retain_graph=True)
-
+                    start_time = time.time() # if NNConfig['runtime_flag'] else None
+                    # optimizer.zero_grad()
+                    grads = torch.autograd.grad(bandEne, model.parameters(), retain_graph=True)
+                    end_time = time.time()
+                    print(f"Backprop on this energy, elapsed time: {(end_time - start_time):.2f} seconds")
+                    
+                    start_time = time.time()
                     tmp_grad = {}
-                    for name, param in model.named_parameters():
-                        if param.grad is not None:
-                            tmp_grad[name] = tmp_grad.get(name, 0) + param.grad.detach().clone()
+                    for i, (name, param) in enumerate(model.named_parameters()):
+                        if grads[i] is not None:
+                            tmp_grad[name] = tmp_grad.get(name, 0) + grads[i].detach().clone()
                     lin_grad[kidx][bandIdx] = tmp_grad
 
-                    optimizer.zero_grad()
-                    bandEneQuadratic = bandEne ** 2
-                    bandEneQuadratic.backward(retain_graph=True)
-
                     tmp_grad = {}
-                    for name, param in model.named_parameters():
-                        if param.grad is not None:
-                            tmp_grad[name] = tmp_grad.get(name, 0) + param.grad.detach().clone()
+                    for i, (name, param) in enumerate(model.named_parameters()):
+                        if grads[i] is not None:
+                            tmp_grad[name] = tmp_grad.get(name, 0) + 2 * bandEne.detach().clone() * grads[i].detach().clone()
                     quad_grad[kidx][bandIdx] = tmp_grad
 
                     bandEne.detach()
                     del bandEne
-                    del bandEneQuadratic
                     torch.cuda.empty_cache()
                     gc.collect()
 
-                end_time = time.time() if NNConfig['runtime_flag'] else None
-                print(f"Backprop on individual energies + storing all the gradients, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
+                    end_time = time.time() # if NNConfig['runtime_flag'] else None
+                    print(f"Storing all the gradients, elapsed time: {(end_time - start_time):.2f} seconds")
+                    # print(f"Backprop on this energy + storing all the gradients, elapsed time: {(end_time - start_time):.2f} seconds") #  if NNConfig['runtime_flag'] else None
 
         else: # multiprocessing
             optimizer.zero_grad()
