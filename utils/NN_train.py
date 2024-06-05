@@ -18,6 +18,12 @@ from .constants import *
 from .pp_func import plotPP, plot_training_validation_cost, plotBandStruct, plot_mc_cost
 
 def print_and_inspect_gradients(model, filename=None, show=False): 
+    """
+    Prints and/or saves the gradients of the model parameters.
+
+    If 'filename' is provided and 'show' is True, it saves the gradients to the file.
+    If 'filename' is None and 'show' is True, it prints the gradients.
+    """
     if (filename is None) and show: 
         for name, param in model.named_parameters():
             if param.grad is not None:
@@ -37,6 +43,12 @@ def print_and_inspect_gradients(model, filename=None, show=False):
 
 
 def print_and_inspect_NNParams(model, filename=None, show=False): 
+    """
+    Prints and/or saves the values of the model parameters.
+
+    If 'filename' is provided and 'show' is True, it saves the parameters to the file.
+    If 'filename' is None and 'show' is True, it prints the parameters.
+    """
     if (filename is None) and show: 
         for name, param in model.named_parameters():
             print(f'Parameter: {name}, Tensor shape: {param.shape}')
@@ -47,6 +59,73 @@ def print_and_inspect_NNParams(model, filename=None, show=False):
                 f.write(f'Parameter: {name}, Tensor shape: {param.shape}\n')
                 tensor_str = np.array2string(param.detach().numpy(), precision=5, suppress_small=True, max_line_width=999999, threshold=99*99)
                 f.write(f'Gradient values:\n{tensor_str}\n\n')
+
+
+def get_max_gradient_param(model):
+    """
+    Returns the parameter that has the largest gradient, in terms of the 
+    parameter tensor's name in the dictionary, the index within this tensor, 
+    and the value of the gradient. 
+
+    Later, one can access this parameter using: 
+    dict(model.named_parameters())[max_grad_name].grad[max_grad_index]
+    """
+    gradients_populated = any(param.grad is not None for param in model.parameters())
+    if not gradients_populated:
+        raise ValueError("Gradients have not been populated. Ensure that a backward pass has been performed.")
+
+    max_grad = None
+    max_grad_index = None
+    max_grad_name = None
+
+    for name, param in model.named_parameters():
+        if param.grad is not None:
+            grad_abs_max_value = param.grad.abs().max().item()
+            if max_grad is None or grad_abs_max_value > max_grad:
+                max_grad = grad_abs_max_value
+                max_grad_name = name
+                max_grad_index = param.grad.abs().argmax().item()
+
+    if max_grad_name is not None:
+        param = dict(model.named_parameters())[max_grad_name]
+        max_grad_value = param.grad.flatten()[max_grad_index]
+        max_grad_index = torch.unravel_index(max_grad_index, param.grad.shape)
+        return max_grad_name, max_grad_index, max_grad_value
+    else:
+        return None, None, None
+
+
+def manual_GD_one_param(model, learning_rate=None):
+    """
+    Make a manual gradient descent move on ONLY ONE parameter that has the largest
+    absolute gradient value. This is designed to slowly yet surely optimize to the
+    nearest local minimum on a multi-dimensional function space. The model is 
+    changed in-place. 
+
+    One can give an optional learning_rate parameter. If not used, the manual 
+    optimization steps (lr * grad) is hard-coded to 0.01
+    """
+    max_grad_name, max_grad_index, max_grad_value = get_max_gradient_param(model)
+    
+    if max_grad_name is None:
+        raise ValueError("No maximum gradient found in the model. (Meaning that there were no gradients in the model).")
+
+    # Zero all gradients, except for the one with maximum gradient
+    for param in model.parameters():
+        if param.grad is not None:
+            param.grad.zero_()
+    param = dict(model.named_parameters())[max_grad_name]
+    param.grad[max_grad_index] = max_grad_value
+
+    # Set the learning rate, ensuring max_grad_value is used appropriately
+    if learning_rate is None:
+        learning_rate = 0.01 / max_grad_value.abs()
+
+    # Perform the manual SGD step
+    with torch.no_grad():
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                param -= learning_rate * param.grad
 
 
 def weighted_mse_bandStruct(bandStruct_hat, bulkSystem): 
@@ -144,7 +223,7 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, criterion_singleKpt, op
     return singleKptGradients, trainLoss_systemKpt
 
 
-def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info=None, runtime_flag=False):
+def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info=None, runtime_flag=False, preAdjustBool=False):
     trainLoss = torch.tensor(0.0)
     for iSys, sys in enumerate(systems):
         hams[iSys].NN_locbool = True
@@ -160,7 +239,10 @@ def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cac
     optimizer.zero_grad()
     trainLoss.backward()
     # print_and_inspect_gradients(model, show=True)
-    optimizer.step()
+    if preAdjustBool: 
+        manual_GD_one_param(model, learning_rate=None)
+    else:
+        optimizer.step()
     end_time = time.time() if runtime_flag else None
     print(f"loss_backward + optimizer.step, elapsed time: {(end_time - start_time):.2f} seconds") if runtime_flag else None
 
@@ -168,7 +250,7 @@ def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cac
     return model, trainLoss
 
 
-def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info=None): 
+def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info=None, preAdjustBool=False): 
     def merge_dicts(dicts):
         merged_dict = {}
         for d in dicts:
@@ -226,7 +308,10 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
                 param.grad = total_gradients[name].detach().clone()
 
     start_time = time.time() if NNConfig['runtime_flag'] else None
-    optimizer.step()
+    if preAdjustBool: 
+        manual_GD_one_param(model, learning_rate=None)
+    else:
+        optimizer.step()
     end_time = time.time() if NNConfig['runtime_flag'] else None
     print(f"optimizer step, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
 
@@ -244,9 +329,31 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
     model.to(device)
     best_validation_loss = float('inf')
     no_improvement_count = 0
+
+    # pre_adjustments. Optimizing only ONE PARAMETER at a time, which has the largest gradient
+    if ('pre_adjust_moves' in NNConfig) or (NNConfig['pre_adjust_moves']>0): 
+        for pre_epoch in range(NNConfig['pre_adjust_moves']):
+            model.train()
+
+            if NNConfig['separateKptGrad']==0: 
+                model, trainLoss = trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info, NNConfig['runtime_flag'], preAdjustBool=True)
+            else: 
+                model, trainLoss = trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info, preAdjustBool=True)
+
+            file_trainCost.write(f"{pre_epoch+1-100}  {trainLoss.item()}\n")
+            print(f"pre_adjust_moves [{pre_epoch+1}/{NNConfig['pre_adjust_moves']}], training cost: {trainLoss.item():.4f}")
+            print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_gradients.dat', show=True)
+            print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_params.dat', show=True)
+
+            model.eval()
+            val_MSE = evalBS_noGrad(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_plotBS.png', f'preEpoch_{pre_epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True)
+
+            torch.save(model.state_dict(), f'{resultsFolder}preEpoch_{pre_epoch+1}_PPmodel.pth')
+            torch.cuda.empty_cache()
     
+
     for epoch in range(NNConfig['max_num_epochs']):
-        
+
         # train
         model.train()
         if NNConfig['separateKptGrad']==0: 

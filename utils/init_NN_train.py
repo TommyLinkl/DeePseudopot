@@ -68,6 +68,8 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
         if (epoch==0) or ((epoch + 1) % NNConfig['init_Zunger_plotEvery'] == 0):
             print_and_inspect_gradients(model, filename=f'{resultsFolder}initZunger_epoch_{epoch+1}_gradients.dat', show=True)
             print_and_inspect_NNParams(model, filename=f'{resultsFolder}initZunger_epoch_{epoch+1}_params.dat', show=True)
+            torch.save(model.state_dict(), f'{resultsFolder}initZunger_epoch_{epoch+1}_PPmodel.pth')
+            torch.cuda.empty_cache()
         if epoch > 0 and epoch % NNConfig['schedulerStep'] == 0:
             scheduler.step()
 

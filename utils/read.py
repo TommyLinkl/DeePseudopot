@@ -31,7 +31,7 @@ def read_NNConfigFile(filename):
                 value = value.strip()
                 if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'printGrad', 'mc_bool']:
                     config[key] = bool(int(value))
-                elif key in ['nSystem', 'num_cores', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter']:
+                elif key in ['nSystem', 'num_cores', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter', 'pre_adjust_moves']:
                     config[key] = int(value)
                 elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2', 'mc_percentage', 'mc_beta']:
                     config[key] = float(value)
