@@ -89,7 +89,9 @@ def get_max_gradient_param(model):
     if max_grad_name is not None:
         param = dict(model.named_parameters())[max_grad_name]
         max_grad_value = param.grad.flatten()[max_grad_index]
-        max_grad_index = torch.unravel_index(max_grad_index, param.grad.shape)
+        max_grad_index = np.unravel_index(max_grad_index, param.grad.shape)
+        print("Values returned by the get_max_gradient_param function: ")
+        print(max_grad_name, max_grad_index, max_grad_value)
         return max_grad_name, max_grad_index, max_grad_value
     else:
         return None, None, None
@@ -125,7 +127,18 @@ def manual_GD_one_param(model, learning_rate=None):
     with torch.no_grad():
         for name, param in model.named_parameters():
             if param.grad is not None:
+                print(f"Before manual move, the adjusted gradients of {name}: ")
+                print(param.grad)
+                print(f"step size: {learning_rate * param.grad}")
+                if name==max_grad_name: 
+                    print(f"This is the gradient that I am keeping. Is this still non-zero after the adjustments? {param.grad[max_grad_index]}")
+                    print(f"Before manual move, the parameter that should be moved: {param[max_grad_index]}")
+                
                 param -= learning_rate * param.grad
+                
+                print(f"After manual move, the param of {name}: {param}")
+                if name==max_grad_name: 
+                    print(f"After manual move, the parameter that should have been moved: {param[max_grad_index]}")
 
 
 def weighted_mse_bandStruct(bandStruct_hat, bulkSystem): 
@@ -240,7 +253,7 @@ def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cac
     trainLoss.backward()
     # print_and_inspect_gradients(model, show=True)
     if preAdjustBool: 
-        manual_GD_one_param(model, learning_rate=None)
+        manual_GD_one_param(model, learning_rate=1e-2)
     else:
         optimizer.step()
     end_time = time.time() if runtime_flag else None
@@ -307,9 +320,15 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
             if name in total_gradients:
                 param.grad = total_gradients[name].detach().clone()
 
+    print("This is after all backprops. What does the param.grad look like? ")
+    print()
     start_time = time.time() if NNConfig['runtime_flag'] else None
     if preAdjustBool: 
-        manual_GD_one_param(model, learning_rate=None)
+        # print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_gradients.dat', show=True)
+        # print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_params.dat', show=True)
+        manual_GD_one_param(model, learning_rate=1e-2)
+        # print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_gradients.dat', show=True)
+        # print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_params.dat', show=True)
     else:
         optimizer.step()
     end_time = time.time() if NNConfig['runtime_flag'] else None
@@ -342,8 +361,8 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
 
             file_trainCost.write(f"{pre_epoch+1-100}  {trainLoss.item()}\n")
             print(f"pre_adjust_moves [{pre_epoch+1}/{NNConfig['pre_adjust_moves']}], training cost: {trainLoss.item():.4f}")
-            print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_gradients.dat', show=True)
-            print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_params.dat', show=True)
+            print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_gradients.dat', show=True)
+            print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_params.dat', show=True)
 
             model.eval()
             val_MSE = evalBS_noGrad(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_plotBS.png', f'preEpoch_{pre_epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True)
