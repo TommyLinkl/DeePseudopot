@@ -88,10 +88,9 @@ def get_max_gradient_param(model):
 
     if max_grad_name is not None:
         param = dict(model.named_parameters())[max_grad_name]
-        max_grad_value = param.grad.flatten()[max_grad_index]
+        max_grad_value = param.grad.flatten()[max_grad_index].clone()
         max_grad_index = np.unravel_index(max_grad_index, param.grad.shape)
-        print("Values returned by the get_max_gradient_param function: ")
-        print(max_grad_name, max_grad_index, max_grad_value)
+        # print(f"Values returned by the get_max_gradient_param function: {max_grad_name}, {max_grad_index}, {max_grad_value}")
         return max_grad_name, max_grad_index, max_grad_value
     else:
         return None, None, None
@@ -113,32 +112,21 @@ def manual_GD_one_param(model, learning_rate=None):
         raise ValueError("No maximum gradient found in the model. (Meaning that there were no gradients in the model).")
 
     # Zero all gradients, except for the one with maximum gradient
-    for param in model.parameters():
+    for name, param in model.named_parameters():
         if param.grad is not None:
             param.grad.zero_()
-    param = dict(model.named_parameters())[max_grad_name]
-    param.grad[max_grad_index] = max_grad_value
+        if name==max_grad_name: 
+            param.grad[max_grad_index] = max_grad_value.item()
 
     # Set the learning rate, ensuring max_grad_value is used appropriately
     if learning_rate is None:
-        learning_rate = 0.01 / max_grad_value.abs()
+        learning_rate = 0.01 / abs(max_grad_value.item())
 
     # Perform the manual SGD step
     with torch.no_grad():
         for name, param in model.named_parameters():
             if param.grad is not None:
-                print(f"Before manual move, the adjusted gradients of {name}: ")
-                print(param.grad)
-                print(f"step size: {learning_rate * param.grad}")
-                if name==max_grad_name: 
-                    print(f"This is the gradient that I am keeping. Is this still non-zero after the adjustments? {param.grad[max_grad_index]}")
-                    print(f"Before manual move, the parameter that should be moved: {param[max_grad_index]}")
-                
                 param -= learning_rate * param.grad
-                
-                print(f"After manual move, the param of {name}: {param}")
-                if name==max_grad_name: 
-                    print(f"After manual move, the parameter that should have been moved: {param[max_grad_index]}")
 
 
 def weighted_mse_bandStruct(bandStruct_hat, bulkSystem): 
@@ -253,7 +241,7 @@ def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cac
     trainLoss.backward()
     # print_and_inspect_gradients(model, show=True)
     if preAdjustBool: 
-        manual_GD_one_param(model, learning_rate=1e-2)
+        manual_GD_one_param(model, learning_rate=None)
     else:
         optimizer.step()
     end_time = time.time() if runtime_flag else None
@@ -320,13 +308,11 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
             if name in total_gradients:
                 param.grad = total_gradients[name].detach().clone()
 
-    print("This is after all backprops. What does the param.grad look like? ")
-    print()
     start_time = time.time() if NNConfig['runtime_flag'] else None
     if preAdjustBool: 
         # print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_gradients.dat', show=True)
         # print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_params.dat', show=True)
-        manual_GD_one_param(model, learning_rate=1e-2)
+        manual_GD_one_param(model, learning_rate=None)
         # print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_gradients.dat', show=True)
         # print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_params.dat', show=True)
     else:
