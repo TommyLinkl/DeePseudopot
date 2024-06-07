@@ -1003,6 +1003,104 @@ class Hamiltonian:
             return eigVals.detach()
 
 
+    '''
+    def calcEigValsAtK_wrapped(self, kidx, *params, cachedMats_info=None, requires_grad=True, verbosity=0):
+        nbands = self.system.nBands
+        eigVals = torch.zeros(nbands)
+
+        if (cachedMats_info is None) and (self.SObool==False):    # proceed as normal. Won't even go into buildSO or buildNL. Need to pass None into buildSO and buildNL
+            preComp_SOmats_kidx = None
+            preComp_NLmats_kidx = None
+        elif (cachedMats_info is None) and (self.SObool==True):   # no cached matrices in the shared memory
+            preComp_SOmats_kidx = None
+            preComp_NLmats_kidx = None     # functions buildSOmat and buildNLmat will handle these cases
+        elif (cachedMats_info is not None): 
+            start_time = time.time() if self.NNConfig['runtime_flag'] else None
+            shm_SOmats = shared_memory.SharedMemory(name=f"SOmats_{self.iSystem}_{kidx}")
+            preComp_SOmats_kidx = np.ndarray(cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_SOmats.buf)
+            shm_NLmats = shared_memory.SharedMemory(name=f"NLmats_{self.iSystem}_{kidx}")
+            preComp_NLmats_kidx = np.ndarray(cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_NLmats.buf)
+            end_time = time.time() if self.NNConfig['runtime_flag'] else None
+            print(f"Loading shared memory, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
+        else: 
+            raise ValueError("Error in calcEigValsAtK. ")
+
+        start_time = time.time() if self.NNConfig['runtime_flag'] else None
+        H = self.buildHtot(kidx, preComp_SOmats_kidx, preComp_NLmats_kidx, requires_grad)
+        if not requires_grad: 
+            H = H.detach()
+        end_time = time.time() if self.NNConfig['runtime_flag'] else None
+        print(f"Building Htot, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
+
+        start_time = time.time() if self.NNConfig['runtime_flag'] else None
+        if not self.coupling:
+            energies = torch.linalg.eigvalsh(H)
+            energiesEV = energies * AUTOEV
+        else:
+            # this will be slower than necessary, since torch seems to only support
+            # full diagonalization including all eigenvectors. 
+            # If computing couplings, it would be faster to
+            # implement a custom torch diagonalization wrapper
+            # that uses scipy under the hood to allow for better partial
+            # diagonalization algorithms (e.g. the ?heevr driver).
+            ens, vecs = torch.linalg.eigh(H)
+            energiesEV = ens * AUTOEV
+            self.vb_vecs[kidx].append(vecs[:, self.idx_vb])
+            self.cb_vecs[kidx].append(vecs[:, self.idx_cb])
+            # NOTE!!! that using the eigenvectors with torch autodiff can result in non-uniqueness
+            # an instability if there are degenerate eigenvalues. 
+
+            # To avoid gauge phase-dependent values of the coupling when we
+            # have degenerate electronic states, we collect all degenerate bands,
+            # to compute their couplings and THEN average the couplings. This is
+            # different than doing an average over degenerate eigenvectors first, 
+            # which is wrong (results will depend on arbitrary phase in degenerate subspace).
+            ctr = 1
+            for idx in range(self.idx_vb-1, 0, -1):
+                if abs(ens[self.idx_vb] - ens[idx]) < 1e-5:
+                    # this describes a degenerate state as begin within .01 meV (adopted from EPW source)
+                    self.vb_vecs[kidx].append(vecs[:, idx])
+                    ctr += 1
+                else:
+                    break
+
+            if ctr == 1 and self.SObool and verbosity >= 2:
+                print(f"\nWARNING: spin-orbit calc but vb spin states are not degenerate to 1e-10, kidx={kidx}\n")
+            if verbosity >= 3:
+                print(f"kidx={kidx}, vb_vec[0:5]= {self.vb_vecs[kidx, :5]}")
+
+            ctr = 1
+            for idx in range(self.idx_cb+1, self.system.nBands):
+                if abs(ens[self.idx_cb] - ens[idx]) < 1e-5:
+                    # this describes a degenerate state as begin within .01 meV (adopted from EPW source)
+                    self.cb_vecs[kidx].append(vecs[:, idx])
+                    ctr += 1
+                else:
+                    break
+
+            if ctr == 1 and self.SObool and verbosity >= 2:
+                print(f"\nWARNING: spin-orbit calc but cb spin states are not degenerate to 1e-10, kidx={kidx}\n")
+            if verbosity >= 3:
+                print(f"kidx={kidx}, cb_vec[0:5]= {self.cb_vecs[kidx, :5]}")
+
+        if not self.SObool:
+            # 2-fold degeneracy for spin. Not sure why this is necessary, but
+            # it is included in Tommy's code...
+            energiesEV = energiesEV.repeat_interleave(2)
+            # dont need to interleave eigenvecs (if stored) since we only
+            # store the vb and cb anyways.
+        eigVals[:] = energiesEV[:nbands]
+        end_time = time.time() if self.NNConfig['runtime_flag'] else None
+        print(f"eigvalsh and storing energies, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
+
+        if requires_grad: 
+            return eigVals
+        else: 
+            return eigVals.detach()
+    '''
+
+
+
     def calcBandStruct(self, grad=False, cachedMats_info=None): 
         if grad: 
             return self.calcBandStruct_withGrad(cachedMats_info)

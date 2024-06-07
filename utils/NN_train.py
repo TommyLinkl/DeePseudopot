@@ -154,6 +154,16 @@ def calcEigValsAtK_wGrad_parallel_smoothReorder(kidx, ham, bulkSystem, optimizer
     energies_detach = calcEnergies.detach()
 
     start_time = time.time() if ham.NNConfig['runtime_flag'] else None
+    '''
+    params = tuple(param for param in model.parameters())
+    torch.autograd.functional.jacobian(calcEnergies, params, vectorize=True)
+    '''
+
+
+
+
+
+
     for bandIdx, bandEne in enumerate(calcEnergies):
         # optimizer.zero_grad()
         grads = torch.autograd.grad(bandEne, model.parameters(), retain_graph=True)
@@ -327,6 +337,19 @@ def trainIter_separateKptGrad_smoothReorder(model, systems, hams, NNConfig, opti
                 end_time = time.time()
                 print(f"Test, backprop on the MSE of all energies, elapsed time: {(end_time - start_time):.2f} seconds\n")
 
+                '''
+                start_time = time.time()
+                params = tuple(param for param in model.parameters())
+
+                def calcEnergies_wrapped(params):
+                    return hams[iSys].calcEnergies(*params)
+
+                jacobian = torch.autograd.functional.jacobian(, params, vectorize=True)
+                end_time = time.time()
+                print(f"Testing experimental jacobian method. elapsed time: {(end_time - start_time):.2f} seconds\n")
+                print(jacobian[0][0])
+                '''
+
                 for bandIdx, bandEne in enumerate(calcEnergies):
                     print(f"kIdx = {kidx}, bandIdx = {bandIdx}")
                     start_time = time.time() # if NNConfig['runtime_flag'] else None
@@ -341,6 +364,11 @@ def trainIter_separateKptGrad_smoothReorder(model, systems, hams, NNConfig, opti
                         if grads[i] is not None:
                             tmp_grad[name] = tmp_grad.get(name, 0) + grads[i].detach().clone()
                     lin_grad[kidx][bandIdx] = tmp_grad
+                    
+                    '''
+                    if (kidx==0) and (bandIdx==0): 
+                        print(lin_grad[kidx][bandIdx])
+                    '''
 
                     tmp_grad = {}
                     for i, (name, param) in enumerate(model.named_parameters()):
