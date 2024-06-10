@@ -358,7 +358,7 @@ class Hamiltonian:
         # this can be parallelized over kpoints, but it's not critical since
         # this is only done once during initialization
         for kidx in range(nkp):
-            print(f"initializing SO: kpt {kidx+1}/{nkp}")
+            print(f"\tinitializing SO: kpt {kidx+1}/{nkp}")
             # i = g
             for i in range(nbv):
                 # j = g'
@@ -501,7 +501,7 @@ class Hamiltonian:
         else:
             nkp = self.system.getNKpts()
 
-        print(f"initializing SO: kpt {kidx+1}/{nkp}")
+        print(f"\tinitializing SO: kpt {kidx+1}/{nkp}")
         sys.stdout.flush()
         if defbool:
             gikp = self.basis + torch.stack([self.system.kpts[idxGap]] * nbv, dim=0)
@@ -598,7 +598,7 @@ class Hamiltonian:
         # this can be parallelized over kpoints, but it's not critical since
         # this is only done once during initialization
         for kidx in range(nkp):
-            print(f"initializing NL pots: kpt {kidx+1}/{nkp}")
+            print(f"\tinitializing NL pots: kpt {kidx+1}/{nkp}")
             # i = g
             for i in range(nbv):
                 # j = g'
@@ -746,7 +746,7 @@ class Hamiltonian:
         else:
             nkp = self.system.getNKpts()
         
-        print(f"initializing NL pots: kpt {kidx+1}/{nkp}")
+        print(f"\tinitializing NL pots: kpt {kidx+1}/{nkp}")
         sys.stdout.flush()
         if defbool:
             gikp = self.basis + torch.stack([self.system.kpts[idxGap]] * nbv, dim=0)
@@ -1101,7 +1101,7 @@ class Hamiltonian:
                         NLmats[id1,id2,id3, id4] = np.zeros([2*nbv, 2*nbv], dtype=np.complex128)
 
         for qidx in range(nqp):
-            print(f"initializing coupling SO + NL: qpt {qidx+1}/{nqp}")
+            print(f"\tinitializing coupling SO + NL: qpt {qidx+1}/{nqp}")
             sys.stdout.flush()
 
             gjPlusQ = self.basis + self.system.qpts[qidx]

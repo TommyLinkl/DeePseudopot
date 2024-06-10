@@ -97,6 +97,19 @@ def get_max_gradient_param(model):
         return None, None, None
 
 
+def judge_well_conditioned_grad(model, maxGradThreshold=50.0): 
+    maxGrad = None
+    minGrad = None
+    for _, param in model.named_parameters():
+        if param.grad is not None:
+            if maxGrad is None or param.grad.abs().max().item() > maxGrad:
+                maxGrad = param.grad.abs().max().item()
+            if minGrad is None or param.grad.abs().min().item() > minGrad:
+                minGrad = param.grad.abs().min().item()
+    print(f"Max and min of absolute gradients = {maxGrad}, {minGrad}.   Are the gradients well-conditioned? {maxGrad<=maxGradThreshold}")
+    return maxGrad, minGrad
+
+
 def manual_GD_one_param(model, learning_rate=None):
     """
     Make a manual gradient descent move on ONLY ONE parameter that has the largest
@@ -105,7 +118,7 @@ def manual_GD_one_param(model, learning_rate=None):
     changed in-place. 
 
     One can give an optional learning_rate parameter. If not used, the manual 
-    optimization steps (lr * grad) is hard-coded to 0.01
+    optimization steps (lr * grad) is hard-coded to be around 0.005
     """
     max_grad_name, max_grad_index, max_grad_value = get_max_gradient_param(model)
     
@@ -121,7 +134,7 @@ def manual_GD_one_param(model, learning_rate=None):
 
     # Set the learning rate, ensuring max_grad_value is used appropriately
     if learning_rate is None:
-        learning_rate = 0.01 * random.random() / abs(max_grad_value.item())
+        learning_rate = 0.005 * random.random() / abs(max_grad_value.item())
 
     # Perform the manual SGD step
     with torch.no_grad():
@@ -157,10 +170,10 @@ def weighted_mse_energiesAtKpt(calcEnergiesAtKpt, bulkSystem, kidx):
 
 def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None, writeBS=False): 
     if (model is not None): 
-        print(f"{runName}: Evaluating band structures using the NN-pp model. ")
+        print(f"\t{runName}: Evaluating band structures using the NN-pp model. ")
         model.eval()
     else:
-        print(f"{runName}: Evaluating band structures using the old Zunger function form. ")
+        print(f"\t{runName}: Evaluating band structures using the old Zunger function form. ")
     
     plot_bandStruct_list = []
     totalMSE = 0
@@ -184,12 +197,12 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
             kptDistInputs_vertical = sys.kptDistInputs.view(-1, 1)
             write_tensor = torch.cat((kptDistInputs_vertical, evalBS), dim=1)
             np.savetxt(write_BS_filename, write_tensor, fmt='%.5f')
-            # print(f"{runName}: Wrote BS to file {write_BS_filename}. ")
+            # print(f"\t{runName}: Wrote BS to file {write_BS_filename}. ")
         plot_bandStruct_list.append(sys.expBandStruct)
         plot_bandStruct_list.append(evalBS)
         totalMSE += weighted_mse_bandStruct(evalBS, sys)
     fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
-    print(f"{runName}: Finished evaluating {iSys}-th band structure with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. TotalMSE = {totalMSE:f}")
+    print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. TotalMSE = {totalMSE:f}")
     fig.suptitle(f"{runName}: totalMSE = {totalMSE:f}")
     fig.savefig(BSplotFilename)
     plt.close('all')
@@ -357,21 +370,15 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
             torch.save(model.state_dict(), f'{resultsFolder}preEpoch_{pre_epoch+1}_PPmodel.pth')
             torch.cuda.empty_cache()
 
-            maxGrad = None
-            minGrad = None
-            for _, param in model.named_parameters():
-                if param.grad is not None:
-                    if maxGrad is None or param.grad.abs().max().item() > maxGrad:
-                        maxGrad = param.grad.abs().max().item()
-                    if minGrad is None or param.grad.abs().min().item() > minGrad:
-                        minGrad = param.grad.abs().min().item()
-            print(f"Max and min of absolute gradients = {maxGrad}, {minGrad}.   Are the gradients well-conditioned? {maxGrad<=50.0}")
+            maxGrad, _ = judge_well_conditioned_grad(model)
             if pre_min_maxGrad is None or maxGrad <= pre_min_maxGrad:
                 print("This is the best pre-adjust epoch so far. ")
                 pre_min_maxGrad = maxGrad
                 pre_min_epoch = pre_epoch
             print()
-    
+        
+        model.load_state_dict(torch.load(f'{resultsFolder}preEpoch_{pre_min_epoch+1}_PPmodel.pth'))
+        print(f"We have re-loaded back to the preEpoch_{pre_min_epoch+1}, which gives the best-conditioned gradients. ")
 
     for epoch in range(NNConfig['max_num_epochs']):
 
@@ -387,6 +394,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
         if (epoch<=9) or ((epoch + 1) % NNConfig['plotEvery'] == 0):
             print_and_inspect_gradients(model, f'{resultsFolder}epoch_{epoch+1}_gradients.dat', show=True)
             print_and_inspect_NNParams(model, f'{resultsFolder}epoch_{epoch+1}_params.dat', show=True)
+        judge_well_conditioned_grad(model)
 
         # perturb the model
         if (NNConfig['perturbEvery']>0) and (epoch>0) and (epoch % NNConfig['perturbEvery']==0): 
