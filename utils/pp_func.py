@@ -128,6 +128,30 @@ def plotBandStructFromFile(refFile, calcFile):
     return fig
 
 
+def plotBandStruct_reorder(newOrderBS, bandIdx): 
+    fig, ax = plt.subplots(1, 1, figsize=(8,8))
+
+    numBands = len(newOrderBS[0])
+    numKpts = len(newOrderBS)
+    for i in range(numBands): 
+        if i==0: 
+            ax.plot(np.arange(numKpts), newOrderBS[:, i], "bo-", alpha=0.1, markersize=2)
+        else: 
+            ax.plot(np.arange(numKpts), newOrderBS[:, i], "bo-", alpha=0.1, markersize=2)
+
+    # plot new ordering
+    numKpts = len(newOrderBS)
+    ax.plot(np.arange(numKpts), newOrderBS[:, bandIdx], "ro-", alpha=0.8, markersize=2, label=f"band{bandIdx}")
+    ax.legend()
+    ax.set(ylim=(min(newOrderBS[:, bandIdx])-0.2, max(newOrderBS[:, bandIdx])+0.2))
+    # ax.get_xaxis().set_ticks([0, 10, 20, 30, 40, 50, 60, 70, 79, 80, 90, 100, 108, 110, 120, 130, 140, 149])
+    # ax.get_xaxis().set_ticklabels(["R", 10, 20, 30, 40, r"$\Gamma$", 60, 70, "X", 80, 90, 100, "M", 110, 120, 130, 140, r"$\Gamma$"])
+    ax.grid(alpha=0.5)
+
+    fig.tight_layout()
+    return fig, ax
+
+
 def plotPP(atomPPOrder, ref_q, pred_q, ref_vq_atoms, pred_vq_atoms, ref_labelName, pred_labelName, lineshape_array, boolPlotDiff, SHOWPLOTS):
     # ref_vq_atoms and pred_vq_atoms are 2D tensors. Each tensor contains the pseudopotential (either ref or pred)
     # for atoms in the order of atomPPOrder. 

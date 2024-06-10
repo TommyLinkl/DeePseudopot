@@ -29,7 +29,7 @@ def read_NNConfigFile(filename):
                 key, value = line.split('#')[0].strip().split('=')
                 key = key.strip()
                 value = value.strip()
-                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'printGrad', 'mc_bool']:
+                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'printGrad', 'mc_bool', 'smooth_reorder', 'eigvec_reorder']:
                     config[key] = bool(int(value))
                 elif key in ['nSystem', 'num_cores', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter', 'pre_adjust_moves']:
                     config[key] = int(value)
@@ -47,9 +47,9 @@ def read_NNConfigFile(filename):
         raise ValueError("One or more required parameters are missing: 'PPmodel', 'nSystem', 'hiddenLayers'.")
     
     if (config["checkpoint"]==1) and (config["separateKptGrad"]==1): 
-        print("WARNING: Both checkpoint and separateKptGrad are turned on. \n")
+        print("\tWARNING: Both checkpoint and separateKptGrad are turned on. \n")
     elif (config["checkpoint"]==1) and (config["separateKptGrad"]==0):
-        print("WARNING: Using checkpointing! Please use this as a last resort, only for pseudopotential fitting where memory limit is a major issue. The code will run slower due to checkpointing. \n")
+        print("\tWARNING: Using checkpointing! Please use this as a last resort, only for pseudopotential fitting where memory limit is a major issue. The code will run slower due to checkpointing. \n")
     elif (config["checkpoint"]==0) and (config["separateKptGrad"]==1): 
         print("\tUsing separateKptGrad. This can decrease the peak memory load during the fitting code.")
 
@@ -94,6 +94,9 @@ def init_critical_NNconfig():
     config['SHOWPLOTS'] = False
     config['separateKptGrad'] = True
     config['SObool'] = False
+
+    config['smooth_reorder'] = False
+    config['eigvec_reorder'] = False
     return config
 
 
