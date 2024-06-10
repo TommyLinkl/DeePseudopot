@@ -107,7 +107,7 @@ def judge_well_conditioned_grad(model, maxGradThreshold=50.0):
                 maxGrad = param.grad.abs().max().item()
             if minGrad is None or param.grad.abs().min().item() > minGrad:
                 minGrad = param.grad.abs().min().item()
-    print(f"Max and min of absolute gradients = {maxGrad}, {minGrad}.   Are the gradients well-conditioned? {maxGrad<=maxGradThreshold}")
+    print(f"Max and min of absolute gradients = {maxGrad:.3f}, {minGrad:.3f}.   Are the gradients well-conditioned? {maxGrad<=maxGradThreshold}")
     return maxGrad, minGrad
 
 
@@ -389,8 +389,10 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
 
 
 def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, val_dataset, resultsFolder, cachedMats_info=None):
-    training_COST=[]
-    validation_COST=[]
+    trainingCOST_x =[]
+    training_COST = []
+    validationCOST_x = []
+    validation_COST =[]
     file_trainCost = open(f'{resultsFolder}final_training_cost.dat', "w")
     file_valCost = open(f'{resultsFolder}final_validation_cost.dat', "w")
     model.to(device)
@@ -410,7 +412,9 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
             else: 
                 model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info, preAdjustBool=True, resultsFolder=resultsFolder, pre_epoch=pre_epoch, prevBS=prevBS.detach() if prevBS is not None else None)
 
-            file_trainCost.write(f"{pre_epoch+NNConfig['pre_adjust_moves']-20}  {trainLoss.item()}\n")
+            file_trainCost.write(f"{pre_epoch-NNConfig['pre_adjust_moves']-1}  {trainLoss.item()}\n")
+            trainingCOST_x.append(pre_epoch-NNConfig['pre_adjust_moves']-1)
+            training_COST.append(trainLoss.item())
             print(f"pre_adjust_moves [{pre_epoch+1}/{NNConfig['pre_adjust_moves']}], training cost: {trainLoss.item():.4f}")
             # print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_gradients.dat', show=True)
             # print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_params.dat', show=True)
@@ -439,8 +443,9 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
             model, trainLoss = trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info, NNConfig['runtime_flag'], resultsFolder=resultsFolder, epoch=epoch)
         else: 
             model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info, resultsFolder=resultsFolder, epoch=epoch, prevBS=prevBS.detach() if prevBS is not None else None)
-        training_COST.append(trainLoss.item())
         file_trainCost.write(f"{epoch+1}  {trainLoss.item()}\n")
+        trainingCOST_x.append(epoch+1)
+        training_COST.append(trainLoss.item())
         print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], training cost: {trainLoss.item():.4f}")
         if (epoch<=9) or ((epoch + 1) % NNConfig['plotEvery'] == 0):
             print_and_inspect_gradients(model, f'{resultsFolder}epoch_{epoch+1}_gradients.dat', show=True)
@@ -460,7 +465,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
         if (epoch + 1) % NNConfig['plotEvery'] == 0:
             model.eval()
             val_MSE = evalBS_noGrad(model, f'{resultsFolder}epoch_{epoch+1}_plotBS.png', f'epoch_{epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True)
-            
+            validationCOST_x.append(epoch+1)
             validation_COST.append(val_MSE)
             print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], validation cost: {val_MSE:.4f}")
             file_valCost.write(f"{epoch+1}  {val_MSE}\n")
@@ -486,7 +491,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
         '''
         plt.close('all')
         torch.cuda.empty_cache()
-    fig_cost = plot_training_validation_cost(training_COST, validation_COST, True, NNConfig['SHOWPLOTS']);
+    fig_cost = plot_training_validation_cost(trainingCOST_x, training_COST, validationCOST_x, validation_COST, True, NNConfig['SHOWPLOTS']);
     fig_cost.savefig(resultsFolder + 'final_train_cost.png')
     torch.cuda.empty_cache()
     return (training_COST, validation_COST)

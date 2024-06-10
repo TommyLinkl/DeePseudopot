@@ -204,16 +204,17 @@ def plotPP(atomPPOrder, ref_q, pred_q, ref_vq_atoms, pred_vq_atoms, ref_labelNam
     return fig
 
 
-def plot_training_validation_cost(training_cost, validation_cost, ylogBoolean, SHOWPLOTS): 
+def plot_training_validation_cost(training_cost_x, training_cost, validation_cost_x=None, validation_cost=None, ylogBoolean=True, SHOWPLOTS=False): 
     fig, axs = plt.subplots(1, 1, figsize=(6, 4))
     
-    epochs = range(0, len(training_cost))
-    axs.plot(np.array(epochs)+1, training_cost, "b-", label='Training Cost')
+    # epochs = range(0, len(training_cost))
+    axs.plot(training_cost_x, training_cost, "b-", label='Training Cost')     # np.array(epochs)+1
 
-    if len(validation_cost) != 0: 
-        evaluation_frequency = len(training_cost) // len(validation_cost)
-        evaluation_epochs = list(range(evaluation_frequency-1, len(training_cost), evaluation_frequency))
-        axs.plot(np.array(evaluation_epochs)+1, validation_cost, "r:", label='Validation Cost')
+    if (validation_cost_x is not None) and (validation_cost is not None) and (len(validation_cost) != 0): 
+        # evaluation_frequency = len(training_cost) // len(validation_cost)
+        # evaluation_epochs = list(range(evaluation_frequency-1, len(training_cost), evaluation_frequency))
+        # axs.plot(np.array(evaluation_epochs)+1, validation_cost, "r:", label='Validation Cost')
+        axs.plot(validation_cost_x, validation_cost, "r:", label='Validation Cost')
 
     if ylogBoolean:
         axs.set_yscale('log')
