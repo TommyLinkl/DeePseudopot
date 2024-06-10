@@ -930,6 +930,10 @@ class Hamiltonian:
         if not self.coupling:
             energies = torch.linalg.eigvalsh(H)
             energiesEV = energies * AUTOEV
+
+            # reorder the energies according to the manual input in self.system.bandOrderMatrix
+            energiesEV = energiesEV[self.system.bandOrderMatrix[kidx, :]]
+
         else:
             # this will be slower than necessary, since torch seems to only support
             # full diagonalization including all eigenvectors. 
@@ -937,6 +941,10 @@ class Hamiltonian:
             # implement a custom torch diagonalization wrapper
             # that uses scipy under the hood to allow for better partial
             # diagonalization algorithms (e.g. the ?heevr driver).
+
+            """
+            WARNING: This else clause hasn't been made compatible with band ordering!!! 
+            """
             ens, vecs = torch.linalg.eigh(H)
             energiesEV = ens * AUTOEV
             self.vb_vecs[kidx].append(vecs[:, self.idx_vb])

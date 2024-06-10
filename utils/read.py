@@ -213,6 +213,16 @@ class BulkSystem:
             
             self.kpts = torch.tensor(kpts, dtype=torch.float64) @ gVectors
             self.kptWeights = torch.tensor(kptWeights, dtype=torch.float64)
+        
+        # Define manual band ordering if the file "kpoints_0_orderMatrix.par" exist
+        self.bandOrderMatrix = np.arange(self.nBands)[np.newaxis, :].repeat(self.getNKpts(), axis=0)
+        bandOrderFilename = kPointsFilename.split(".")[0] + "_orderMatrix.par"
+        if os.path.exists(bandOrderFilename):
+            self.bandOrderMatrix = np.loadtxt(bandOrderFilename, dtype=int)
+            print(f"NOTICE: We are reading and using the fixed order of bands from the file '{bandOrderFilename}'. ")
+        else:
+            print(f"The file '{bandOrderFilename}' does not exist. Not using manual band order input. ")
+
     
 
     def setQPointsAndWeights(self, qPointsFilename):
