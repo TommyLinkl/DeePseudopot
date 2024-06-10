@@ -8,6 +8,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt 
 mpl.rcParams['lines.markersize'] = 3
 import copy
+import random
 
 torch.set_default_dtype(torch.float64)
 torch.set_num_threads(1)
@@ -120,7 +121,7 @@ def manual_GD_one_param(model, learning_rate=None):
 
     # Set the learning rate, ensuring max_grad_value is used appropriately
     if learning_rate is None:
-        learning_rate = 0.01 / abs(max_grad_value.item())
+        learning_rate = 0.01 * random.random() / abs(max_grad_value.item())
 
     # Perform the manual SGD step
     with torch.no_grad():
@@ -175,7 +176,6 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
             evalBS = hams[iSys].calcBandStruct_noGrad(cachedMats_info)
         evalBS.detach_()
         end_time = time.time()
-        print(f"{runName}: Finished evaluating {iSys}-th band structure with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds")
         if writeBS: 
             if not BSplotFilename.endswith('_plotBS.png'):
                 raise ValueError("BSplotFilename must end with '_plotBS.png' to write BS.dat files. ")
@@ -184,12 +184,12 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
             kptDistInputs_vertical = sys.kptDistInputs.view(-1, 1)
             write_tensor = torch.cat((kptDistInputs_vertical, evalBS), dim=1)
             np.savetxt(write_BS_filename, write_tensor, fmt='%.5f')
-            print(f"{runName}: Wrote BS to file {write_BS_filename}. ")
+            # print(f"{runName}: Wrote BS to file {write_BS_filename}. ")
         plot_bandStruct_list.append(sys.expBandStruct)
         plot_bandStruct_list.append(evalBS)
         totalMSE += weighted_mse_bandStruct(evalBS, sys)
     fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
-    print(f"{runName}: totalMSE = {totalMSE:f}")
+    print(f"{runName}: Finished evaluating {iSys}-th band structure with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. TotalMSE = {totalMSE:f}")
     fig.suptitle(f"{runName}: totalMSE = {totalMSE:f}")
     fig.savefig(BSplotFilename)
     plt.close('all')
@@ -251,7 +251,7 @@ def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cac
     return model, trainLoss
 
 
-def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info=None, preAdjustBool=False): 
+def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info=None, preAdjustBool=False, resultsFolder=None, pre_epoch=0): 
     def merge_dicts(dicts):
         merged_dict = {}
         for d in dicts:
@@ -310,11 +310,10 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
 
     start_time = time.time() if NNConfig['runtime_flag'] else None
     if preAdjustBool: 
+        # Debug only print statements
         # print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_gradients.dat', show=True)
         # print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_params.dat', show=True)
         manual_GD_one_param(model, learning_rate=None)
-        # print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_gradients.dat', show=True)
-        # print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_params.dat', show=True)
     else:
         optimizer.step()
     end_time = time.time() if NNConfig['runtime_flag'] else None
@@ -335,26 +334,43 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
     best_validation_loss = float('inf')
     no_improvement_count = 0
 
+    pre_min_maxGrad = None
+    pre_min_epoch = None
     # pre_adjustments. Optimizing only ONE PARAMETER at a time, which has the largest gradient
     if ('pre_adjust_moves' in NNConfig) or (NNConfig['pre_adjust_moves']>0): 
         for pre_epoch in range(NNConfig['pre_adjust_moves']):
             model.train()
 
             if NNConfig['separateKptGrad']==0: 
-                model, trainLoss = trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info, NNConfig['runtime_flag'], preAdjustBool=True)
+                model, trainLoss = trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info, NNConfig['runtime_flag'], preAdjustBool=True, resultsFolder=resultsFolder, pre_epoch=pre_epoch)
             else: 
-                model, trainLoss = trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info, preAdjustBool=True)
+                model, trainLoss = trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info, preAdjustBool=True, resultsFolder=resultsFolder, pre_epoch=pre_epoch)
 
-            file_trainCost.write(f"{pre_epoch+1-100}  {trainLoss.item()}\n")
+            file_trainCost.write(f"{pre_epoch+NNConfig['pre_adjust_moves']-20}  {trainLoss.item()}\n")
             print(f"pre_adjust_moves [{pre_epoch+1}/{NNConfig['pre_adjust_moves']}], training cost: {trainLoss.item():.4f}")
-            print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_gradients.dat', show=True)
-            print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_params.dat', show=True)
+            # print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_gradients.dat', show=True)
+            # print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_params.dat', show=True)
 
             model.eval()
             val_MSE = evalBS_noGrad(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_plotBS.png', f'preEpoch_{pre_epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True)
 
             torch.save(model.state_dict(), f'{resultsFolder}preEpoch_{pre_epoch+1}_PPmodel.pth')
             torch.cuda.empty_cache()
+
+            maxGrad = None
+            minGrad = None
+            for _, param in model.named_parameters():
+                if param.grad is not None:
+                    if maxGrad is None or param.grad.abs().max().item() > maxGrad:
+                        maxGrad = param.grad.abs().max().item()
+                    if minGrad is None or param.grad.abs().min().item() > minGrad:
+                        minGrad = param.grad.abs().min().item()
+            print(f"Max and min of absolute gradients = {maxGrad}, {minGrad}.   Are the gradients well-conditioned? {maxGrad<=50.0}")
+            if pre_min_maxGrad is None or maxGrad <= pre_min_maxGrad:
+                print("This is the best pre-adjust epoch so far. ")
+                pre_min_maxGrad = maxGrad
+                pre_min_epoch = pre_epoch
+            print()
     
 
     for epoch in range(NNConfig['max_num_epochs']):
