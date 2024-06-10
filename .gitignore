@@ -8,3 +8,5 @@ test_parallel/results*/*
 test_parallel/*.dat
 *.log
 log_files/
+submit_*.in
+test_memory/results_*/*
