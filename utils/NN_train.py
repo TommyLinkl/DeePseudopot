@@ -403,7 +403,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
     pre_min_maxGrad = None
     pre_min_epoch = None
     # pre_adjustments. Optimizing only ONE PARAMETER at a time, which has the largest gradient
-    if ('pre_adjust_moves' in NNConfig) or (NNConfig['pre_adjust_moves']>0): 
+    if ('pre_adjust_moves' in NNConfig) and (NNConfig['pre_adjust_moves']>0): 
         for pre_epoch in range(NNConfig['pre_adjust_moves']):
             model.train()
 
@@ -491,7 +491,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
         '''
         plt.close('all')
         torch.cuda.empty_cache()
-    fig_cost = plot_training_validation_cost(trainingCOST_x, training_COST, validationCOST_x, validation_COST, True, NNConfig['SHOWPLOTS']);
+    fig_cost = plot_training_validation_cost(trainingCOST_x, training_COST, validation_cost_x=validationCOST_x, validation_cost=validation_COST, ylogBoolean=True, SHOWPLOTS=NNConfig['SHOWPLOTS']);
     fig_cost.savefig(resultsFolder + 'final_train_cost.png')
     torch.cuda.empty_cache()
     return (training_COST, validation_COST)

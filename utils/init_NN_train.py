@@ -90,7 +90,7 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
                 plotPP(atomPPOrder, plot_q, plot_q, plot_vq_atoms, plot_pred_outputs, "ZungerForm", f"NN_{epoch+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS'])
         validation_cost.append(val_cost)
         torch.cuda.empty_cache()
-    fig_cost = plot_training_validation_cost(training_cost, validation_cost, True, NNConfig['SHOWPLOTS'])
+    fig_cost = plot_training_validation_cost(training_cost, validation_cost, ylogBoolean=True, SHOWPLOTS=NNConfig['SHOWPLOTS'])
     fig_cost.savefig(resultsFolder + 'init_train_cost.png')
     torch.cuda.empty_cache()
     return (training_cost, validation_cost)
@@ -138,7 +138,7 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
         end_time = time.time()
         elapsed_time = end_time - start_time
         print("Initialization elapsed time: %.2f seconds" % elapsed_time)
-        fig_cost = plot_training_validation_cost(training_cost, validation_cost, True, NNConfig['SHOWPLOTS']);
+        fig_cost = plot_training_validation_cost(training_cost, validation_cost, ylogBoolean=True, SHOWPLOTS=NNConfig['SHOWPLOTS']);
         fig_cost.savefig(resultsFolder + 'init_train_cost.png')
 
         torch.save(PPmodel.state_dict(), resultsFolder + 'initZunger_PPmodel.pth')
