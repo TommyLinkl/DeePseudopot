@@ -111,14 +111,14 @@ def judge_well_conditioned_grad(model, maxGradThreshold=50.0):
     return maxGrad, minGrad
 
 
-def manual_GD_one_param(model, learning_rate=None):
+def manual_GD_one_param(model, stepSize=None):
     """
     Make a manual gradient descent move on ONLY ONE parameter that has the largest
     absolute gradient value. This is designed to slowly yet surely optimize to the
     nearest local minimum on a multi-dimensional function space. The model is 
     changed in-place. 
 
-    One can give an optional learning_rate parameter. If not used, the manual 
+    One can give an optional stepSize parameter. If not used, the manual 
     optimization steps (lr * grad) is hard-coded to be around 0.005
     """
     max_grad_name, max_grad_index, max_grad_value = get_max_gradient_param(model)
@@ -134,8 +134,9 @@ def manual_GD_one_param(model, learning_rate=None):
             param.grad[max_grad_index] = max_grad_value.item()
 
     # Set the learning rate, ensuring max_grad_value is used appropriately
-    if learning_rate is None:
-        learning_rate = 0.005 * random.random() / abs(max_grad_value.item())
+    if stepSize is None:
+        stepSize = 0.005
+    learning_rate = stepSize * random.random() / abs(max_grad_value.item())
 
     # Perform the manual SGD step
     with torch.no_grad():
@@ -245,7 +246,7 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, criterion_singleKpt, op
     return singleKptGradients, trainLoss_systemKpt, calcEnergies, extrapolated_eigVal
 
 
-def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info=None, runtime_flag=False, preAdjustBool=False, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=0):
+def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info=None, runtime_flag=False, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1):
     trainLoss = torch.tensor(0.0)
     for iSys, sys in enumerate(systems):
         hams[iSys].NN_locbool = True
@@ -276,7 +277,7 @@ def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cac
     optimizer.zero_grad()
     trainLoss.backward()
     if preAdjustBool: 
-        manual_GD_one_param(model)
+        manual_GD_one_param(model, preAdjustStepSize)
     else:
         optimizer.step()
     end_time = time.time() if runtime_flag else None
@@ -286,7 +287,7 @@ def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cac
     return model, trainLoss
 
 
-def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info=None, preAdjustBool=False, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=0, prevBS=None): 
+def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info=None, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, prevBS=None): 
     def merge_dicts(dicts):
         merged_dict = {}
         for d in dicts:
@@ -373,10 +374,10 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
 
     start_time = time.time() if NNConfig['runtime_flag'] else None
     if preAdjustBool: 
-        if verbosity>0:
+        if verbosity>1:
             print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_gradients.dat', show=True)
             print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_params.dat', show=True)
-        manual_GD_one_param(model)
+        manual_GD_one_param(model, preAdjustStepSize)
     else:
         optimizer.step()
     end_time = time.time() if NNConfig['runtime_flag'] else None
@@ -405,12 +406,17 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
     # pre_adjustments. Optimizing only ONE PARAMETER at a time, which has the largest gradient
     if ('pre_adjust_moves' in NNConfig) and (NNConfig['pre_adjust_moves']>0): 
         for pre_epoch in range(NNConfig['pre_adjust_moves']):
+            if ('pre_adjust_stepSize' in NNConfig): 
+                pre_adjust_stepSize = NNConfig['pre_adjust_stepSize']
+            else: 
+                pre_adjust_stepSize = None
+
             model.train()
 
             if NNConfig['separateKptGrad']==0: 
-                model, trainLoss = trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info, NNConfig['runtime_flag'], preAdjustBool=True, resultsFolder=resultsFolder, pre_epoch=pre_epoch)
+                model, trainLoss = trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info, NNConfig['runtime_flag'], preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch)
             else: 
-                model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info, preAdjustBool=True, resultsFolder=resultsFolder, pre_epoch=pre_epoch, prevBS=prevBS.detach() if prevBS is not None else None)
+                model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info, preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, prevBS=prevBS.detach() if prevBS is not None else None)
 
             file_trainCost.write(f"{pre_epoch-NNConfig['pre_adjust_moves']-1}  {trainLoss.item()}\n")
             trainingCOST_x.append(pre_epoch-NNConfig['pre_adjust_moves']-1)

@@ -3,9 +3,23 @@ import matplotlib.animation as animation
 from PIL import Image
 import os
 
-def genMovie(resultsFolder, writeMovieFile, numEpochs):
-    image_files = [f'{resultsFolder}epoch_{i}_plotBS.png' for i in range(1, numEpochs+1)]
+def genMovie(resultsFolder, writeMovieFile, numEpochs=9999, preEpochs=True):
+    initImage = []
+    if os.path.exists(f'{resultsFolder}initZunger_plotBS.png'):
+        img = Image.open(f'{resultsFolder}initZunger_plotBS.png')
+        initImage.append(img)
 
+    preImages = []
+    if preEpochs: 
+        preImage_files = [f'{resultsFolder}preEpoch_{i}_plotBS.png' for i in range(1, 9999)]
+        for image_file in preImage_files:
+            if os.path.exists(image_file):
+                img = Image.open(image_file)
+                preImages.append(img)
+            else:
+                break
+
+    image_files = [f'{resultsFolder}epoch_{i}_plotBS.png' for i in range(1, numEpochs+1)]
     images = []
     for image_file in image_files:
         if os.path.exists(image_file):
@@ -14,7 +28,9 @@ def genMovie(resultsFolder, writeMovieFile, numEpochs):
         else:
             break
 
-    print("\nCreating a figure")
+    images = initImage + preImages + images
+    print(f"{len(images)} frames in total. ")
+
     fig = plt.figure(figsize=(9,4))
 
     # Function to update the frame
@@ -25,47 +41,42 @@ def genMovie(resultsFolder, writeMovieFile, numEpochs):
     print("Creating the animation")
     ani = animation.FuncAnimation(fig, update_frame, frames=len(images), repeat=False)
 
-    ani.save(writeMovieFile, writer='ffmpeg', fps=8)
+    FFwriter = animation.FFMpegWriter(fps=8,
+                                      extra_args=['-vcodec', 'libvpx-vp9', '-b:v', '2M', '-crf', '20'])
+    ani.save(writeMovieFile, writer=FFwriter)
+    # ani.save(writeMovieFile, writer='ffmpeg', codec='libvpx-vp9', fps=8)
 
-    # Show the animation
     # plt.show()
     plt.close()
 
-
-
 '''
-calcList = ['results_64kpts_CBM',
-'results_64kpts_CB',
-'results_64kpts_CBVBM',
-'results_64kpts_CBVB',
+excluded_calcName = 'r3_results_preSGD_64kpts_CBVB_0'
+calcList = [f'r3_results_{opt}_64kpts_{weight}_{lr}'
+            for opt in ['adam', 'preAdam', 'preSGD']
+            for weight in ['CBM', 'CB', 'CBVBM', 'CBVB']
+            for lr in range(5)
+            if f'r3_results_{opt}_64kpts_{weight}_{lr}' != excluded_calcName]
 
-'results_extrema6_CBM',
-'results_extrema6_CB',
-'results_extrema6_CBVBM',
-'results_extrema6_CBVB',
+calcList = [f'r3_results_{opt}_64kpts_{weight}_{lr}'
+            for opt in ['preSGD']
+            for weight in ['CBVBM', 'CBVB']
+            for lr in range(5)
+            if f'r3_results_{opt}_64kpts_{weight}_{lr}' != excluded_calcName]
 
-'results_RG_CBVBM',
-'results_RG_CBVB',
+calcList = [f'r3_results_preAdam_64kpts_{weight}_{lr}'
+            for weight in ['CBM', 'CB', 'CBVBM', 'CBVB']
+            for lr in range(5)]
 
-'r2_results_64kpts_CBM',
-'r2_results_64kpts_CB',
-'r2_results_64kpts_CBVBM',
-'r2_results_64kpts_CBVB',
+calcList = [f'r4_results_adam_64kpts_{weight}_{lr}'
+            for weight in ['CBM', 'CB', 'CBVBM', 'CBVB']
+            for lr in range(2,5)]
 
-'r2_results_extrema6_CBVB',
-'r2_results_extrema6_CBVBM',
-'r2_results_extrema6_CB',
-'r2_results_extrema6_CBM',
+calcList = ['r4_results_adam_64kpts_CB_4']
+print(calcList)
 
-'r2_results_RG_CBVBM',
-'r2_results_RG_CBVB']
-'''
-
-calcName = 'results_64kpts_CBM_0'
 for calcName in calcList: 
-    for lr in [4]: # range(5): 
-        resultsFolder = f'CALCS/CsPbI3_manualReorder/{calcName}_{lr}/'
-        writeMovieFile = f'CALCS/CsPbI3_manualReorder/movies/{calcName}_{lr}.mp4'
-        print(resultsFolder)
-        numEpochs = 200
-        genMovie(resultsFolder, writeMovieFile, numEpochs)
+    resultsFolder = f'CALCS/CsPbI3_manualReorder/{calcName}/'
+    writeMovieFile = f'CALCS/CsPbI3_manualReorder/movies/{calcName}.mp4'
+    print(resultsFolder)
+    numEpochs = 200
+    genMovie(resultsFolder, writeMovieFile, numEpochs)'''

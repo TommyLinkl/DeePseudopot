@@ -8,6 +8,7 @@ from utils.pp_func import FT_converge_and_write_pp
 from utils.init_NN_train import init_ZungerPP, init_optimizer
 from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, bandStruct_train_GPU, evalBS_noGrad, runMC_NN
 from utils.ham import initAndCacheHams
+from utils.genMovie import genMovie
 
 def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     torch.set_num_threads(1)
@@ -81,7 +82,10 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     PPmodel.eval()
     FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, resultsFolder + 'final_plotPP', resultsFolder + 'final_pot', NNConfig['SHOWPLOTS'])
 
-    # Free the shared data
+    ############# Creating animation ############# 
+    genMovie(resultsFolder, f'{resultsFolder}movie.mp4', NNConfig['max_num_epochs'])
+
+    ############# Free the shared data ############# 
     if shm_dict_SO is not None: 
         for shm in shm_dict_SO.values():
             shm.close()

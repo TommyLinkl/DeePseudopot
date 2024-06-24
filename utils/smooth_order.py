@@ -47,7 +47,8 @@ def reorder_smoothness_deg2_tensors(oldBS, max_band_switch=5):
         predicted_points = extrapolate(currBS[i-4], currBS[i-3], currBS[i-2], currBS[i-1])
         extrapolated_points[i, :] = predicted_points
         costMatrix = torch.abs(predicted_points.unsqueeze(0) - oldBS[i].unsqueeze(1))
-        costMatrix = costMatrix.T
+        # costMatrix = costMatrix.T
+        costMatrix = costMatrix.permute(*torch.arange(costMatrix.ndim - 1, -1, -1))
         
         # Add restriction
         for r in range(numBands):
@@ -83,14 +84,19 @@ def reorder_kpt_smoothness_deg2_tensors(oldEigValsAtK, kidx, max_band_switch=5, 
     numBands = oldEigValsAtK.shape[0]
     extrapolated_points = oldEigValsAtK.clone()
     newEigValsAtK = oldEigValsAtK.clone()
+    col_ind = torch.tensor(np.arange(numBands), dtype=torch.long)
+    
+    if (comparedBS is None) or (kidx in range(4)): 
+        return col_ind, newEigValsAtK, extrapolated_points
     
     if (comparedBS is not None) and (numBands != comparedBS.shape[1]): 
         raise ValueError("We are reordering the BS against another reference BS, but their shapes are incompatible! Fatal error. ")
     
     if kidx not in range(4): 
         extrapolated_points = extrapolate(comparedBS[kidx-4], comparedBS[kidx-3], comparedBS[kidx-2], comparedBS[kidx-1])
-        costMatrix = torch.abs(extrapolated_points - oldEigValsAtK)
-        costMatrix = costMatrix.T
+        costMatrix = torch.abs(extrapolated_points[:, None] - oldEigValsAtK)
+        # costMatrix = costMatrix.T
+        costMatrix = costMatrix.permute(*torch.arange(costMatrix.ndim - 1, -1, -1))
         
         # Add restriction
         for r in range(numBands):

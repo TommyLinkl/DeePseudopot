@@ -9,4 +9,5 @@ test_parallel/*.dat
 *.log
 log_files/
 submit_*.in
+submit_*.sh
 test_memory/results_*/*
