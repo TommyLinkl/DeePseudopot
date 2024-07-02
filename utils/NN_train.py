@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 mpl.rcParams['lines.markersize'] = 3
 import copy
 import random
+import shutil
 
 torch.set_default_dtype(torch.float64)
 torch.set_num_threads(1)
@@ -543,6 +544,10 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, currModel(val_dataset.q), "ZungerForm", f"mc_iter_{iter+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
             torch.save(currModel.state_dict(), f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth')
+
+            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth', f'{resultsFolder}final_PPmodel.pth')
+            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png', f'{resultsFolder}final_plotPP.png')
+            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotBS.png', f'{resultsFolder}final_plotBS.png')
         elif mc_accept_bool:   # new loss is higher, but we still accept.
             currLoss = newLoss
             currModel = newModel
@@ -552,6 +557,10 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, currModel(val_dataset.q), "ZungerForm", f"mc_iter_{iter+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
             torch.save(currModel.state_dict(), f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth')
+
+            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth', f'{resultsFolder}final_PPmodel.pth')
+            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png', f'{resultsFolder}final_plotPP.png')
+            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotBS.png', f'{resultsFolder}final_plotBS.png')
         else:   # don't accept
             file_trainCost.write(f"{iter+1}    {newLoss.item()}    {0}    {currLoss.item()}\n")
             print(f"Not accepted. currLoss={currLoss.item():.4f}")
@@ -565,6 +574,6 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
     model = currModel
         
     fig_cost = plot_mc_cost(trial_COST, accepted_COST, True, NNConfig['SHOWPLOTS']);
-    fig_cost.savefig(resultsFolder + 'final_mc_cost.png')
+    fig_cost.savefig(f'{resultsFolder}final_mc_cost.png')
     file_trainCost.close()
     return (trial_COST, accepted_COST)

@@ -323,6 +323,8 @@ class BulkSystem:
     def getGVectors(self):
         cellVolume = self.getCellVolume()
         prefactor = 2 * np.pi / cellVolume
+        print(f'cellVolume = {cellVolume}')
+        print(f'prefactor = {prefactor}')
         gVector1 = prefactor * torch.cross(self.unitCellVectors[1], self.unitCellVectors[2])
         gVector2 = prefactor * torch.cross(self.unitCellVectors[2], self.unitCellVectors[0])
         gVector3 = prefactor * torch.cross(self.unitCellVectors[0], self.unitCellVectors[1])
