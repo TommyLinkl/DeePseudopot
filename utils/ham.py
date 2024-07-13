@@ -130,13 +130,20 @@ class Hamiltonian:
         self.eVec_info = mp.Manager().dict()
         # self.shm_eVec = mp.Manager().dict()
 
+        nbv = self.basis.shape[0]
+        if self.SObool:
+            Htot_shape = (2*nbv, 2*nbv)
+        else:
+            Htot_shape = (nbv, nbv)
+        self.randPertH = NNConfig['H_rand_pert_scale'] * self.gen_rand_hermitian_complex_matrix(Htot_shape)
+
         # send things to gpu, if enabled ??
         # Or is it better to send some things at the last minute before diagonalization?
         if model is not None:
             model.to(device)
         
 
-    def buildHtot(self, kidx, preComp_SOmats_kidx=None, preComp_NLmats_kidx=None, requires_grad=True):
+    def buildHtot(self, kidx, preComp_SOmats_kidx=None, preComp_NLmats_kidx=None, requires_grad=True, rand_pert_scale=0.0):
         """
         Build the total Hamiltonian for a given kpt, specified by its kidx. 
         preComp_SOmats_kidx and preComp_NLmats_kidx are the pre-computed
@@ -182,6 +189,8 @@ class Hamiltonian:
 
         if not requires_grad: 
             Htot = Htot.detach()
+
+        Htot = Htot + self.randPertH
         return Htot
     
 
@@ -1258,7 +1267,7 @@ class Hamiltonian:
                 eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False)
                 
                 # !!! FOR TESTING ONLY: 
-                # eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False, writeEVecsToFile=True, writeEVecsFolderName="CALCS/CsPbI3_test/results_32kpts/")
+                # eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False, writeEVecsToFile=True, writeEVecsFolderName="CALCS/CsPbI3_randPertH/results_150kpts_pert/")
 
                 bandStruct[kidx,:] = eigValsAtK
             self._copy_currIter_to_prevIter_shm()
@@ -1874,6 +1883,23 @@ class Hamiltonian:
         parts of the PP.
         """
         self.PPparams = newparams
+
+    
+    def gen_rand_hermitian_complex_matrix(self, shape):
+        # Generate a random complex matrix A with dtype=torch.complex128
+        print("We are generating a random hermitian perturbation to the true hamiltonian. PLEASE CHECK THAT this is only done once per bulk system. ")
+
+        A_real = torch.rand(shape, dtype=torch.float64)
+        A_imag = torch.rand(shape, dtype=torch.float64)
+        A = A_real + 1j * A_imag
+        
+        # Make the matrix Hermitian
+        H = (A + A.conj().T) / 2
+        
+        # Ensure the result is of dtype torch.complex128
+        H = H.to(dtype=torch.complex128)
+        
+        return H
 
 
 def overlap_2eigVec(a, b):

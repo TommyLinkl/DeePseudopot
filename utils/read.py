@@ -33,7 +33,7 @@ def read_NNConfigFile(filename):
                     config[key] = bool(int(value))
                 elif key in ['nSystem', 'num_cores', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter']:
                     config[key] = int(value)
-                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2', 'mc_percentage', 'mc_beta']:
+                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2', 'mc_percentage', 'mc_beta', 'H_rand_pert_scale']:
                     config[key] = float(value)
                 elif key in ['hiddenLayers']: 
                     config[key] = [int(x) for x in value.split()]
@@ -94,6 +94,7 @@ def init_critical_NNconfig():
     config['SHOWPLOTS'] = False
     config['separateKptGrad'] = True
     config['SObool'] = False
+    config['H_rand_pert_scale'] = 0.0
     return config
 
 
