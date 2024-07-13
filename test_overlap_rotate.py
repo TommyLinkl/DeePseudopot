@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 
 from utils.pp_func import plotBandStruct
 from utils.read import setAllBulkSystems
+from test_overlap import read_npz, overlap_2eigVec
 
 torch.set_default_dtype(torch.float64)
 torch.set_num_threads(1)
@@ -13,45 +14,77 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 
 
-def read_npz(filename):
-    loaded_data = np.load(filename)
-    array_names = loaded_data.files
+def rotate_curr_basis(u, v):
+    norm = np.sqrt(u**2 + v**2)
+    critical_point_pairs = [
+        (0, 1), (0, -1), (1, 0), (-1, 0),
+        (u/norm, v/norm), (u/norm, -v/norm), 
+        (-u/norm, v/norm), (-u/norm, -v/norm)
+    ]
 
-    evec_list = []
-    for array_name in array_names:
-        evec_list.append(loaded_data[array_name])
+    def f(c, d):
+        return c * u + d * v
 
-    return evec_list
+    evaluations = [f(c, d) for c, d in critical_point_pairs]
+    max_index = np.argmax(evaluations)
+    max_c, max_d = critical_point_pairs[max_index]
+    max_value = evaluations[max_index]
 
-
-def overlap_2eigVec(a, b):
-    a_conj = np.conj(a)
-    overlap = np.dot(a_conj, b)
-    return np.abs(overlap)
+    return max_c, max_d, max_value
 
 
-def overlapMatrix(kIdx1, kIdx2, results_dir): 
-    evec_list_kIdx1 = read_npz(f"{results_dir}eigVec_k{kIdx1}.npz")
+def init_overlap_matrix(nbands):
+    S = np.zeros((nbands, nbands), dtype=np.float64)
+    return S
+
+
+def init_coeff_matrix(nbands):
+    C = np.zeros((nbands, nbands), dtype=np.float64)
+    return C
+
+
+def overlapMatrix(kIdx1, kIdx2, results_dir, S, C): 
+    evec_list_kIdx1 = read_npz(f"{results_dir}rotated_eigVec_k{kIdx1}.npz")
     evec_list_kIdx2 = read_npz(f"{results_dir}eigVec_k{kIdx2}.npz")
     if len(evec_list_kIdx1) != len(evec_list_kIdx2):
         raise ValueError("Error! kIdx1 and kIdx2 don't have the same number of eigenvectors!!!")
     else: 
         nbands = len(evec_list_kIdx1)
 
-    M = np.zeros((nbands, nbands), dtype=np.float64)
-    for i in range(nbands):
-        for j in range(nbands): 
-            M[i,j] = overlap_2eigVec(evec_list_kIdx1[i], evec_list_kIdx2[j])
-    
-    np.savetxt(f"{results_dir}reorder_results/overlap_kIdx_{kIdx1}_{kIdx2}_CBQuad.dat", M[-6:,-6:], fmt='%.4f')
-    plotOverlapMatrix(M, f"{results_dir}reorder_results/plotOverlap_kIdx_{kIdx1}_{kIdx2}.png")
+    for i in range(int(nbands/2)):
+        for j in range(int(nbands/2)): 
+            a_2i = evec_list_kIdx1[2*i]
+            a_2i1 = evec_list_kIdx1[2*i+1]
+            b_2j = evec_list_kIdx2[2*j]
+            b_2j1 = evec_list_kIdx2[2*j+1]
 
-    return M
+            max_c, max_d, max_value = rotate_curr_basis(overlap_2eigVec(a_2i, b_2j), overlap_2eigVec(a_2i, b_2j1))
+
+            # Update the overlap matrix
+            S[2*i,2*j] = max_c * overlap_2eigVec(a_2i, b_2j) + max_d * overlap_2eigVec(a_2i, b_2j1)
+            S[2*i,2*j+1] = -max_d * overlap_2eigVec(a_2i, b_2j) + max_c * overlap_2eigVec(a_2i, b_2j1)
+            S[2*i+1,2*j] = max_c * overlap_2eigVec(a_2i1, b_2j) + max_d * overlap_2eigVec(a_2i1, b_2j1)
+            S[2*i+1,2*j+1] = -max_d * overlap_2eigVec(a_2i1, b_2j) + max_c * overlap_2eigVec(a_2i1, b_2j1)
+
+            # Update the coefficient matrix
+            C[2*i,2*j] = max_c
+            C[2*i,2*j+1] = max_d
+            C[2*i+1,2*j] = max_c
+            C[2*i+1,2*j+1] = max_d
+            # print(f"The [{2*i}, {2*j}] entry of the overlap matrix S should be {max_value}. As it is now {S[2*i,2*j]}. Please verify: {np.allclose(max_value, S[2*i,2*j], atol=1e-4)}")
 
 
-def plotOverlapMatrix(M, plotFilename):
+    np.savetxt(f"{results_dir}rotate_reorder_results/overlap_kIdx_{kIdx1}_{kIdx2}_CBQuad.dat", S[-6:,-6:], fmt='%.4f')
+    np.savetxt(f"{results_dir}rotate_reorder_results/coeff_kIdx_{kIdx1}_{kIdx2}_CBQuad.dat", C[-6:,-6:], fmt='%.4f')
+    plotOverlapMatrix(S, f"{results_dir}rotate_reorder_results/plotOverlap_kIdx_{kIdx1}_{kIdx2}.png")
+    plotOverlapMatrix(C, f"{results_dir}rotate_reorder_results/plotCoeff_kIdx_{kIdx1}_{kIdx2}.png", cmap='bwr', vmin=-1, vmax=1)
+
+    return S, C
+
+
+def plotOverlapMatrix(S, plotFilename, cmap='Reds', vmin=0, vmax=1):
     plt.figure(figsize=(10, 10)) 
-    plt.imshow(M, cmap='Reds', vmin=0, vmax=1)
+    plt.imshow(S, cmap=cmap, vmin=vmin, vmax=vmax)
     plt.colorbar()
 
     # Adding lighter dashed grid lines
@@ -81,81 +114,75 @@ def plotOverlapMatrix(M, plotFilename):
     plt.close()
 
 
-def contractM_deg2(M, mode='sum'): 
-    if M.shape[0] % 2 != 0: 
+def contractOverlapMatrix_deg2(S, mode='sum'): 
+    if S.shape[0] % 2 != 0: 
         raise ValueError("Requesting to contract the overlap matrix by deg=2, but there are odd number of bands! Stop!")
     else:
-        deg2_M = np.zeros((int(M.shape[0]/2), int(M.shape[0]/2)), dtype=np.float64)
+        deg2_S = np.zeros((int(S.shape[0]/2), int(S.shape[0]/2)), dtype=np.float64)
     
-    for i in range(0, M.shape[0], 2):
-        for j in range(0, M.shape[1], 2):
+    for i in range(0, S.shape[0], 2):
+        for j in range(0, S.shape[1], 2):
             if mode=='sum': 
-                deg2_M[int(i/2), int(j/2)] = M[i,j] + M[i+1,j+1] + M[i+1,j] + M[i,j+1]
+                deg2_S[int(i/2), int(j/2)] = S[i,j] + S[i+1,j+1] + S[i+1,j] + S[i,j+1]
             elif mode=='max': 
-                deg2_M[int(i/2), int(j/2)] = max(M[i,j] + M[i+1,j+1], M[i+1,j] + M[i,j+1])
+                deg2_S[int(i/2), int(j/2)] = max(S[i,j] + S[i+1,j+1], S[i+1,j] + S[i,j+1])
             elif mode=='totMax': 
-                deg2_M[int(i/2), int(j/2)] = max(M[i,j], M[i+1,j+1], M[i+1,j], M[i,j+1])
+                deg2_S[int(i/2), int(j/2)] = max(S[i,j], S[i+1,j+1], S[i+1,j], S[i,j+1])
+            elif mode=='rotate_top_left': 
+                deg2_S[int(i/2), int(j/2)] = S[i,j]
             else: 
                 raise ValueError("We currently only accept deg2mode as 'sum', 'max' or 'totMax'. See the code for details. ")
             
-    return deg2_M
+    return deg2_S
 
 
-def constrainOverlapMatrix(M, max_allowed_distance=999): 
-    new_M = np.copy(M)
-    constraints = np.zeros((new_M.shape[0], new_M.shape[0]))
-    for i in range(new_M.shape[0]):
-        for j in range(new_M.shape[0]):
+def constrainOverlapMatrix(S, max_allowed_distance=999): 
+    new_S = np.copy(S)
+    constraints = np.zeros((new_S.shape[0], new_S.shape[0]))
+    for i in range(new_S.shape[0]):
+        for j in range(new_S.shape[0]):
             if abs(i - j) > max_allowed_distance:
                 constraints[i, j] = 1
-    new_M = new_M - 999999 * constraints
-    return new_M
+    new_S = new_S - 999999 * constraints
+    return new_S
 
 
-def reorder_bands(kIdx, nbands, orderInd_prev, results_dir, deg=1, max_distance=999, deg2mode='sum'): 
+def reorder_bands_rotate(kIdx, nbands, results_dir, deg=2, max_distance=999, deg2mode='sum'): 
     print(f"\nWe are re-ordering the eigenvectors at kIdx = {kIdx}.")
     newOrder = np.arange(nbands)
+    # read original eigVecs
+    evec_list_currKIdx = read_npz(f"{results_dir}eigVec_k{kIdx}.npz")
+
     if kIdx==0: 
+        np.savez(f"{results_dir}rotated_eigVec_k{kIdx}.npz", *evec_list_currKIdx)
         return newOrder
-    
-    costMatrix = overlapMatrix(kIdx-1, kIdx, results_dir)[orderInd_prev]   # Remember that it should be reordered by the previous k-point
-    costMatrix = constrainOverlapMatrix(costMatrix, max_distance)
-    if deg==2: 
-        costMatrix = contractM_deg2(costMatrix, deg2mode)
 
-    _, col_ind = linear_sum_assignment(costMatrix, maximize=True)
+    S = init_overlap_matrix(nbands)
+    C = init_coeff_matrix(nbands)
+    S, C = overlapMatrix(kIdx-1, kIdx, results_dir, S, C)
+
+    # Do the linear assignment problem
+    S = constrainOverlapMatrix(S, max_distance)
+    if deg==2:
+        S = contractOverlapMatrix_deg2(S, deg2mode)
+
+    _, col_ind = linear_sum_assignment(S, maximize=True)
     if deg==2: 
         col_ind_2deg = np.zeros(nbands, dtype=col_ind.dtype)
         col_ind_2deg[::2] = col_ind * 2
         col_ind_2deg[1::2] = col_ind * 2 + 1
         col_ind = col_ind_2deg
     print(f"New band order at kIdx: {col_ind}")
-    return col_ind
 
+    # Use C, calculate the rotated eigVecs
+    rotated_evec_list = []
+    for i in range(int(nbands/2)): 
+        c = C[2*i, col_ind[2*i]]
+        d = C[2*i, col_ind[2*i]+1]
+        rotated_evec_list.append(c * evec_list_currKIdx[col_ind[2*i]] + d * evec_list_currKIdx[col_ind[2*i+1]])
+        rotated_evec_list.append(-d * evec_list_currKIdx[col_ind[2*i]] + c * evec_list_currKIdx[col_ind[2*i+1]])
+    np.savez(f"{results_dir}rotated_eigVec_k{kIdx}.npz", *rotated_evec_list)
 
-# This function is not production ready
-def reorder_bands_2steps(kIdx, nbands, orderInd_prev2, orderInd_prev1, results_dir, deg=1, max_distance=999, prevMultiplier=0.5, diag=True): 
-    print(f"\nWe are re-ordering the eigenvectors at kIdx = {kIdx}.")
-    newOrder = np.arange(nbands)
-    if kIdx<=1: 
-        return reorder_bands(kIdx, nbands, orderInd_prev1, results_dir, deg, max_distance)
-
-    if deg==1: 
-        costMatrix = overlapMatrix(kIdx-1, kIdx, results_dir)[orderInd_prev1] + prevMultiplier * overlapMatrix(kIdx-2, kIdx, results_dir)[orderInd_prev2]
-    elif deg==2: 
-        costMatrix = contractM_deg2(overlapMatrix(kIdx-1, kIdx, results_dir)[orderInd_prev1] , diag) + prevMultiplier * contractM_deg2(overlapMatrix(kIdx-2, kIdx, results_dir)[orderInd_prev2] , diag)
-
-    costMatrix = constrainOverlapMatrix(costMatrix, max_distance)
-    _, col_ind = linear_sum_assignment(costMatrix, maximize=True)
-
-    if deg==2: 
-        # print(col_ind)
-        col_ind_2deg = np.zeros(nbands, dtype=col_ind.dtype)
-        col_ind_2deg[::2] = col_ind * 2
-        col_ind_2deg[1::2] = col_ind * 2 + 1
-        col_ind = col_ind_2deg
-        # print(col_ind)
-    print(f"New band order at kIdx: {col_ind}")
     return col_ind
 
 
@@ -216,10 +243,9 @@ def plotBandStruct_reorder(refGWBS, defaultBS, newOrderBS, bandIdx, zoomOut=Fals
 if __name__ == "__main__":
     reorderDeg = 2
     lookAhead = 1
-    # deg2mode='max'   # 'sum', 'max', 'totMax'
 
-    for testCase in [16, 32, 64, 128, 150]:
-        for deg2mode in ['sum', 'max', 'totMax']: 
+    for testCase in [64, 128, 150]: # [16, 32, 64, 128, 150]:
+        for deg2mode in ['rotate_top_left']: # ['sum', 'max', 'totMax', 'rotate_top_left']: 
             input_dir = f"CALCS/CsPbI3_test/inputs_{testCase}kpts/"
             results_dir = f"CALCS/CsPbI3_test/results_{testCase}kpts/"
 
@@ -237,13 +263,14 @@ if __name__ == "__main__":
             print(f"The maximum kpts_diff in any of the three dimensions: {np.max(kpts_diff)}\n")
 
             if lookAhead==1: 
+                currKidx_order = reorder_bands_rotate(0, 32, results_dir, deg=reorderDeg, max_distance=8, deg2mode='sum')
                 newBS = currentBS[0,1:]
-                prevKidx_order = np.arange(32)
+
                 for kidx in range(1,testCase):
-                    currKidx_order = reorder_bands(kidx, 32, prevKidx_order, results_dir, reorderDeg, max_distance=8, deg2mode=deg2mode)
+                    currKidx_order = reorder_bands_rotate(kidx, 32, results_dir, deg=reorderDeg, max_distance=8, deg2mode='sum')
+
                     newE = currentBS[kidx,1:][currKidx_order]
                     newBS = np.vstack((newBS, newE))
-                    prevKidx_order = currKidx_order
             elif lookAhead==2: 
                 raise NotImplementedError("This is an experimental feature. Please stop! ")
                 newBS = currentBS[0,1:]
@@ -259,6 +286,6 @@ if __name__ == "__main__":
 
             for bandIdx in range(32):
                 fig = plotBandStruct_reorder(refGWBS[:,1:], currentBS[:,1:], newBS, bandIdx)
-                fig.savefig(f"{results_dir}reorder_results/newBand_deg{reorderDeg}_{bandIdx}_{deg2mode}.pdf")
+                fig.savefig(f"{results_dir}rotate_reorder_results/newBand_deg{reorderDeg}_{bandIdx}_{deg2mode}.pdf")
                 plt.close()
 
