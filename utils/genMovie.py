@@ -16,8 +16,8 @@ def genMovie(resultsFolder, writeMovieFile, numEpochs=9999, preEpochs=True, mc=T
             if os.path.exists(image_file):
                 img = Image.open(image_file)
                 preImages.append(img)
-            else:
-                break
+            # else:
+                # break
 
     mcImages = []
     if mc: 
@@ -26,8 +26,8 @@ def genMovie(resultsFolder, writeMovieFile, numEpochs=9999, preEpochs=True, mc=T
             if os.path.exists(image_file):
                 img = Image.open(image_file)
                 mcImages.append(img)
-            else:
-                break
+            # else:
+                # break
 
     image_files = [f'{resultsFolder}epoch_{i}_plotBS.png' for i in range(1, numEpochs+1)]
     images = []
@@ -35,8 +35,8 @@ def genMovie(resultsFolder, writeMovieFile, numEpochs=9999, preEpochs=True, mc=T
         if os.path.exists(image_file):
             img = Image.open(image_file)
             images.append(img)
-        else:
-            break
+        # else:
+            # break
 
     images = initImage + preImages + mcImages + images
     print(f"{len(images)} frames in total. ")

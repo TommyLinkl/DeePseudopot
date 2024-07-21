@@ -83,7 +83,10 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, resultsFolder + 'final_plotPP', resultsFolder + 'final_pot', NNConfig['SHOWPLOTS'])
 
     ############# Creating animation ############# 
+    start_time = time.time()
     genMovie(resultsFolder, f'{resultsFolder}movie.mp4', NNConfig['max_num_epochs'])
+    end_time = time.time()
+    print(f"Creating animation, elapsed time: {end_time - start_time:.2f} seconds")
 
     ############# Free the shared data ############# 
     if shm_dict_SO is not None: 
