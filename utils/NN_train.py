@@ -171,6 +171,33 @@ def weighted_mse_energiesAtKpt(calcEnergiesAtKpt, bulkSystem, kidx):
     return MSE
 
 
+def weighted_relative_mse_bandStruct(bandStruct_hat, bulkSystem, relE_bIdx): 
+    # The relative energies are always calculated with respect to the 0-th kpoint, of the relE_bIdx
+
+    bandWeights = bulkSystem.bandWeights
+    kptWeights = bulkSystem.kptWeights
+    nkpt = bulkSystem.getNKpts()
+    nBands = bulkSystem.nBands
+    if (len(bandWeights)!=nBands) or (len(kptWeights)!=nkpt): 
+        raise ValueError("bandWeights or kptWeights lengths aren't correct. ")
+        
+    newBandWeights = bandWeights.view(1, -1).expand(nkpt, -1)
+    newKptWeights = kptWeights.view(-1, 1).expand(-1, nBands)
+    
+    MSE = torch.sum(((bandStruct_hat - bandStruct_hat[0, relE_bIdx]) - (bulkSystem.expBandStruct - bulkSystem.expBandStruct[0, relE_bIdx]))**2 * newBandWeights * newKptWeights)
+    return MSE
+
+
+def weighted_relative_mse_energiesAtKpt(calcEnergiesAtKpt, bulkSystem, kidx, rel_E_pred, rel_E_ref): 
+    bandWeights = bulkSystem.bandWeights
+    nBands = bulkSystem.nBands
+    if (len(calcEnergiesAtKpt)!=nBands): 
+        raise ValueError("CalculatedEnergiesAtKpt is of different length as nBands. Can't calculated MSE.")
+
+    MSE = torch.sum(((calcEnergiesAtKpt - rel_E_pred) - (bulkSystem.expBandStruct[kidx] - rel_E_ref))**2 * bandWeights)
+    return MSE
+
+
 def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None, writeBS=False): 
     if (model is not None): 
         print(f"\t{runName}: Evaluating band structures using the NN-pp model. ")
@@ -201,9 +228,15 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
             write_tensor = torch.cat((kptDistInputs_vertical, evalBS), dim=1)
             np.savetxt(write_BS_filename, write_tensor, fmt='%.5f')
             # print(f"\t{runName}: Wrote BS to file {write_BS_filename}. ")
-        plot_bandStruct_list.append(sys.expBandStruct)
-        plot_bandStruct_list.append(evalBS)
-        totalMSE += weighted_mse_bandStruct(evalBS, sys)
+        
+        if 'relE_bIdx' in NNConfig:
+            plot_bandStruct_list.append(sys.expBandStruct - sys.expBandStruct[0, NNConfig['relE_bIdx']])
+            plot_bandStruct_list.append(evalBS - evalBS[0, NNConfig['relE_bIdx']])
+            totalMSE += weighted_relative_mse_bandStruct(evalBS, sys, NNConfig['relE_bIdx'])
+        else:
+            plot_bandStruct_list.append(sys.expBandStruct)
+            plot_bandStruct_list.append(evalBS)
+            totalMSE += weighted_mse_bandStruct(evalBS, sys)
     fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
     print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. TotalMSE = {totalMSE:f}")
     fig.suptitle(f"{runName}: totalMSE = {totalMSE:f}")
@@ -213,7 +246,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
     return totalMSE
 
 
-def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, criterion_singleKpt, optimizer, model, cachedMats_info=None, prevBS=None, verbosity=0):
+def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, criterion_singleKpt, optimizer, model, cachedMats_info=None, prevBS=None, relE_pred=0.0, verbosity=0):
     """
     loop over kidx
     The rest of the arguments are "constants" / "constant functions" for a single kidx
@@ -226,7 +259,10 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, criterion_singleKpt, op
     if ham.NNConfig['smooth_reorder']: 
         col_ind, calcEnergies, extrapolated_eigVal = reorder_kpt_smoothness_deg2_tensors(calcEnergies, kidx, comparedBS=prevBS.detach() if prevBS is not None else None)
 
-    systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem, kidx)
+    if 'relE_bIdx' in ham.NNConfig:
+        systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem, kidx, relE_pred, bulkSystem.expBandStruct[0, ham.NNConfig['relE_bIdx']])
+    else:
+        systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem, kidx)
     start_time = time.time() if ham.NNConfig['runtime_flag'] else None
     optimizer.zero_grad()
     systemKptLoss.backward()
@@ -271,7 +307,10 @@ def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cac
                     fig.savefig(f"{resultsFolder}epoch_{epoch+1}_newBand_{bandIdx}.pdf")
                     plt.close()
         
-        systemLoss = criterion_singleSystem(NN_outputs, sys)
+        if 'relE_bIdx' in hams[iSys].NNConfig: 
+            systemLoss = criterion_singleSystem(NN_outputs, sys, hams[iSys].NNConfig['relE_bIdx'])
+        else:
+            systemLoss = criterion_singleSystem(NN_outputs, sys)
         trainLoss += systemLoss
 
     start_time = time.time() if runtime_flag else None
@@ -304,6 +343,12 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
         hams[iSys].NN_locbool = True
         hams[iSys].set_NNmodel(model)
 
+        if 'relE_bIdx' in NNConfig: 
+            # If we need to use relative energy as the MSE, we calculate on the first k-point to obtain the relE for this prediction
+            relE_pred = hams[iSys].calcEigValsAtK(0, cachedMats_info, requires_grad=False)[NNConfig['relE_bIdx']].item()
+        else: 
+            relE_pred = 0.0
+
         if (NNConfig['num_cores']==0):   # No multiprocessing
             currBS = torch.zeros([sys.getNKpts(), sys.nBands])
             extrapolated_points = torch.zeros([sys.getNKpts(), sys.nBands])
@@ -315,7 +360,10 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
                     col_ind, calcEnergies, extrapolated_eigVal = reorder_kpt_smoothness_deg2_tensors(calcEnergies, kidx, comparedBS=prevBS.detach() if prevBS is not None else None)
                     extrapolated_points[kidx,:] = extrapolated_eigVal.detach().clone()
 
-                systemKptLoss = criterion_singleKpt(calcEnergies, sys, kidx)
+                if 'relE_bIdx' in NNConfig: 
+                    systemKptLoss = criterion_singleKpt(calcEnergies, sys, kidx, relE_pred, sys.expBandStruct[0, NNConfig['relE_bIdx']])
+                else:
+                    systemKptLoss = criterion_singleKpt(calcEnergies, sys, kidx)
                 currBS[kidx,:] = calcEnergies.detach().clone()
 
                 start_time = time.time() if NNConfig['runtime_flag'] else None
@@ -340,7 +388,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
             if (NNConfig['smooth_reorder']) and (prevBS is not None): 
                 print("WARNING. We are reordering the band structure according to smoothness using the previous iteration BS. ")
             prevBS = prevBS.detach() if prevBS is not None else None
-            args_list = [(kidx, hams[iSys], sys, criterion_singleKpt, optimizer, model, cachedMats_info, prevBS) for kidx in range(sys.getNKpts())]
+            args_list = [(kidx, hams[iSys], sys, criterion_singleKpt, optimizer, model, cachedMats_info, prevBS, relE_pred) for kidx in range(sys.getNKpts())]
 
             with mp.Pool(NNConfig['num_cores']) as pool:
                 results_systemKpt = pool.starmap(calcEigValsAtK_wGrad_parallel, args_list)
@@ -543,7 +591,7 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             file_trainCost.write(f"{iter+1}    {newLoss.item()}    {1}    {currLoss.item()}\n")
             file_trainCost.flush()
             print(f"Accepted. currLoss={currLoss.item():.4f}")
-            print_and_inspect_NNParams(newModel, f'{resultsFolder}mc_iter_{iter+1}_params.dat', show=True)
+            # print_and_inspect_NNParams(newModel, f'{resultsFolder}mc_iter_{iter+1}_params.dat', show=True)
 
             fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, currModel(val_dataset.q), "ZungerForm", f"mc_iter_{iter+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
@@ -552,6 +600,9 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth', f'{resultsFolder}final_PPmodel.pth')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png', f'{resultsFolder}final_plotPP.png')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotBS.png', f'{resultsFolder}final_plotBS.png')
+            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth', f'{resultsFolder}best_PPmodel.pth')
+            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png', f'{resultsFolder}best_plotPP.png')
+            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotBS.png', f'{resultsFolder}best_plotBS.png')
         elif mc_accept_bool:   # new loss is higher, but we still accept.
             currLoss = newLoss
             currModel = newModel
@@ -582,4 +633,4 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
     fig_cost = plot_mc_cost(trial_COST, accepted_COST, True, NNConfig['SHOWPLOTS']);
     fig_cost.savefig(f'{resultsFolder}final_mc_cost.png')
     file_trainCost.close()
-    return (trial_COST, accepted_COST)
+    return (trial_COST, accepted_COST, bestModel, currModel)

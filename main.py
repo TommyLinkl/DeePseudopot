@@ -1,4 +1,4 @@
-import os, time, sys
+import os, time, sys, glob
 import torch
 from torch.optim.lr_scheduler import ExponentialLR
 import numpy as np
@@ -6,7 +6,7 @@ import numpy as np
 from utils.read import read_NNConfigFile, setAllBulkSystems, setNN
 from utils.pp_func import FT_converge_and_write_pp
 from utils.init_NN_train import init_ZungerPP, init_optimizer
-from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, bandStruct_train_GPU, evalBS_noGrad, runMC_NN
+from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, weighted_relative_mse_bandStruct, weighted_relative_mse_energiesAtKpt, bandStruct_train_GPU, evalBS_noGrad, runMC_NN
 from utils.ham import initAndCacheHams
 from utils.genMovie import genMovie
 
@@ -57,8 +57,12 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     ############# Fit NN to band structures ############# 
     if (not NNConfig['mc_bool']): 
         print(f"\n{'#' * 40}\nStart training of the NN to fit to band structures. ")
-        criterion_singleSystem = weighted_mse_bandStruct
-        criterion_singleKpt = weighted_mse_energiesAtKpt
+        if 'relE_bIdx' in NNConfig: 
+            criterion_singleSystem = weighted_relative_mse_bandStruct
+            criterion_singleKpt = weighted_relative_mse_energiesAtKpt
+        else:
+            criterion_singleSystem = weighted_mse_bandStruct
+            criterion_singleKpt = weighted_mse_energiesAtKpt
         optimizer = init_optimizer(inputsFolder, PPmodel, NNConfig)
         scheduler = ExponentialLR(optimizer, gamma=NNConfig['scheduler_gamma'])
 
@@ -72,10 +76,17 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     else: 
         print(f"\n{'#' * 40}\nRunning Monte Carlo on the NN model. ")
         start_time = time.time()
-        (trial_COST, accepted_COST) = runMC_NN(PPmodel, NNConfig, systems, hams, atomPPOrder, ZungerPPFunc_val, resultsFolder, cachedMats_info)
+        (trial_COST, accepted_COST, bestModel, currModel) = runMC_NN(PPmodel, NNConfig, systems, hams, atomPPOrder, ZungerPPFunc_val, resultsFolder, cachedMats_info)
         end_time = time.time()
         print(f"Monte Carlo elapsed time: {end_time - start_time:.2f} seconds")
         torch.cuda.empty_cache()
+
+        PPmodel = bestModel
+        PPmodel.eval()
+        FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, resultsFolder + 'best_plotPP', resultsFolder + 'best_pot', NNConfig['SHOWPLOTS'])
+
+        PPmodel = currModel
+
 
     ############# Writing the trained NN PP ############# 
     print(f"\n{'#' * 40}\nWriting the NN pseudopotentials")
@@ -84,9 +95,12 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
 
     ############# Creating animation ############# 
     start_time = time.time()
-    genMovie(resultsFolder, f'{resultsFolder}movie.mp4', NNConfig['max_num_epochs'])
+    genMovie(resultsFolder, f'{resultsFolder}movie_BS.mp4', NNConfig['max_num_epochs'])
+    genMovie(resultsFolder, f'{resultsFolder}movie_PP.mp4', NNConfig['max_num_epochs'], type='PP')
     end_time = time.time()
     print(f"Creating animation, elapsed time: {end_time - start_time:.2f} seconds")
+    [os.remove(file) for file in glob.glob(f'{resultsFolder}mc_iter_*_plotBS.png') if os.path.exists(file)]
+    [os.remove(file) for file in glob.glob(f'{resultsFolder}mc_iter_*_plotPP.png') if os.path.exists(file)]
 
     ############# Free the shared data ############# 
     if shm_dict_SO is not None: 

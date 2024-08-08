@@ -3,15 +3,15 @@ import matplotlib.animation as animation
 from PIL import Image
 import os
 
-def genMovie(resultsFolder, writeMovieFile, numEpochs=9999, preEpochs=True, mc=True):
+def genMovie(resultsFolder, writeMovieFile, numEpochs=9999, preEpochs=True, mc=True, type='{type}'):
     initImage = []
-    if os.path.exists(f'{resultsFolder}initZunger_plotBS.png'):
-        img = Image.open(f'{resultsFolder}initZunger_plotBS.png')
+    if os.path.exists(f'{resultsFolder}initZunger_plot{type}.png'):
+        img = Image.open(f'{resultsFolder}initZunger_plot{type}.png')
         initImage.append(img)
 
     preImages = []
     if preEpochs: 
-        preImage_files = [f'{resultsFolder}preEpoch_{i}_plotBS.png' for i in range(1, 9999)]
+        preImage_files = [f'{resultsFolder}preEpoch_{i}_plot{type}.png' for i in range(1, 9999)]
         for image_file in preImage_files:
             if os.path.exists(image_file):
                 img = Image.open(image_file)
@@ -21,7 +21,7 @@ def genMovie(resultsFolder, writeMovieFile, numEpochs=9999, preEpochs=True, mc=T
 
     mcImages = []
     if mc: 
-        mcImage_files = [f'{resultsFolder}mc_iter_{i}_plotBS.png' for i in range(0, 9999)]
+        mcImage_files = [f'{resultsFolder}mc_iter_{i}_plot{type}.png' for i in range(0, 9999)]
         for image_file in mcImage_files:
             if os.path.exists(image_file):
                 img = Image.open(image_file)
@@ -29,7 +29,7 @@ def genMovie(resultsFolder, writeMovieFile, numEpochs=9999, preEpochs=True, mc=T
             # else:
                 # break
 
-    image_files = [f'{resultsFolder}epoch_{i}_plotBS.png' for i in range(1, numEpochs+1)]
+    image_files = [f'{resultsFolder}epoch_{i}_plot{type}.png' for i in range(1, numEpochs+1)]
     images = []
     for image_file in image_files:
         if os.path.exists(image_file):
