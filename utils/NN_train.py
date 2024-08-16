@@ -61,7 +61,7 @@ def print_and_inspect_NNParams(model, filename=None, show=False):
             for name, param in model.named_parameters():
                 f.write(f'Parameter: {name}, Tensor shape: {param.shape}\n')
                 tensor_str = np.array2string(param.detach().numpy(), precision=5, suppress_small=True, max_line_width=999999, threshold=99*99)
-                f.write(f'Gradient values:\n{tensor_str}\n\n')
+                f.write(f'Parameter values:\n{tensor_str}\n\n')
 
 
 def get_max_gradient_param(model):
@@ -238,8 +238,8 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
             plot_bandStruct_list.append(evalBS)
             totalMSE += weighted_mse_bandStruct(evalBS, sys)
     fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
-    print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. TotalMSE = {totalMSE:f}")
-    fig.suptitle(f"{runName}: totalMSE = {totalMSE:f}")
+    print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. TotalMSE = {totalMSE:.4f}")
+    fig.suptitle(f"{runName}: totalMSE = {totalMSE:.4f}")
     fig.savefig(BSplotFilename)
     plt.close('all')
     torch.cuda.empty_cache()
@@ -511,7 +511,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
 
         # perturb the model
         if (NNConfig['perturbEvery']>0) and (epoch>0) and (epoch % NNConfig['perturbEvery']==0): 
-            perturb_model(model, 0.10)
+            perturb_model(model, hams, 0.10)
             print("WARNING: We have randomly perturbed all the params of the model by 10%. \n")
 
         # scheduler of learning rate
@@ -555,20 +555,94 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
     return (training_COST, validation_COST)
 
 
-def perturb_model(model, percentage=0.0): 
-    print(f"Perturbing the model by percentage: {percentage}")
-    for param in model.parameters():
-        perturbation = 1 + torch.rand_like(param) * (2 * percentage) - percentage
-        param.data *= perturbation
+def perturb_model(model, hams, percentage=0.0, mode=1): 
+    if mode == 1: 
+        print(f"Perturbing the model by percentage: {percentage}")
+        for param in model.parameters():
+            perturbation = 1 + torch.rand_like(param) * (2 * percentage) - percentage
+            param.data *= perturbation
+    
+        for ham in hams: 
+            for atomType in ham.PPparams:
+                # perturb SOC constant
+                ham.PPparams[atomType][5] *= (1 + np.random.random() * (2 * percentage/100) - percentage/100)
+
+                # perturb NL constants
+                ham.PPparams[atomType][6] *= (1 + np.random.random() * (2 * percentage/100) - percentage/100)
+                ham.PPparams[atomType][7] *= (1 + np.random.random() * (2 * percentage/100) - percentage/100)
+
+    if mode == 2: 
+        print(f"Perturbing the model by percentage: {percentage}")
+        for param in model.parameters():
+            perturbation = torch.ones_like(param)
+            
+            with torch.no_grad():
+                mask_large_positive = param > 30
+                mask_large_negative = param < -30
+                
+                perturbation[mask_large_positive] = 1 - percentage * torch.rand_like(param[mask_large_positive])
+                perturbation[mask_large_negative] = 1 + percentage * torch.rand_like(param[mask_large_negative])
+
+                mask_small = (param > -0.01) & (param < 0.01)
+                perturbation[mask_small] = 1 + torch.rand_like(param[mask_small]) * (20 * percentage) - 10 * percentage
+
+                mask_default = ~(mask_large_positive | mask_large_negative | mask_small)
+                perturbation[mask_default] = 1 + torch.rand_like(param[mask_default]) * (2 * percentage) - percentage
+
+            param.data *= perturbation
+    
+        for ham in hams: 
+            for atomType in ham.PPparams:
+                for p in range(5, 8): # SOC and NL
+                    ham.PPparams[atomType][p] *= (1 + np.random.random() * (2 * percentage/100) - percentage/100)
+
+    if mode == 3: 
+        print(f"Perturbing the model by std after normalization: {percentage}")
+        original_params = {}
+        for name, param in model.named_parameters():
+            mean = param.data.mean()
+            std = param.data.std()
+            original_params[name] = (mean, std)
+            param.data = (param.data - mean) / (std + 1e-8)
+        
+        with torch.no_grad():
+            for name, param in model.named_parameters():
+                num_params = param.data.numel()
+                num_to_move = int(0.5 * num_params)
+                
+                indices = np.random.choice(num_params, num_to_move, replace=False)
+
+                perturbations = torch.randn(num_params) * percentage
+                param.data.view(-1)[indices] += perturbations[indices]
+        
+        for name, param in model.named_parameters():
+            mean, std = original_params[name]
+            param.data = param.data * std + mean
+
+    if mode == 4: 
+        print(f"Perturbing the model by absolute steps: {percentage}")
+        for param in model.parameters():
+            if (np.random.random() <= 0.6): 
+                random_sign = torch.randint(0, 2, param.shape, dtype=torch.float64) * 2 - 1
+                param.data += percentage * random_sign
+
+        for ham in hams: 
+            for atomType in ham.PPparams:
+                for p in range(5, 8): # SOC and NL
+                    if (np.random.random() <= 0.6): 
+                        ham.PPparams[atomType][p] += percentage/100 * np.random.choice([-1, 1])
+
     return model
 
 
 def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFolder, cachedMats_info=None):
-    file_trainCost = open(f'{resultsFolder}MC_training_cost.dat', "w")
-    file_trainCost.write("# iter      newLoss      accept?      currLoss\n")
+    file_trainCost = open(f'{resultsFolder}final_mc_cost.dat', "w")
+    file_trainCost.write("# iter      newLoss      accept?      bestLoss      currLoss\n")
     
     bestModel = model
     bestLoss = evalBS_noGrad(bestModel, f'{resultsFolder}mc_iter_0_plotBS.png', f'mc_iter_0', NNConfig, hams, systems, cachedMats_info)
+    print_and_inspect_NNParams(bestModel, f'{resultsFolder}best_params.dat', show=True)
+    shutil.copy(f'{resultsFolder}mc_iter_0_plotBS.png', f'{resultsFolder}best_plotBS.png')
     currModel = model
     currLoss = bestLoss
     trial_COST = [currLoss]
@@ -576,7 +650,7 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
 
     for iter in range(NNConfig['mc_iter']):
         print(f"\nIteration [{iter+1}/{NNConfig['mc_iter']}]: ")
-        newModel = perturb_model(currModel, percentage=NNConfig['mc_percentage'])
+        newModel = perturb_model(currModel, hams, percentage=NNConfig['mc_percentage'], mode=NNConfig['mc_perturb_mode'] if 'mc_perturb_mode' in NNConfig else 1)
         newLoss = evalBS_noGrad(newModel, f'{resultsFolder}mc_iter_{iter+1}_plotBS.png', f'mc_iter_{iter+1}', NNConfig, hams, systems, cachedMats_info)
         print(f"newLoss={newLoss.item():.4f}. ")
 
@@ -588,10 +662,11 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             bestModel = newModel
             currLoss = newLoss
             currModel = newModel
-            file_trainCost.write(f"{iter+1}    {newLoss.item()}    {1}    {currLoss.item()}\n")
+            file_trainCost.write(f"{iter+1}    {newLoss.item():.4f}    {1}    {bestLoss.item():.4f}    {currLoss.item():.4f}\n")
             file_trainCost.flush()
             print(f"Accepted. currLoss={currLoss.item():.4f}")
-            # print_and_inspect_NNParams(newModel, f'{resultsFolder}mc_iter_{iter+1}_params.dat', show=True)
+            print_and_inspect_NNParams(newModel, f'{resultsFolder}best_params.dat', show=True)
+            print_and_inspect_NNParams(newModel, f'{resultsFolder}final_params.dat', show=True)
 
             fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, currModel(val_dataset.q), "ZungerForm", f"mc_iter_{iter+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
@@ -603,12 +678,20 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth', f'{resultsFolder}best_PPmodel.pth')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png', f'{resultsFolder}best_plotPP.png')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotBS.png', f'{resultsFolder}best_plotBS.png')
+
+            for ham in hams: 
+                for atomType in ham.PPparams:
+                    f = open(f'{resultsFolder}best_{atomType}Params.dat', "w")
+                    for i in range(9): 
+                        f.write(f"{ham.PPparams[atomType][i]}\n")
+                    f.close()
         elif mc_accept_bool:   # new loss is higher, but we still accept.
             currLoss = newLoss
             currModel = newModel
-            file_trainCost.write(f"{iter+1}    {newLoss.item()}    {1}    {currLoss.item()}\n")
+            file_trainCost.write(f"{iter+1}    {newLoss.item():.4f}    {1}    {bestLoss.item():.4f}    {currLoss.item():.4f}\n")
             file_trainCost.flush()
             print(f"Accepted. currLoss={currLoss.item():.4f}")
+            print_and_inspect_NNParams(newModel, f'{resultsFolder}final_params.dat', show=True)
 
             fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, currModel(val_dataset.q), "ZungerForm", f"mc_iter_{iter+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
@@ -618,9 +701,13 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png', f'{resultsFolder}final_plotPP.png')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotBS.png', f'{resultsFolder}final_plotBS.png')
         else:   # don't accept
-            file_trainCost.write(f"{iter+1}    {newLoss.item()}    {0}    {currLoss.item()}\n")
+            file_trainCost.write(f"{iter+1}    {newLoss.item():.4f}    {0}    {bestLoss.item():.4f}    {currLoss.item():.4f}\n")
             file_trainCost.flush()
             print(f"Not accepted. currLoss={currLoss.item():.4f}")
+            
+            fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, currModel(val_dataset.q), "ZungerForm", f"mc_iter_{iter+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+            # fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
+            os.remove(f'{resultsFolder}mc_iter_{iter+1}_plotBS.png')
         
         trial_COST.append(newLoss.item())
         accepted_COST.append(currLoss.item())
@@ -630,7 +717,7 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
 
     model = currModel
         
-    fig_cost = plot_mc_cost(trial_COST, accepted_COST, True, NNConfig['SHOWPLOTS']);
+    fig_cost = plot_mc_cost(trial_COST, accepted_COST, False, NNConfig['SHOWPLOTS']);
     fig_cost.savefig(f'{resultsFolder}final_mc_cost.png')
     file_trainCost.close()
     return (trial_COST, accepted_COST, bestModel, currModel)

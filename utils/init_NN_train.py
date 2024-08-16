@@ -66,11 +66,11 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
             optimizer.step()
         training_cost.append(train_cost)
         if (epoch==0) or ((epoch + 1) % NNConfig['init_Zunger_plotEvery'] == 0):
-            print_and_inspect_gradients(model, filename=f'{resultsFolder}initZunger_epoch_{epoch+1}_gradients.dat', show=True)
+            # print_and_inspect_gradients(model, filename=f'{resultsFolder}initZunger_epoch_{epoch+1}_gradients.dat', show=True)
             print_and_inspect_NNParams(model, filename=f'{resultsFolder}initZunger_epoch_{epoch+1}_params.dat', show=True)
             torch.save(model.state_dict(), f'{resultsFolder}initZunger_epoch_{epoch+1}_PPmodel.pth')
             torch.cuda.empty_cache()
-        if epoch > 0 and epoch % NNConfig['schedulerStep'] == 0:
+        if epoch > 0 and epoch % NNConfig['init_Zunger_plotEvery'] == 0:
             scheduler.step()
 
         for q, vq_atoms, w in val_loader:
@@ -96,7 +96,7 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
     return (training_cost, validation_cost)
 
 
-def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder):
+def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder, force_retrain=False):
     """
     Initializes the neural network pseudopotentials by either
     1. getting the NN parameters from {inputsFolder}init_PPmodel.pth
@@ -109,41 +109,45 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
     if os.path.exists(inputsFolder + 'init_PPmodel.pth'):
         print(f"\n{'#' * 40}\nInitializing the NN with file {inputsFolder}init_PPmodel.pth.")
         PPmodel.load_state_dict(torch.load(inputsFolder + 'init_PPmodel.pth'))
-        print(f"Done with NN initialization to the file {inputsFolder}init_PPmodel.pth.")
-    elif ('init_Zunger_num_epochs' not in NNConfig) or (NNConfig['init_Zunger_num_epochs']==0): 
+        if not force_retrain: 
+            print(f"Done with NN initialization to the file {inputsFolder}init_PPmodel.pth.")
+            return PPmodel, ZungerPPFunc_val
+    
+    if ('init_Zunger_num_epochs' not in NNConfig) or (NNConfig['init_Zunger_num_epochs']==0): 
         print("\nWARNING: Not initializing the NN to the Zunger function form. Could lead to slow convergence. \n")
-    else:
-        print(f"\n{'#' * 40}\nInitializing the NN by training to the Zunger function form of pseudopotentials. ")
-        PPmodel.cpu()
-        PPmodel.eval()
-        NN_init = PPmodel(ZungerPPFunc_val.q)
-        plotPP(atomPPOrder, ZungerPPFunc_val.q, ZungerPPFunc_val.q, ZungerPPFunc_val.vq_atoms, NN_init, "ZungerForm", "NN_init", ["-",":" ]*nPseudopot, False, NNConfig['SHOWPLOTS'])
+        return PPmodel, ZungerPPFunc_val
 
-        init_Zunger_criterion = init_Zunger_weighted_mse
+    print(f"\n{'#' * 40}\nInitializing the NN by training to the Zunger function form of pseudopotentials. ")
+    PPmodel.cpu()
+    PPmodel.eval()
+    NN_init = PPmodel(ZungerPPFunc_val.q)
+    plotPP(atomPPOrder, ZungerPPFunc_val.q, ZungerPPFunc_val.q, ZungerPPFunc_val.vq_atoms, NN_init, "ZungerForm", "NN_init", ["-",":" ]*nPseudopot, False, NNConfig['SHOWPLOTS'])
 
-        if ('init_Zunger_optimizer' not in NNConfig) or (NNConfig['init_Zunger_optimizer']=='adam'): 
-            init_Zunger_optimizer = torch.optim.Adam(PPmodel.parameters(), lr=NNConfig['init_Zunger_optimizer_lr'])
-        elif NNConfig['init_Zunger_optimizer']=='sgd': 
-            init_Zunger_optimizer = torch.optim.SGD(PPmodel.parameters(), lr=NNConfig['init_Zunger_optimizer_lr'])
-        else: 
-            raise ValueError("We only support 'adam' and 'sgd' for the init_Zunger fitting. ")
+    init_Zunger_criterion = init_Zunger_weighted_mse
 
+    if ('init_Zunger_optimizer' not in NNConfig) or (NNConfig['init_Zunger_optimizer']=='adam'): 
         init_Zunger_optimizer = torch.optim.Adam(PPmodel.parameters(), lr=NNConfig['init_Zunger_optimizer_lr'])
-        init_Zunger_scheduler = ExponentialLR(init_Zunger_optimizer, gamma=NNConfig['init_Zunger_scheduler_gamma'])
-        trainloader = DataLoader(dataset = ZungerPPFunc_train, batch_size = int(ZungerPPFunc_train.len/4),shuffle=True)
-        validationloader = DataLoader(dataset = ZungerPPFunc_val, batch_size =ZungerPPFunc_val.len, shuffle=False)
+    elif NNConfig['init_Zunger_optimizer']=='sgd': 
+        init_Zunger_optimizer = torch.optim.SGD(PPmodel.parameters(), lr=NNConfig['init_Zunger_optimizer_lr'])
+    else: 
+        raise ValueError("We only support 'adam' and 'sgd' for the init_Zunger fitting. ")
 
-        start_time = time.time()
-        (training_cost, validation_cost) = init_Zunger_train_GPU(PPmodel, device, trainloader, validationloader, init_Zunger_criterion, init_Zunger_optimizer, init_Zunger_scheduler, NNConfig, atomPPOrder, resultsFolder)
-        end_time = time.time()
-        elapsed_time = end_time - start_time
-        print("Initialization elapsed time: %.2f seconds" % elapsed_time)
-        fig_cost = plot_training_validation_cost(training_cost, validation_cost, ylogBoolean=True, SHOWPLOTS=NNConfig['SHOWPLOTS']);
-        fig_cost.savefig(resultsFolder + 'init_train_cost.png')
+    init_Zunger_optimizer = torch.optim.Adam(PPmodel.parameters(), lr=NNConfig['init_Zunger_optimizer_lr'])
+    init_Zunger_scheduler = ExponentialLR(init_Zunger_optimizer, gamma=NNConfig['init_Zunger_scheduler_gamma'])
+    trainloader = DataLoader(dataset = ZungerPPFunc_train, batch_size = int(ZungerPPFunc_train.len/4),shuffle=True)
+    validationloader = DataLoader(dataset = ZungerPPFunc_val, batch_size =ZungerPPFunc_val.len, shuffle=False)
 
-        torch.save(PPmodel.state_dict(), resultsFolder + 'initZunger_PPmodel.pth')
+    start_time = time.time()
+    (training_cost, validation_cost) = init_Zunger_train_GPU(PPmodel, device, trainloader, validationloader, init_Zunger_criterion, init_Zunger_optimizer, init_Zunger_scheduler, NNConfig, atomPPOrder, resultsFolder)
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print("Initialization elapsed time: %.2f seconds" % elapsed_time)
+    fig_cost = plot_training_validation_cost(training_cost, validation_cost, ylogBoolean=True, SHOWPLOTS=NNConfig['SHOWPLOTS']);
+    fig_cost.savefig(resultsFolder + 'init_train_cost.png')
 
-        print("Done with NN initialization to the latest function form.")
+    torch.save(PPmodel.state_dict(), resultsFolder + 'initZunger_PPmodel.pth')
+
+    print("Done with NN initialization to the latest function form.")
 
     return PPmodel, ZungerPPFunc_val
 

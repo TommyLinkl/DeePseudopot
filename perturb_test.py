@@ -12,7 +12,6 @@ from utils.ham import Hamiltonian, initAndCacheHams
 def perturb(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'results_evalFullBand/'):
     torch.set_num_threads(1)
     torch.set_default_dtype(torch.float64)
-    torch.manual_seed(24)
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1"
 
@@ -40,7 +39,7 @@ def perturb(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'results_eval
     # Initialize the NN according to the provided file init_PPmodel.pth
     PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder)
 
-    perturb_model(PPmodel, 0.02)
+    perturb_model(PPmodel, hams, 0.02)
 
     # Run one epoch of fitting after perturbation
     NNConfig['max_num_epochs'] = 1

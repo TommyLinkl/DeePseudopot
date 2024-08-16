@@ -11,7 +11,6 @@ from utils.ham import Hamiltonian
 def eval_fullBand(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'results_evalFullBand/'):
     torch.set_num_threads(1)
     torch.set_default_dtype(torch.float64)
-    torch.manual_seed(24)
     os.environ["OMP_NUM_THREADS"] = "1"
     os.environ["MKL_NUM_THREADS"] = "1"
 

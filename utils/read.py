@@ -31,12 +31,14 @@ def read_NNConfigFile(filename):
                 value = value.strip()
                 if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'cacheSO', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'printGrad', 'mc_bool', 'smooth_reorder', 'eigvec_reorder']:
                     config[key] = bool(int(value))
-                elif key in ['nSystem', 'num_cores', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter', 'pre_adjust_moves', 'relE_bIdx']:
+                elif key in ['nSystem', 'num_cores', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter', 'pre_adjust_moves', 'relE_bIdx', 'mc_perturb_mode']:
                     config[key] = int(value)
                 elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2', 'mc_percentage', 'mc_beta', 'pre_adjust_stepSize']:
                     config[key] = float(value)
                 elif key in ['hiddenLayers']: 
                     config[key] = [int(x) for x in value.split()]
+                elif key in ['PPmodel_scale']: 
+                    config[key] = [float(x) for x in value.split()]
                 else:
                     config[key] = value
 
@@ -323,8 +325,8 @@ class BulkSystem:
     def getGVectors(self):
         cellVolume = self.getCellVolume()
         prefactor = 2 * np.pi / cellVolume
-        print(f'cellVolume = {cellVolume}')
-        print(f'prefactor = {prefactor}')
+        # print(f'cellVolume = {cellVolume}')
+        # print(f'prefactor = {prefactor}')
         gVector1 = prefactor * torch.cross(self.unitCellVectors[1], self.unitCellVectors[2])
         gVector2 = prefactor * torch.cross(self.unitCellVectors[2], self.unitCellVectors[0])
         gVector3 = prefactor * torch.cross(self.unitCellVectors[0], self.unitCellVectors[1])
@@ -403,6 +405,8 @@ def setNN(config, nPseudopot):
             PPmodel = globals()[config['PPmodel']](layers, decay_rate=config['PPmodel_decay_rate'], decay_center=config['PPmodel_decay_center'])
         elif config['PPmodel'] in ['Net_relu_xavier_decayGaussian', 'Net_relu_xavier_BN_decayGaussian', 'Net_relu_xavier_BN_dropout_decayGaussian', 'Net_relu_HeInit_decayGaussian', 'Net_sigmoid_xavier_decayGaussian', 'Net_celu_HeInit_decayGaussian', 'Net_celu_RandInit_decayGaussian']: 
             PPmodel = globals()[config['PPmodel']](layers, gaussian_std=config['PPmodel_gaussian_std'])
+        elif config['PPmodel'] in ['Net_celu_HeInit_scale_decayGaussian']: 
+            PPmodel = globals()[config['PPmodel']](layers, gaussian_std=config['PPmodel_gaussian_std'], scale=torch.tensor(config['PPmodel_scale']))
         else: 
             PPmodel = globals()[config['PPmodel']](layers)
     else:

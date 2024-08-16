@@ -3,7 +3,7 @@ import matplotlib.animation as animation
 from PIL import Image
 import os
 
-def genMovie(resultsFolder, writeMovieFile, numEpochs=9999, preEpochs=True, mc=True, type='{type}'):
+def genMovie(resultsFolder, writeMovieFile, numEpochs=9999, preEpochs=True, mc=True, type='BS'):
     initImage = []
     if os.path.exists(f'{resultsFolder}initZunger_plot{type}.png'):
         img = Image.open(f'{resultsFolder}initZunger_plot{type}.png')
@@ -21,7 +21,8 @@ def genMovie(resultsFolder, writeMovieFile, numEpochs=9999, preEpochs=True, mc=T
 
     mcImages = []
     if mc: 
-        mcImage_files = [f'{resultsFolder}mc_iter_{i}_plot{type}.png' for i in range(0, 9999)]
+        # mcImage_files = [f'{resultsFolder}mc_iter_{i}_plot{type}.png' for i in range(0, 9999)]
+        mcImage_files = [f'{resultsFolder}mc_iter_{i}_plot{type}.png' for i in range(0, 9999, 50)]
         for image_file in mcImage_files:
             if os.path.exists(image_file):
                 img = Image.open(image_file)

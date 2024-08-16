@@ -464,6 +464,39 @@ class Net_celu_HeInit_decayGaussian(nn.Module):
         return output
 
 
+
+class Net_celu_HeInit_scale_decayGaussian(nn.Module):
+    def __init__(self, Layers, gaussian_std, scale):
+        super(Net_celu_HeInit_scale_decayGaussian, self).__init__()
+        self.layers = Layers
+        self.neural_network = Net_celu_HeInit(Layers)
+
+        self.gaussian_std = torch.tensor(gaussian_std, requires_grad=False)
+        
+        # Assert scale is a tensor and has the correct shape: (Layers[-1],)
+        if not torch.is_tensor(scale):
+            raise TypeError("scale must be a tensor.")
+        if scale.shape != (Layers[-1],):
+            raise ValueError(f"scale tensor must have shape ({Layers[-1]},), but got {scale.shape}.")
+        self.scale_tensor = scale
+    
+    def forward(self, x):
+        gaussian = torch.exp(-x**2/(2*self.gaussian_std**2))
+        output = self.neural_network(x) * gaussian * self.scale_tensor
+        return output
+    
+    def change_scale(self, new_scale): 
+        # Assert new_scale is a tensor and has the correct shape: (self.layers[-1],)
+        if not torch.is_tensor(new_scale):
+            raise TypeError("new_scale must be a tensor.")
+        if new_scale.shape != (self.layers[-1],):
+            raise ValueError(f"new_scale must have shape ({self.layers[-1]},), but got {new_scale.shape}.")
+        
+        self.scale_tensor = new_scale
+
+
+
+
 class Net_celu_RandInit_decayGaussian(nn.Module):
     def __init__(self, Layers, gaussian_std):
         super(Net_celu_RandInit_decayGaussian, self).__init__()

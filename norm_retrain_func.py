@@ -2,15 +2,49 @@ import os, time, sys, glob
 import torch
 from torch.optim.lr_scheduler import ExponentialLR
 import numpy as np
+import matplotlib.pyplot as plt 
 
 from utils.read import read_NNConfigFile, setAllBulkSystems, setNN
-from utils.pp_func import FT_converge_and_write_pp
+from utils.pp_func import FT_converge_and_write_pp, plotPP
 from utils.init_NN_train import init_ZungerPP, init_optimizer
-from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, weighted_relative_mse_bandStruct, weighted_relative_mse_energiesAtKpt, bandStruct_train_GPU, evalBS_noGrad, runMC_NN
+from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, weighted_relative_mse_bandStruct, weighted_relative_mse_energiesAtKpt, bandStruct_train_GPU, evalBS_noGrad, runMC_NN, print_and_inspect_NNParams
 from utils.ham import initAndCacheHams
 from utils.genMovie import genMovie
 
-def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
+def norm_params_NN(model, mode='all'): 
+    """
+    Normalize each parameter (weights and biases) of a given neural network separately.
+    
+    Args:
+        model (nn.Module): The neural network model whose parameters are to be normalized.
+    """
+
+    if mode == 'all': 
+        # Gather all parameters into a single tensor
+        all_params = []
+        for param in model.parameters():
+            all_params.append(param.data.view(-1)) 
+        
+        all_params = torch.cat(all_params)  # Concatenate into a single tensor
+
+        mean = all_params.mean()
+        std = all_params.std()
+
+        # Normalize each parameter
+        with torch.no_grad():
+            for param in model.parameters():
+                param.data = (param.data - mean) / std 
+
+    elif mode == 'separately': 
+        with torch.no_grad():
+            for param in model.parameters():
+                mean = param.data.mean()
+                std = param.data.std()
+                param.data = (param.data - mean) / (std + 1e-8)
+    return
+
+
+def norm_retrain_func(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     torch.set_num_threads(1)
     torch.set_default_dtype(torch.float64)
     os.environ["OMP_NUM_THREADS"] = "1"
@@ -29,16 +63,45 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
 
     # Set up the neural network
     PPmodel = setNN(NNConfig, nPseudopot)
+    PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder)
+    print_and_inspect_NNParams(PPmodel, f'{resultsFolder}loaded_0_params.dat', show=True)
+    fig = plotPP(atomPPOrder, ZungerPPFunc_val.q, ZungerPPFunc_val.q, ZungerPPFunc_val.vq_atoms, PPmodel(ZungerPPFunc_val.q), "ZungerForm", f"loaded_0", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+    fig.savefig(f'{resultsFolder}loaded_0_plotPP.png')
 
+    for iRepeat in range(3):          # repeat 3 times? 
+        # Normalize the parameters
+        old_forScale = PPmodel(torch.tensor([0.0])).detach()
+        norm_params_NN(PPmodel)
+        print_and_inspect_NNParams(PPmodel, f'{resultsFolder}norm_{iRepeat}_params.dat', show=True)
+        fig = plotPP(atomPPOrder, ZungerPPFunc_val.q, ZungerPPFunc_val.q, ZungerPPFunc_val.vq_atoms, PPmodel(ZungerPPFunc_val.q), "ZungerForm", f"norm_{iRepeat}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+        fig.savefig(f'{resultsFolder}norm_{iRepeat}_plotPP.png')
+        new_forScale = PPmodel(torch.tensor([0.0])).detach()
+        print(f"Before and after normalization: {old_forScale}, {new_forScale}. ")
+
+        # Calculate the appropriate new scaling factors
+        new_scale = old_forScale / (new_forScale + torch.full_like(new_forScale, 1e-8))
+        print(new_scale)
+
+        # Change the scaling factors in PPmodel and in NNConfig
+        PPmodel.change_scale(new_scale)
+        NNConfig['PPmodel_scale'] = new_scale.tolist()
+
+        print_and_inspect_NNParams(PPmodel, f'{resultsFolder}rescale_{iRepeat}_params.dat', show=True)
+        fig = plotPP(atomPPOrder, ZungerPPFunc_val.q, ZungerPPFunc_val.q, ZungerPPFunc_val.vq_atoms, PPmodel(ZungerPPFunc_val.q), "ZungerForm", f"rescale_{iRepeat}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+        fig.savefig(f'{resultsFolder}rescale_{iRepeat}_plotPP.png')
+
+
+
+        # Now I actually want to retrain on the function
+        PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder, force_retrain=True)
+        print_and_inspect_NNParams(PPmodel, f'{resultsFolder}retrained_{iRepeat}_params.dat', show=True)
+        fig = plotPP(atomPPOrder, ZungerPPFunc_val.q, ZungerPPFunc_val.q, ZungerPPFunc_val.vq_atoms, PPmodel(ZungerPPFunc_val.q), "ZungerForm", f"retrained_{iRepeat}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+        fig.savefig(f'{resultsFolder}retrained_{iRepeat}_plotPP.png')
+        plt.close('all')
+
+    return
     # Initialize the ham class for each BulkSystem. Cache the SO and NL mats. 
     hams, cachedMats_info, shm_dict_SO, shm_dict_NL = initAndCacheHams(systems, NNConfig, PPparams, atomPPOrder, device)
-
-    # Calculate bandStructure with the old function form with parameters given in PPparams
-    print("Evaluating band structures using the old Zunger form pseudopotentials in the init_xxx files. ")
-    oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.png', 'Old Zunger BS', NNConfig, hams, systems, cachedMats_info, writeBS=True)
-
-    # Initialize the NN to the local pot function form
-    PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder)
 
     # Evaluate the band structures and pseudopotentials for the initialized NN
     print("\nEvaluating band structures using the initialized pseudopotentials. ")
@@ -52,7 +115,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     PPmodel.eval()
     FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, f'{resultsFolder}initZunger_plotPP', f'{resultsFolder}initZunger_pot', NNConfig['SHOWPLOTS'])
 
-
+    return 
     ############# Fit NN to band structures ############# 
     if (not NNConfig['mc_bool']): 
         print(f"\n{'#' * 40}\nStart training of the NN to fit to band structures. ")
@@ -111,15 +174,14 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
             shm.close()
             shm.unlink()
 
-if __name__ == "__main__":
-    torch.set_num_threads(1)
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["MKL_NUM_THREADS"] = "1"
 
-    if len(sys.argv) != 3:
-        print("Usage: python main.py <inputsFolder> <resultsFolder> ")
-        sys.exit(1)
 
-    inputsFolder = sys.argv[1]
-    resultsFolder = sys.argv[2]
-    main(inputsFolder, resultsFolder)
+
+
+if len(sys.argv) != 3:
+    print("Usage: python norm_retrain_func.py <inputsFolder> <resultsFolder> ")
+    sys.exit(1)
+
+inputsFolder = sys.argv[1]
+resultsFolder = sys.argv[2]
+norm_retrain_func(inputsFolder, resultsFolder)
