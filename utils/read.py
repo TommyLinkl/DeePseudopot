@@ -226,7 +226,10 @@ class BulkSystem:
             self.bandOrderMatrix = np.loadtxt(bandOrderFilename, dtype=int)
             print(f"NOTICE: We are reading and using the fixed order of bands from the file '{bandOrderFilename}'. ")
         else:
-            print(f"The file '{bandOrderFilename}' does not exist. Not using manual band order input. ")
+            print(f"Band order input file: xxx_orderMatrix.par not found... Not using manual band order input. ")
+        # Ensure bandOrderMatrix is two-dimensional
+        if self.bandOrderMatrix.ndim == 1:
+            self.bandOrderMatrix = self.bandOrderMatrix[np.newaxis, :]
 
     
 

@@ -2,6 +2,7 @@ import os, time
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torch.optim.lr_scheduler import ExponentialLR
+import numpy as np
 
 from .constants import *
 from .pp_func import pot_func, plotPP, plot_training_validation_cost
@@ -10,7 +11,6 @@ from .NN_train import print_and_inspect_gradients, print_and_inspect_NNParams
 torch.set_default_dtype(torch.float64)
 
 class init_Zunger_data(Dataset):
-
     def __init__(self, atomPPOrder, totalParams, train=True, trainDataSize=4000, valDataSize=NQGRID):
         if train==True:
             self.q = (torch.rand(trainDataSize, 1) * 10.0).view(-1,1)
@@ -41,12 +41,41 @@ class init_Zunger_data(Dataset):
         return self.len
 
 
+class load_qSpace_data(Dataset):
+    def __init__(self, atomPPOrder, filename):
+        qSpace_file = np.loadtxt(filename)
+        with open(filename, 'r') as file:
+            comment_line = file.readline().strip()
+
+        print(f"Please make sure the order of the atoms are the same in the following: {atomPPOrder} vs. {comment_line.split()}")
+
+
+        self.q = torch.from_numpy(qSpace_file[:, 0]).view(-1,1)
+        self.vq_atoms = torch.empty(len(qSpace_file), 0)
+        for iAtom in range(len(atomPPOrder)): 
+            vq = torch.from_numpy(qSpace_file[:, iAtom+1]).view(-1,1)
+            self.vq_atoms = torch.cat((self.vq_atoms, vq), dim=1)
+        self.w = torch.ones_like(self.vq_atoms)
+
+        self.len = self.q.shape[0]
+
+
+    def __getitem__(self,index):
+        return self.q[index],self.vq_atoms[index],self.w[index]
+    
+
+    def __len__(self):
+        return self.len
+
+
 def init_Zunger_weighted_mse(yhat,y,weight):
     return torch.mean(weight*(yhat-y)**2)
 
 
 def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, optimizer, scheduler, NNConfig, atomPPOrder, resultsFolder):
+    training_cost_x=[]
     training_cost=[]
+    validation_cost_x=[]
     validation_cost=[]
     model.to(device)
     for epoch in range(NNConfig['init_Zunger_num_epochs']):
@@ -64,6 +93,7 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+        training_cost_x.append(epoch)
         training_cost.append(train_cost)
         if (epoch==0) or ((epoch + 1) % NNConfig['init_Zunger_plotEvery'] == 0):
             # print_and_inspect_gradients(model, filename=f'{resultsFolder}initZunger_epoch_{epoch+1}_gradients.dat', show=True)
@@ -87,11 +117,14 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
                 plot_vq_atoms = vq_atoms.cpu()
                 plot_pred_outputs = pred_outputs.cpu()
                 print(f"Epoch [{epoch+1}/{NNConfig['init_Zunger_num_epochs']}], Validation Loss: {loss.item():.4f}")
-                plotPP(atomPPOrder, plot_q, plot_q, plot_vq_atoms, plot_pred_outputs, "ZungerForm", f"NN_{epoch+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS'])
+                fig = plotPP(atomPPOrder, plot_q, plot_q, plot_vq_atoms, plot_pred_outputs, "ZungerForm", f"NN_{epoch+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS'])
+                fig.savefig(f"{resultsFolder}initZunger_epoch_{epoch}_plotPP.pdf")
+                fig.savefig(f"{resultsFolder}initZunger_epoch_{epoch}_plotPP.png")
+        validation_cost_x.append(epoch)
         validation_cost.append(val_cost)
         torch.cuda.empty_cache()
-    fig_cost = plot_training_validation_cost(training_cost, validation_cost, ylogBoolean=True, SHOWPLOTS=NNConfig['SHOWPLOTS'])
-    fig_cost.savefig(resultsFolder + 'init_train_cost.png')
+    fig_cost = plot_training_validation_cost(training_cost_x, training_cost, validation_cost_x, validation_cost, ylogBoolean=False, SHOWPLOTS=NNConfig['SHOWPLOTS'])
+    fig_cost.savefig(resultsFolder + 'init_train_cost.pdf')
     torch.cuda.empty_cache()
     return (training_cost, validation_cost)
 
@@ -105,6 +138,12 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
     """
     ZungerPPFunc_train = init_Zunger_data(atomPPOrder, localPotParams, train=True)
     ZungerPPFunc_val = init_Zunger_data(atomPPOrder, localPotParams, train=False)
+    if os.path.exists(inputsFolder + 'init_qSpace_pot.par'):
+        print("Reading in init_qSpace_pot.par for initialization. Not using the Zunger function for this purpose. ")
+        del ZungerPPFunc_train, ZungerPPFunc_val
+        ZungerPPFunc_train = load_qSpace_data(atomPPOrder, f"{inputsFolder}init_qSpace_pot.par")
+        ZungerPPFunc_val = load_qSpace_data(atomPPOrder, f"{inputsFolder}init_qSpace_pot.par")
+
 
     if os.path.exists(inputsFolder + 'init_PPmodel.pth'):
         print(f"\n{'#' * 40}\nInitializing the NN with file {inputsFolder}init_PPmodel.pth.")
@@ -134,7 +173,8 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
 
     init_Zunger_optimizer = torch.optim.Adam(PPmodel.parameters(), lr=NNConfig['init_Zunger_optimizer_lr'])
     init_Zunger_scheduler = ExponentialLR(init_Zunger_optimizer, gamma=NNConfig['init_Zunger_scheduler_gamma'])
-    trainloader = DataLoader(dataset = ZungerPPFunc_train, batch_size = int(ZungerPPFunc_train.len/4),shuffle=True)
+    # trainloader = DataLoader(dataset = ZungerPPFunc_train, batch_size = int(ZungerPPFunc_train.len/4),shuffle=True)
+    trainloader = DataLoader(dataset = ZungerPPFunc_train, batch_size = ZungerPPFunc_train.len, shuffle=False)
     validationloader = DataLoader(dataset = ZungerPPFunc_val, batch_size =ZungerPPFunc_val.len, shuffle=False)
 
     start_time = time.time()
@@ -142,13 +182,12 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
     end_time = time.time()
     elapsed_time = end_time - start_time
     print("Initialization elapsed time: %.2f seconds" % elapsed_time)
-    fig_cost = plot_training_validation_cost(training_cost, validation_cost, ylogBoolean=True, SHOWPLOTS=NNConfig['SHOWPLOTS']);
-    fig_cost.savefig(resultsFolder + 'init_train_cost.png')
 
     torch.save(PPmodel.state_dict(), resultsFolder + 'initZunger_PPmodel.pth')
 
     print("Done with NN initialization to the latest function form.")
 
+    ZungerPPFunc_val = init_Zunger_data(atomPPOrder, localPotParams, train=False)
     return PPmodel, ZungerPPFunc_val
 
 

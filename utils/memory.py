@@ -22,5 +22,5 @@ def plot_memory_usage(resultsFolder):
         axs.plot(range(len(memory_usage_data)), memory_usage_data, 'o-')
         axs.set(xlabel='Call Number', ylabel='Memory Usage (GB)', title='Memory Usage Over Calls')
         fig.tight_layout()
-        fig.savefig(resultsFolder+"memoryUsage.png") 
+        fig.savefig(resultsFolder+"memoryUsage.pdf") 
     return

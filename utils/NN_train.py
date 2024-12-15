@@ -64,6 +64,25 @@ def print_and_inspect_NNParams(model, filename=None, show=False):
                 f.write(f'Parameter values:\n{tensor_str}\n\n')
 
 
+def write_PP_qSpace(writeFileName, model, atomPPOrder):
+    qGrid = torch.linspace(0.0, 30.0, 4096).view(-1, 1)
+    NN = model(qGrid)     
+
+    # write out
+    with open(writeFileName, 'w') as file: 
+        file.write("# q          ")
+        for iAtom in range(len(atomPPOrder)): 
+            file.write(f"v(q)_{atomPPOrder[iAtom]}          ")
+        file.write("\n")
+
+        for i in range(len(qGrid)):
+            file.write(f"{qGrid[i,0]:.8f}          ")
+            for iAtom in range(len(atomPPOrder)): 
+                file.write(f"{NN[i,iAtom]:.8f}          ")
+            file.write("\n")
+    return
+
+
 def get_max_gradient_param(model):
     """
     Returns the parameter that has the largest gradient, in terms of the 
@@ -220,10 +239,10 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
         evalBS.detach_()
         end_time = time.time()
         if writeBS: 
-            if not BSplotFilename.endswith('_plotBS.png'):
-                raise ValueError("BSplotFilename must end with '_plotBS.png' to write BS.dat files. ")
+            if (not BSplotFilename.endswith('_plotBS.pdf')) and (not BSplotFilename.endswith('_plotBS.png')):
+                raise ValueError("BSplotFilename must end with '_plotBS.pdf' or '_plotBS.png' to write BS.dat files. ")
             else:
-                write_BS_filename = BSplotFilename.replace('_plotBS.png', f'_BS_sys{iSys}.dat')
+                write_BS_filename = BSplotFilename.replace('_plotBS.pdf', f'_BS_sys{iSys}.dat')
             kptDistInputs_vertical = sys.kptDistInputs.view(-1, 1)
             write_tensor = torch.cat((kptDistInputs_vertical, evalBS), dim=1)
             np.savetxt(write_BS_filename, write_tensor, fmt='%.5f')
@@ -241,6 +260,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
     print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. TotalMSE = {totalMSE:.4f}")
     fig.suptitle(f"{runName}: totalMSE = {totalMSE:.4f}")
     fig.savefig(BSplotFilename)
+    fig.savefig(BSplotFilename.replace('.pdf', '.png'))
     plt.close('all')
     torch.cuda.empty_cache()
     return totalMSE
@@ -476,7 +496,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
             # print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_params.dat', show=True)
 
             model.eval()
-            val_MSE = evalBS_noGrad(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_plotBS.png', f'preEpoch_{pre_epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True)
+            val_MSE = evalBS_noGrad(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_plotBS.pdf', f'preEpoch_{pre_epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True)
 
             torch.save(model.state_dict(), f'{resultsFolder}preEpoch_{pre_epoch+1}_PPmodel.pth')
             torch.cuda.empty_cache()
@@ -490,6 +510,14 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
         
         model.load_state_dict(torch.load(f'{resultsFolder}preEpoch_{pre_min_epoch+1}_PPmodel.pth'))
         print(f"We have re-loaded back to the preEpoch_{pre_min_epoch+1}, which gives the best-conditioned gradients. ")
+
+        # Clean-up
+        for pre_epoch in range(NNConfig['pre_adjust_moves']):
+            if (pre_epoch%20!=0) and (pre_epoch!=pre_min_epoch): 
+                os.remove(f'{resultsFolder}preEpoch_{pre_epoch+1}_BS_sys0.dat')
+                os.remove(f'{resultsFolder}preEpoch_{pre_epoch+1}_PPmodel.pth')
+                os.remove(f'{resultsFolder}preEpoch_{pre_epoch+1}_plotBS.pdf')
+                os.remove(f'{resultsFolder}preEpoch_{pre_epoch+1}_plotBS.png')
 
     for epoch in range(NNConfig['max_num_epochs']):
 
@@ -511,7 +539,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
 
         # perturb the model
         if (NNConfig['perturbEvery']>0) and (epoch>0) and (epoch % NNConfig['perturbEvery']==0): 
-            perturb_model(model, hams, 0.10)
+            model, _ = perturb_model(model, hams, 0.10)
             print("WARNING: We have randomly perturbed all the params of the model by 10%. \n")
 
         # scheduler of learning rate
@@ -521,7 +549,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
         # evaluation
         if (epoch + 1) % NNConfig['plotEvery'] == 0:
             model.eval()
-            val_MSE = evalBS_noGrad(model, f'{resultsFolder}epoch_{epoch+1}_plotBS.png', f'epoch_{epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True)
+            val_MSE = evalBS_noGrad(model, f'{resultsFolder}epoch_{epoch+1}_plotBS.pdf', f'epoch_{epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True)
             validationCOST_x.append(epoch+1)
             validation_COST.append(val_MSE)
             print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], validation cost: {val_MSE:.4f}")
@@ -530,8 +558,11 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
             
             model.cpu()
             fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, model(val_dataset.q), "ZungerForm", f"NN_{epoch+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+            fig.savefig(f'{resultsFolder}epoch_{epoch+1}_plotPP.pdf')
             fig.savefig(f'{resultsFolder}epoch_{epoch+1}_plotPP.png')
             model.to(device)
+
+            write_PP_qSpace(f'{resultsFolder}epoch_{epoch+1}_qSpace_pot.dat', model, atomPPOrder)
 
             torch.save(model.state_dict(), f'{resultsFolder}epoch_{epoch+1}_PPmodel.pth')
             torch.save(optimizer.state_dict(), f'{resultsFolder}epoch_{epoch+1}_AdamState.pth')
@@ -550,15 +581,22 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
         plt.close('all')
         torch.cuda.empty_cache()
     fig_cost = plot_training_validation_cost(trainingCOST_x, training_COST, validation_cost_x=validationCOST_x, validation_cost=validation_COST, ylogBoolean=True, SHOWPLOTS=NNConfig['SHOWPLOTS']);
-    fig_cost.savefig(resultsFolder + 'final_train_cost.png')
+    fig_cost.savefig(resultsFolder + 'final_train_cost.pdf')
     torch.cuda.empty_cache()
     return (training_COST, validation_COST)
 
 
 def perturb_model(model, hams, percentage=0.0, mode=1): 
+    # copy to new_model. Make changes on the new ones
+    new_model = copy.deepcopy(model)
+
+    # Make a copy of the old ham_PPparams. Make changes in place on the hams.
+    old_hams_PPparams = [copy.deepcopy(ham.PPparams) for ham in hams]
+
+    # Perturb model on the new model, perturb the SOC and NL in place. 
     if mode == 1: 
         print(f"Perturbing the model by percentage: {percentage}")
-        for param in model.parameters():
+        for param in new_model.parameters():
             perturbation = 1 + torch.rand_like(param) * (2 * percentage) - percentage
             param.data *= perturbation
     
@@ -573,40 +611,43 @@ def perturb_model(model, hams, percentage=0.0, mode=1):
 
     if mode == 2: 
         print(f"Perturbing the model by percentage: {percentage}")
-        for param in model.parameters():
-            perturbation = torch.ones_like(param)
+        for param in new_model.parameters():
+            perturbation = torch.zeros_like(param)
             
             with torch.no_grad():
-                mask_large_positive = param > 30
-                mask_large_negative = param < -30
-                
-                perturbation[mask_large_positive] = 1 - percentage * torch.rand_like(param[mask_large_positive])
-                perturbation[mask_large_negative] = 1 + percentage * torch.rand_like(param[mask_large_negative])
+                # Iterate over each element of the tensor
+                for idx in range(param.numel()):
+                    value = param.view(-1)[idx]  # Flatten the tensor to a 1D array for indexing
 
-                mask_small = (param > -0.01) & (param < 0.01)
-                perturbation[mask_small] = 1 + torch.rand_like(param[mask_small]) * (20 * percentage) - 10 * percentage
+                    if value > 20.0:
+                        perturbation.view(-1)[idx] = -torch.rand(1) * percentage * value
+                    elif value < -20.0:
+                        perturbation.view(-1)[idx] = torch.rand(1) * percentage * value
+                    elif -0.01 < value < 0.01:
+                        random_sign = torch.randint(0, 2, (1,)) * 2 - 1
+                        perturbation.view(-1)[idx] = random_sign * torch.rand(1) * 10 * percentage * value
+                    else:
+                        random_sign = torch.randint(0, 2, (1,)) * 2 - 1
+                        perturbation.view(-1)[idx] = random_sign * torch.rand(1) * percentage * value
 
-                mask_default = ~(mask_large_positive | mask_large_negative | mask_small)
-                perturbation[mask_default] = 1 + torch.rand_like(param[mask_default]) * (2 * percentage) - percentage
+                param += perturbation
 
-            param.data *= perturbation
-    
         for ham in hams: 
             for atomType in ham.PPparams:
                 for p in range(5, 8): # SOC and NL
-                    ham.PPparams[atomType][p] *= (1 + np.random.random() * (2 * percentage/100) - percentage/100)
+                    ham.PPparams[atomType][p] *= (1 + np.random.random() * (2 * percentage/1000) - percentage/1000)
 
     if mode == 3: 
         print(f"Perturbing the model by std after normalization: {percentage}")
         original_params = {}
-        for name, param in model.named_parameters():
+        for name, param in new_model.named_parameters():
             mean = param.data.mean()
             std = param.data.std()
             original_params[name] = (mean, std)
             param.data = (param.data - mean) / (std + 1e-8)
         
         with torch.no_grad():
-            for name, param in model.named_parameters():
+            for name, param in new_model.named_parameters():
                 num_params = param.data.numel()
                 num_to_move = int(0.5 * num_params)
                 
@@ -615,13 +656,13 @@ def perturb_model(model, hams, percentage=0.0, mode=1):
                 perturbations = torch.randn(num_params) * percentage
                 param.data.view(-1)[indices] += perturbations[indices]
         
-        for name, param in model.named_parameters():
+        for name, param in new_model.named_parameters():
             mean, std = original_params[name]
             param.data = param.data * std + mean
 
     if mode == 4: 
         print(f"Perturbing the model by absolute steps: {percentage}")
-        for param in model.parameters():
+        for param in new_model.parameters():
             if (np.random.random() <= 0.6): 
                 random_sign = torch.randint(0, 2, param.shape, dtype=torch.float64) * 2 - 1
                 param.data += percentage * random_sign
@@ -630,9 +671,9 @@ def perturb_model(model, hams, percentage=0.0, mode=1):
             for atomType in ham.PPparams:
                 for p in range(5, 8): # SOC and NL
                     if (np.random.random() <= 0.6): 
-                        ham.PPparams[atomType][p] += percentage/100 * np.random.choice([-1, 1])
+                        ham.PPparams[atomType][p] += percentage/1000 * np.random.choice([-1, 1])
 
-    return model
+    return new_model, old_hams_PPparams
 
 
 def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFolder, cachedMats_info=None):
@@ -640,9 +681,9 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
     file_trainCost.write("# iter      newLoss      accept?      bestLoss      currLoss\n")
     
     bestModel = model
-    bestLoss = evalBS_noGrad(bestModel, f'{resultsFolder}mc_iter_0_plotBS.png', f'mc_iter_0', NNConfig, hams, systems, cachedMats_info)
+    bestLoss = evalBS_noGrad(bestModel, f'{resultsFolder}mc_iter_0_plotBS.pdf', f'mc_iter_0', NNConfig, hams, systems, cachedMats_info)
     print_and_inspect_NNParams(bestModel, f'{resultsFolder}best_params.dat', show=True)
-    shutil.copy(f'{resultsFolder}mc_iter_0_plotBS.png', f'{resultsFolder}best_plotBS.png')
+    shutil.copy(f'{resultsFolder}mc_iter_0_plotBS.pdf', f'{resultsFolder}best_plotBS.pdf')
     currModel = model
     currLoss = bestLoss
     trial_COST = [currLoss]
@@ -650,8 +691,8 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
 
     for iter in range(NNConfig['mc_iter']):
         print(f"\nIteration [{iter+1}/{NNConfig['mc_iter']}]: ")
-        newModel = perturb_model(currModel, hams, percentage=NNConfig['mc_percentage'], mode=NNConfig['mc_perturb_mode'] if 'mc_perturb_mode' in NNConfig else 1)
-        newLoss = evalBS_noGrad(newModel, f'{resultsFolder}mc_iter_{iter+1}_plotBS.png', f'mc_iter_{iter+1}', NNConfig, hams, systems, cachedMats_info)
+        newModel, old_PPparams = perturb_model(currModel, hams, percentage=NNConfig['mc_percentage'], mode=NNConfig['mc_perturb_mode'] if 'mc_perturb_mode' in NNConfig else 1)
+        newLoss = evalBS_noGrad(newModel, f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf', f'mc_iter_{iter+1}', NNConfig, hams, systems, cachedMats_info)
         print(f"newLoss={newLoss.item():.4f}. ")
 
         mc_rand = np.exp(-1 * NNConfig['mc_beta'] * (np.sqrt(newLoss) - np.sqrt(currLoss)))
@@ -669,22 +710,28 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             print_and_inspect_NNParams(newModel, f'{resultsFolder}final_params.dat', show=True)
 
             fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, currModel(val_dataset.q), "ZungerForm", f"mc_iter_{iter+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+            fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf')
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
             torch.save(currModel.state_dict(), f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth')
+            write_PP_qSpace(f'{resultsFolder}final_qSpace_pot.dat', newModel, atomPPOrder)
+            shutil.copy(f'{resultsFolder}final_qSpace_pot.dat', f'{resultsFolder}best_qSpace_pot.dat')
 
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth', f'{resultsFolder}final_PPmodel.pth')
-            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png', f'{resultsFolder}final_plotPP.png')
-            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotBS.png', f'{resultsFolder}final_plotBS.png')
+            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf', f'{resultsFolder}final_plotPP.pdf')
+            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf', f'{resultsFolder}final_plotBS.pdf')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth', f'{resultsFolder}best_PPmodel.pth')
-            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png', f'{resultsFolder}best_plotPP.png')
-            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotBS.png', f'{resultsFolder}best_plotBS.png')
+            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf', f'{resultsFolder}best_plotPP.pdf')
+            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf', f'{resultsFolder}best_plotBS.pdf')
 
             for ham in hams: 
                 for atomType in ham.PPparams:
-                    f = open(f'{resultsFolder}best_{atomType}Params.dat', "w")
+                    f = open(f'{resultsFolder}mc_iter_{iter+1}_{atomType}Params.dat', "w")
                     for i in range(9): 
-                        f.write(f"{ham.PPparams[atomType][i]}\n")
+                        f.write(f"{ham.PPparams[atomType][i]:.8f}\n")
                     f.close()
+                    shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_{atomType}Params.dat', f'{resultsFolder}final_{atomType}Params.dat')
+                    shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_{atomType}Params.dat', f'{resultsFolder}best_{atomType}Params.dat')
+
         elif mc_accept_bool:   # new loss is higher, but we still accept.
             currLoss = newLoss
             currModel = newModel
@@ -694,19 +741,37 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             print_and_inspect_NNParams(newModel, f'{resultsFolder}final_params.dat', show=True)
 
             fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, currModel(val_dataset.q), "ZungerForm", f"mc_iter_{iter+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+            fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf')
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
             torch.save(currModel.state_dict(), f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth')
+            write_PP_qSpace(f'{resultsFolder}final_qSpace_pot.dat', newModel, atomPPOrder)
 
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth', f'{resultsFolder}final_PPmodel.pth')
-            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png', f'{resultsFolder}final_plotPP.png')
-            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotBS.png', f'{resultsFolder}final_plotBS.png')
+            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf', f'{resultsFolder}final_plotPP.pdf')
+            shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf', f'{resultsFolder}final_plotBS.pdf')
+
+            for ham in hams: 
+                for atomType in ham.PPparams:
+                    f = open(f'{resultsFolder}mc_iter_{iter+1}_{atomType}Params.dat', "w")
+                    for i in range(9): 
+                        f.write(f"{ham.PPparams[atomType][i]:.8f}\n")
+                    f.close()
+                    shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_{atomType}Params.dat', f'{resultsFolder}final_{atomType}Params.dat')
+
         else:   # don't accept
+            # currModel is never changed, as function perturb_model makes a copy of the model
+
+            # But we need to revert the changes on the SOC and NL parameters
+            for i, oldPPparam in enumerate(old_PPparams): 
+                hams[i].PPparams = oldPPparam
+
             file_trainCost.write(f"{iter+1}    {newLoss.item():.4f}    {0}    {bestLoss.item():.4f}    {currLoss.item():.4f}\n")
             file_trainCost.flush()
             print(f"Not accepted. currLoss={currLoss.item():.4f}")
             
             fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, currModel(val_dataset.q), "ZungerForm", f"mc_iter_{iter+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
-            # fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
+            # fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf')
+            os.remove(f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf')
             os.remove(f'{resultsFolder}mc_iter_{iter+1}_plotBS.png')
         
         trial_COST.append(newLoss.item())
@@ -718,6 +783,6 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
     model = currModel
         
     fig_cost = plot_mc_cost(trial_COST, accepted_COST, False, NNConfig['SHOWPLOTS']);
-    fig_cost.savefig(f'{resultsFolder}final_mc_cost.png')
+    fig_cost.savefig(f'{resultsFolder}final_mc_cost.pdf')
     file_trainCost.close()
     return (trial_COST, accepted_COST, bestModel, currModel)
