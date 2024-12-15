@@ -5,7 +5,7 @@ import numpy as np
 from utils.read import read_NNConfigFile, setAllBulkSystems, setNN
 from utils.pp_func import FT_converge_and_write_pp
 from utils.init_NN_train import init_ZungerPP
-from utils.NN_train import evalBS_noGrad
+from utils.NN_train import evalBS_noGrad, write_PP_qSpace
 from utils.ham import Hamiltonian
 
 def eval_fullBand(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'results_evalFullBand/'):
@@ -29,9 +29,13 @@ def eval_fullBand(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'result
     PPmodel = setNN(NNConfig, nPseudopot)
 
     if not os.path.exists(inputsFolder + 'init_PPmodel.pth'):
-        raise FileNotFoundError("""WARNING: Can't find init_PPmodel.pth file. 
-              This routine performs a single-shot band structure calculation on an existing neural network model. 
-              Please provide init_PPmodel.pth in the input folder.""")
+        raise FileNotFoundError(
+            """
+            ERROR: Can't find init_PPmodel.pth file. EXITING... 
+            This routine performs a single-shot band structure calculation 
+            on an existing neural network model. 
+            Please provide init_PPmodel.pth in the input folder.
+            """)
 
     # I can't store and cache all the SO and NL mats ahead of time due to memory limitations. 
     # I will need to calculate the SO and NL mats on the fly 
@@ -44,17 +48,15 @@ def eval_fullBand(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'result
         end_time = time.time()
         print(f"Elapsed time: {(end_time - start_time):.2f} seconds\n")
 
-    # Initialize the NN according to the provided file init_PPmodel.pth
+    # Load the NN model from init_PPmodel.pth
     PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder)
 
     # Calculate bandStructure with the old function form with parameters given in PPparams
-    oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.png', 'Old Zunger BS', NNConfig, hams, systems, writeBS=True)
+    oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.pdf', 'Old Zunger BS', NNConfig, hams, systems, writeBS=True)
 
     # Evaluate the band structures and pseudopotentials for the initialized NN
     print("\nEvaluating band structures using the input NN pseudopotentials. ")
-    init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}eval_plotBS.png', 'Eval NN BS', NNConfig, hams, systems, writeBS=True)
-
-    # Write BS to file
+    init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}eval_plotBS.pdf', 'Eval NN BS', NNConfig, hams, systems, writeBS=True)
 
     print("Converge the pseudopotentials in the real and reciprocal space. ")
     qmax = np.array([10.0, 20.0, 30.0])
@@ -64,10 +66,8 @@ def eval_fullBand(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'result
     PPmodel.eval()
     FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, f'{resultsFolder}eval_plotPP', f'{resultsFolder}eval_pot', NNConfig['SHOWPLOTS'])
 
-    # Write pot.dat to file
-
-
-
+    # Write out PP_data
+    write_PP_qSpace(f'{resultsFolder}eval_qSpace_pot.dat', PPmodel, atomPPOrder)
 
 
 if len(sys.argv) != 3:

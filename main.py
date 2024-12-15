@@ -6,7 +6,7 @@ import numpy as np
 from utils.read import read_NNConfigFile, setAllBulkSystems, setNN
 from utils.pp_func import FT_converge_and_write_pp
 from utils.init_NN_train import init_ZungerPP, init_optimizer
-from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, weighted_relative_mse_bandStruct, weighted_relative_mse_energiesAtKpt, bandStruct_train_GPU, evalBS_noGrad, runMC_NN
+from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, weighted_relative_mse_bandStruct, weighted_relative_mse_energiesAtKpt, bandStruct_train_GPU, evalBS_noGrad, runMC_NN, write_PP_qSpace
 from utils.ham import initAndCacheHams
 from utils.genMovie import genMovie
 
@@ -35,22 +35,23 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
 
     # Calculate bandStructure with the old function form with parameters given in PPparams
     print("Evaluating band structures using the old Zunger form pseudopotentials in the init_xxx files. ")
-    oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.png', 'Old Zunger BS', NNConfig, hams, systems, cachedMats_info, writeBS=True)
+    oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.pdf', 'Old Zunger BS', NNConfig, hams, systems, cachedMats_info, writeBS=True)
 
     # Initialize the NN to the local pot function form
     PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder)
 
     # Evaluate the band structures and pseudopotentials for the initialized NN
     print("\nEvaluating band structures using the initialized pseudopotentials. ")
-    init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}initZunger_plotBS.png', 'Init NN BS', NNConfig, hams, systems, cachedMats_info, writeBS=True)
+    init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}initZunger_plotBS.pdf', 'Init NN BS', NNConfig, hams, systems, cachedMats_info, writeBS=True)
 
     print("Converge the pseudopotentials in the real and reciprocal space for the initialized NN. ")
-    qmax = np.array([10.0, 20.0, 30.0])
+    qmax = np.array([30.0, 40.0, 50.0])
     nQGrid = np.array([2048, 4096])
     nRGrid = np.array([2048, 4096])
     torch.cuda.empty_cache()
     PPmodel.eval()
-    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, f'{resultsFolder}initZunger_plotPP', f'{resultsFolder}initZunger_pot', NNConfig['SHOWPLOTS'])
+    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -4.0, 4.0, 40.0, 2048, 2048, f'{resultsFolder}initZunger_plotPP', f'{resultsFolder}initZunger_pot', NNConfig['SHOWPLOTS'])
+    write_PP_qSpace(f'{resultsFolder}initZunger_qSpace_pot.dat', PPmodel, atomPPOrder)
 
 
     ############# Fit NN to band structures ############# 
@@ -82,7 +83,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
 
         PPmodel = bestModel
         PPmodel.eval()
-        FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, resultsFolder + 'best_plotPP', resultsFolder + 'best_pot', NNConfig['SHOWPLOTS'])
+        FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -4.0, 4.0, 40.0, 2048, 2048, resultsFolder + 'best_plotPP', resultsFolder + 'best_pot', NNConfig['SHOWPLOTS'])
 
         PPmodel = currModel
 
@@ -90,7 +91,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     ############# Writing the trained NN PP ############# 
     print(f"\n{'#' * 40}\nWriting the NN pseudopotentials")
     PPmodel.eval()
-    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, resultsFolder + 'final_plotPP', resultsFolder + 'final_pot', NNConfig['SHOWPLOTS'])
+    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -4.0, 4.0, 40.0, 2048, 2048, resultsFolder + 'final_plotPP', resultsFolder + 'final_pot', NNConfig['SHOWPLOTS'])
 
     ############# Creating animation ############# 
     start_time = time.time()
@@ -98,7 +99,9 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     genMovie(resultsFolder, f'{resultsFolder}movie_PP.mp4', NNConfig['max_num_epochs'], type='PP')
     end_time = time.time()
     print(f"Creating animation, elapsed time: {end_time - start_time:.2f} seconds")
+    [os.remove(file) for file in glob.glob(f'{resultsFolder}mc_iter_*_plotBS.pdf') if os.path.exists(file)]
     [os.remove(file) for file in glob.glob(f'{resultsFolder}mc_iter_*_plotBS.png') if os.path.exists(file)]
+    [os.remove(file) for file in glob.glob(f'{resultsFolder}mc_iter_*_plotPP.pdf') if os.path.exists(file)]
     [os.remove(file) for file in glob.glob(f'{resultsFolder}mc_iter_*_plotPP.png') if os.path.exists(file)]
 
     ############# Free the shared data ############# 
