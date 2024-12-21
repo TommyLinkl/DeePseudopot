@@ -1,16 +1,18 @@
 #!/bin/bash
 #SBATCH -A m2206
-#SBATCH -J CsPbI3_test_150kpts
-#SBATCH -o CsPbI3_test_150kpts.log
+#SBATCH -J CsPbI3_dispersion_150kpts
+#SBATCH -o CsPbI3_dispersion_150kpts.log
 #SBATCH -C cpu
 #SBATCH --qos=shared
 #SBATCH -t 4:00:00
 #SBATCH -N 1
-#SBATCH --ntasks-per-node=32          # Number of tasks (MPI processes) per node
+#SBATCH --ntasks-per-node=8   # 32          # Number of tasks (MPI processes) per node
 #SBATCH --cpus-per-task=1             # Number of CPU cores per task
-#SBATCH --mem=228GB
+#SBATCH --mem=128GB   # 228GB
 #SBATCH --mail-user=tommy_lin@berkeley.edu
-#SBATCH --mail-type=ALL
+#SBATCH --mail-type=END,FAIL
 
 source ~/.bashrc
-python main.py CALCS/CsPbI3_test/inputs_150kpts/ CALCS/CsPbI3_test/results_150kpts/
+# python main.py CALCS_CsPbI3_dispersion/inputs_16kpts/ CALCS_CsPbI3_dispersion/results_16kpts/
+
+python eval_fullBand.py CALCS_CsPbI3_dispersion/hamiltonian_inputs/ CALCS_CsPbI3_dispersion/hamiltonian_results/

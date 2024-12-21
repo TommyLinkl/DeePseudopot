@@ -134,7 +134,7 @@ class Hamiltonian:
             model.to(device)
         
 
-    def buildHtot(self, kidx, preComp_SOmats_kidx=None, preComp_NLmats_kidx=None, requires_grad=True):
+    def buildHtot(self, kidx, preComp_SOmats_kidx=None, preComp_NLmats_kidx=None, requires_grad=True, file_preFix="CALCS_CsPbI3_dispersion/hamiltonian_results/"):
         """
         Build the total Hamiltonian for a given kpt, specified by its kidx. 
         preComp_SOmats_kidx and preComp_NLmats_kidx are the pre-computed
@@ -151,10 +151,15 @@ class Hamiltonian:
         else: top = nbv
         for i in range(top):
             Htot[i,i] = HBAR**2 / (2*MASS) * torch.norm(self.basis[i%nbv] + self.system.kpts[kidx])**2
+        # np_T = Htot.numpy()
+        # np.save(f"{file_preFix}T_kidx_{kidx}.npy", np_T)
 
         # local potential
         start_time = time.time() if self.NNConfig['runtime_flag'] else None
         Htot = self.buildVlocMat(addMat=Htot)
+        # np_Vloc = self.buildVlocMat().numpy()
+        # np.save(f"{file_preFix}Vloc_kidx_{kidx}.npy", np_Vloc)
+
         if not requires_grad: 
             Htot = Htot.detach()
         end_time = time.time() if self.NNConfig['runtime_flag'] else None
@@ -163,11 +168,15 @@ class Hamiltonian:
         if self.SObool:
             start_time = time.time() if self.NNConfig['runtime_flag'] else None
             Htot = self.buildSOmat(kidx, preComp_SOmats_kidx, addMat=Htot)
+            # np_SO = self.buildSOmat(kidx, preComp_SOmats_kidx)
+            # np.save(f"{file_preFix}SO_kidx_{kidx}.npy", np_SO)
             end_time = time.time() if self.NNConfig['runtime_flag'] else None
             print(f"Building SOmat, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
 
             start_time = time.time() if self.NNConfig['runtime_flag'] else None
             Htot = self.buildNLmat(kidx, preComp_NLmats_kidx, addMat=Htot)
+            # np_Vnl = self.buildNLmat(kidx, preComp_NLmats_kidx)
+            # np.save(f"{file_preFix}Vnl_kidx_{kidx}.npy", np_Vnl)
             end_time = time.time() if self.NNConfig['runtime_flag'] else None
             print(f"Building NLmat, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
 
@@ -1055,8 +1064,8 @@ class Hamiltonian:
         print(f"Generating and diagonalizing a random 2000x2000 matrix. Time: {total_time:.2f} seconds") if self.NNConfig['runtime_flag'] else None
         '''
         
-        print(f"On this subprocess, we are working with kIdx {kidx}. The current self.eVec_info has length {len(self.eVec_info)} and looks like the following. We should see the length increase although multiprocessing. ")
-        print(self.eVec_info)
+        # print(f"On this subprocess, we are working with kIdx {kidx}. The current self.eVec_info has length {len(self.eVec_info)} and looks like the following. We should see the length increase although multiprocessing. ")
+        # print(self.eVec_info)
         if not requires_grad: 
             energiesEV = energiesEV.detach()
         return energiesEV
@@ -1244,10 +1253,11 @@ class Hamiltonian:
         bandStruct = torch.zeros([nkpt, nbands], requires_grad=False)
         if (self.NNConfig['num_cores']==0):     # No multiprocessing
             for kidx in range(nkpt):
-                eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False)
-                
-                # !!! FOR TESTING ONLY: 
-                # eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False, writeEVecsToFile=True, writeEVecsFolderName="CALCS/CsPbI3_test/results_150kpts/")
+                if kidx>-1: 
+                    eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False)
+                else:
+                    # !!! FOR TESTING ONLY: 
+                    eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False, writeEVecsToFile=True, writeEVecsFolderName="CALCS_CsPbI3_dispersion/hamiltonian_results/")
 
                 bandStruct[kidx,:] = eigValsAtK
             self._copy_currIter_to_prevIter_shm()
