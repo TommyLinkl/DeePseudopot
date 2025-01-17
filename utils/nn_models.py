@@ -428,6 +428,19 @@ class Net_relu_xavier_decay2(nn.Module):
         output = self.neural_network(x) * decay
         return output
     
+class Net_celu_HeInit_decay(nn.Module):
+    def __init__(self, Layers, decay_rate, decay_center):
+        super(Net_celu_HeInit_decay, self).__init__()
+        self.neural_network = Net_celu_HeInit(Layers)
+        self.decay_rate = torch.tensor(decay_rate, requires_grad=False)
+        self.decay_center = torch.tensor(decay_center, requires_grad=False)
+    
+    def forward(self, x):
+        decay = 1 - 1 / (1 + torch.exp(-self.decay_rate * (x - self.decay_center)))
+        output = self.neural_network(x) * decay
+        return output
+    
+
 class Net_relu_xavier_decayGaussian(nn.Module):
     def __init__(self, Layers, gaussian_std):
         super(Net_relu_xavier_decayGaussian, self).__init__()
