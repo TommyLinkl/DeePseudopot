@@ -30,24 +30,24 @@ def calc_max_deviation_BS(calcBS_filename, refBS_filename, bandWeights_filename)
 
 
 if __name__=="__main__": 
-    ''' # Relative 
+    # Relative 
     calc_list = []
-    for i in range(1, 2):
+    for i in range(1, 6):
         calc_list.append(f"CALCS/CsPbI3_relative_gap_plus_2/optim_{i}")
 
     for calcDir in calc_list: 
-        totalEpochs = 10
+        totalEpochs = 200
 
         max_deviation, _, _ = calc_max_deviation_BS(f"{calcDir}_results/epoch_{totalEpochs}_BS_sys0_relative.dat", 
                                                     f"{calcDir}_inputs/expBandStruct_0.par", 
                                                     f"{calcDir}_inputs/bandWeights_0.par")
 
         print(max_deviation)
-    '''
     
+    '''
     calc_list = []
-    for i in range(1, 21):
-        calc_list.append(f"CALCS/CsPbI3_gap_plus_16/h_optim_{i}")
+    for i in range(3, 4):
+        calc_list.append(f"CALCS_Fermi_Dirac/CsPbI3_init_gap/optim_{i}")
 
     for calcDir in calc_list: 
         totalEpochs = 500
@@ -57,3 +57,4 @@ if __name__=="__main__":
                                                     f"{calcDir}_inputs/bandWeights_0.par")
 
         print(max_deviation)
+    '''

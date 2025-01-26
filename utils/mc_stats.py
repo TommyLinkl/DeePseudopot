@@ -2,8 +2,8 @@ import numpy as np
 
 calc_list = []
 
-for i in range(1, 61):
-    calc_list.append(f"CALCS/CsPbI3_ultraSmall_round6_longerQ/heat_{i}_results/")
+for i in range(1, 11):
+    calc_list.append(f"CALCS_largeNLSOC/gap_heat_{i}_results/")
 
 for calc in calc_list: 
     try:

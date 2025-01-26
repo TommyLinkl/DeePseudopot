@@ -191,9 +191,9 @@ def weighted_mse_energiesAtKpt(calcEnergiesAtKpt, bulkSystem, kidx):
 
 
 def weighted_relative_mse_bandStruct(bandStruct_hat, bulkSystem, relE_bIdx): 
-    # The relative energies are always calculated with respect to the 0-th kpoint, of the relE_bIdx: 
-    # rel_refBS = refBS - refBS[kidx=0, relE_bIdx]
-    # rel_calcBS = calcBS - calcBS[kidx=0, relE_bIdx]
+    # The relative energies are calculated with respect to the current kpoint, of the relE_bIdx: 
+    # rel_refBS = refBS - refBS[kidx=curr, relE_bIdx]
+    # rel_calcBS = calcBS - calcBS[kidx=curr, relE_bIdx]
 
     bandWeights = bulkSystem.bandWeights
     kptWeights = bulkSystem.kptWeights
@@ -205,22 +205,24 @@ def weighted_relative_mse_bandStruct(bandStruct_hat, bulkSystem, relE_bIdx):
     newBandWeights = bandWeights.view(1, -1).expand(nkpt, -1)
     newKptWeights = kptWeights.view(-1, 1).expand(-1, nBands)
     
-    rel_refBS = bulkSystem.expBandStruct - bulkSystem.expBandStruct[0, relE_bIdx]
-    rel_calcBS = bandStruct_hat - bandStruct_hat[0, relE_bIdx]
+    rel_refBS = bulkSystem.expBandStruct - bulkSystem.expBandStruct[:, relE_bIdx].unsqueeze(1)
+    rel_calcBS = bandStruct_hat - bandStruct_hat[:, relE_bIdx].unsqueeze(1)
+    # rel_refBS = bulkSystem.expBandStruct - bulkSystem.expBandStruct[0, relE_bIdx]
+    # rel_calcBS = bandStruct_hat - bandStruct_hat[0, relE_bIdx]
     MSE = torch.sum((rel_refBS - rel_calcBS)**2 * newBandWeights * newKptWeights)
     return MSE
 
 
-def weighted_relative_mse_energiesAtKpt(calcEnergiesAtKpt, bulkSystem, kidx, relE_bIdx, calcE_kIdx0): 
+def weighted_relative_mse_energiesAtKpt(calcEnergiesAtKpt, bulkSystem, kidx, relE_bIdx): 
     # Same definition as above. 
-    # But we need to get calcBS[kidx=0, relE_bIdx] (a.k.a., calcE_kIdx0) from the input argument
+    # We subtract BS[kidx=curr, relE_bIdx]
     bandWeights = bulkSystem.bandWeights
     nBands = bulkSystem.nBands
     if (len(calcEnergiesAtKpt)!=nBands): 
         raise ValueError("CalculatedEnergiesAtKpt is of different length as nBands. Can't calculated MSE.")
 
-    rel_refEAtKpt = bulkSystem.expBandStruct[kidx] - bulkSystem.expBandStruct[0, relE_bIdx]
-    rel_calcEAtKpt = calcEnergiesAtKpt - calcE_kIdx0
+    rel_refEAtKpt = bulkSystem.expBandStruct[kidx] - bulkSystem.expBandStruct[kidx, relE_bIdx]
+    rel_calcEAtKpt = calcEnergiesAtKpt - calcEnergiesAtKpt[relE_bIdx]
     MSE = torch.sum((rel_refEAtKpt - rel_calcEAtKpt)**2 * bandWeights)
     return MSE
 
@@ -257,12 +259,12 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
             np.savetxt(write_BS_filename, write_tensor, fmt='%.5f')
             if 'relE_bIdx' in NNConfig:
                 shutil.copy(write_BS_filename, write_BS_filename.replace(f'_BS_sys{iSys}.dat', f'_BS_sys{iSys}_trueE.dat'))
-                write_tensor_shifted = torch.cat((kptDistInputs_vertical, evalBS - evalBS[0, NNConfig['relE_bIdx']] + sys.expBandStruct[0, NNConfig['relE_bIdx']]), dim=1)
+                write_tensor_shifted = torch.cat((kptDistInputs_vertical, evalBS - evalBS[:, NNConfig['relE_bIdx']].unsqueeze(1) + sys.expBandStruct[:, NNConfig['relE_bIdx']].unsqueeze(1)), dim=1)
                 np.savetxt(BSplotFilename.replace('_plotBS.pdf', f'_BS_sys{iSys}_relative.dat'), write_tensor_shifted, fmt='%.5f')
         
         if 'relE_bIdx' in NNConfig:
             plot_bandStruct_list.append(sys.expBandStruct)
-            plot_bandStruct_list.append(evalBS - evalBS[0, NNConfig['relE_bIdx']] + sys.expBandStruct[0, NNConfig['relE_bIdx']])
+            plot_bandStruct_list.append(evalBS)
             totalMSE += weighted_relative_mse_bandStruct(evalBS, sys, NNConfig['relE_bIdx'])
             trueMSE += weighted_mse_bandStruct(evalBS, sys)
         else:
@@ -282,7 +284,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
     return totalMSE
 
 
-def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, criterion_singleKpt, optimizer, model, cachedMats_info=None, prevBS=None, calcE_kIdx0=None, verbosity=0):
+def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, criterion_singleKpt, optimizer, model, cachedMats_info=None, prevBS=None, verbosity=0):
     """
     loop over kidx
     The rest of the arguments are "constants" / "constant functions" for a single kidx
@@ -296,7 +298,7 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, criterion_singleKpt, op
         col_ind, calcEnergies, extrapolated_eigVal = reorder_kpt_smoothness_deg2_tensors(calcEnergies, kidx, comparedBS=prevBS.detach() if prevBS is not None else None)
 
     if 'relE_bIdx' in ham.NNConfig:
-        systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem, kidx, ham.NNConfig['relE_bIdx'], calcE_kIdx0)
+        systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem, kidx, ham.NNConfig['relE_bIdx'])
     else:
         systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem, kidx)
     start_time = time.time() if ham.NNConfig['runtime_flag'] else None
@@ -379,15 +381,6 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
         hams[iSys].NN_locbool = True
         hams[iSys].set_NNmodel(model)
 
-        if 'relE_bIdx' in NNConfig: 
-            # If we need to use relative energy as the MSE, we calculate on the first k-point to obtain the relE for this prediction
-            calcE_kIdx0 = hams[iSys].calcEigValsAtK(0, cachedMats_info, requires_grad=False)[NNConfig['relE_bIdx']].item()
-
-            # Should it be detached? 
-            # calcE_kIdx0 = calcE_kIdx0.detach()
-        else: 
-            calcE_kIdx0 = None
-
         if (NNConfig['num_cores']==0):   # No multiprocessing
             currBS = torch.zeros([sys.getNKpts(), sys.nBands])
             extrapolated_points = torch.zeros([sys.getNKpts(), sys.nBands])
@@ -400,7 +393,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
                     extrapolated_points[kidx,:] = extrapolated_eigVal.detach().clone()
 
                 if 'relE_bIdx' in NNConfig: 
-                    systemKptLoss = criterion_singleKpt(calcEnergies, sys, kidx, hams[iSys].NNConfig['relE_bIdx'], calcE_kIdx0)
+                    systemKptLoss = criterion_singleKpt(calcEnergies, sys, kidx, hams[iSys].NNConfig['relE_bIdx'])
                 else:
                     systemKptLoss = criterion_singleKpt(calcEnergies, sys, kidx)
                 currBS[kidx,:] = calcEnergies.detach().clone()
@@ -427,7 +420,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
             if (NNConfig['smooth_reorder']) and (prevBS is not None): 
                 print("WARNING. We are reordering the band structure according to smoothness using the previous iteration BS. ")
             prevBS = prevBS.detach() if prevBS is not None else None
-            args_list = [(kidx, hams[iSys], sys, criterion_singleKpt, optimizer, model, cachedMats_info, prevBS, calcE_kIdx0) for kidx in range(sys.getNKpts())]
+            args_list = [(kidx, hams[iSys], sys, criterion_singleKpt, optimizer, model, cachedMats_info, prevBS) for kidx in range(sys.getNKpts())]
 
             with mp.Pool(NNConfig['num_cores']) as pool:
                 results_systemKpt = pool.starmap(calcEigValsAtK_wGrad_parallel, args_list)
@@ -680,7 +673,7 @@ def perturb_model(model, hams, percentage=0.0, mode=1):
             param.data = param.data * std + mean
 
     if mode == 4: 
-        print(f"Perturbing the model by absolute steps: {percentage}")
+        print(f"Perturbing the model by absolute steps: {percentage}. Perturbing the NL and SOC parameters by absolute steps: {percentage/1000}")
         for param in new_model.parameters():
             if (np.random.random() <= 0.6): 
                 random_sign = torch.randint(0, 2, param.shape, dtype=torch.float64) * 2 - 1
@@ -691,6 +684,20 @@ def perturb_model(model, hams, percentage=0.0, mode=1):
                 for p in range(5, 8): # SOC and NL
                     if (np.random.random() <= 0.6): 
                         ham.PPparams[atomType][p] += percentage/1000 * np.random.choice([-1, 1])
+
+    if mode == 5: 
+        print(f"Perturbing the model by absolute steps: {percentage/10}. Perturbing the NL and SOC parameters by absolute steps: {percentage}")
+        for param in new_model.parameters():
+            if (np.random.random() <= 0.6): 
+                random_sign = torch.randint(0, 2, param.shape, dtype=torch.float64) * 2 - 1
+                param.data += percentage/10 * random_sign
+
+        for ham in hams: 
+            for atomType in ham.PPparams:
+                for p in range(5, 8): # SOC and NL
+                    if (np.random.random() <= 0.6): 
+                        ham.PPparams[atomType][p] += percentage/1 * np.random.choice([-1, 1])
+
 
     return new_model, old_hams_PPparams
 
