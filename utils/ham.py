@@ -134,7 +134,7 @@ class Hamiltonian:
             model.to(device)
         
 
-    def buildHtot(self, kidx, preComp_SOmats_kidx=None, preComp_NLmats_kidx=None, requires_grad=True, file_preFix="CALCS_CsPbI3_dispersion/hamiltonian_results/"):
+    def buildHtot(self, kidx, preComp_SOmats_kidx=None, preComp_NLmats_kidx=None, requires_grad=True, file_preFix="CALCS_CsPbI3_dispersion_2/hamiltonian_results/"):
         """
         Build the total Hamiltonian for a given kpt, specified by its kidx. 
         preComp_SOmats_kidx and preComp_NLmats_kidx are the pre-computed
@@ -1257,7 +1257,7 @@ class Hamiltonian:
                     eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False)
                 else:
                     # !!! FOR TESTING ONLY: 
-                    eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False, writeEVecsToFile=True, writeEVecsFolderName="CALCS_CsPbI3_dispersion/hamiltonian_results/")
+                    eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False, writeEVecsToFile=True, writeEVecsFolderName="CALCS_CsPbI3_dispersion_2/hamiltonian_results/")
 
                 bandStruct[kidx,:] = eigValsAtK
             self._copy_currIter_to_prevIter_shm()

@@ -228,10 +228,10 @@ def plot_components(dirName, ax, ymin=None, ymax=None):
     return
 
 if __name__=="__main__": 
-    dirName = "CALCS_CsPbI3_dispersion/"
+    dirName = "CALCS_CsPbI3_dispersion_2/"
     
-    # calc_T_Vloc_Vnl_SO_psi(dirName)
-    # calc_T_Vloc_Vnl_SO_psi0(dirName)
+    calc_T_Vloc_Vnl_SO_psi(dirName)
+    calc_T_Vloc_Vnl_SO_psi0(dirName)
 
     fig, ax = plt.subplots(1,1, figsize=(8,8))
     plot_perturb_total(dirName, ax, ymin=-13, ymax=2)
