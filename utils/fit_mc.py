@@ -2,8 +2,10 @@ import numpy as np
 import torch.linalg
 import time
 import os
+import matplotlib.pyplot as plt
 
 from .constants import *
+from .pp_func import plotPP, plot_training_validation_cost, plotBandStruct, plot_mc_cost, plotBandStruct_reorder
 
 torch.set_default_dtype(torch.float64)
 
@@ -21,7 +23,8 @@ class MonteCarloFit:
                  fitEffMass=False,
                  optGaps=False,
                  defPotWeight=1.0,
-                 couplingOpts=None):
+                 couplingOpts=None, 
+                 writePerIter=100):
         
         """
         This class runs Monte Carlo optimization on non-neural net 
@@ -76,6 +79,7 @@ class MonteCarloFit:
         if writeDir is None:
             print("!! WARNING: you are running Monte Carlo but have not supplied a dir for output files!")
         self.writeDir = writeDir
+        self.writePerIter = writePerIter
 
         self.bestMSE = 0.0
         self.currentMSE = 0.0
@@ -84,8 +88,8 @@ class MonteCarloFit:
 
         self.kpts = ham.system.kpts
         self.kptWeights = ham.system.kptWeights
-        self.qpts = ham.system.qpts
-        self.qptWeights = ham.system.qptWeights
+        # self.qpts = ham.system.qpts
+        # self.qptWeights = ham.system.qptWeights
 
         self.expBS = ham.system.expBandStruct
         self.bndWeight = ham.system.bandWeights
@@ -187,6 +191,12 @@ class MonteCarloFit:
                 bestPP = self.ham.get_PPparams()
                 self.saveParams(bestPP)
                 self.writeBands(bs, stub="/bestBandStruct_0.dat")
+                if nIter%self.writePerIter==0: 
+                        fig = plotBandStruct([self.ham.system], [self.expBS, bs], True)
+                        fig.suptitle(f"mc_BS_MSE = {self.newMSE:.4f}. total_BS_MSE = {self.newMSE * self.ham.system.nBands * self.ham.system.getNKpts():.4f}. ")
+                        fig.savefig(f'{self.writeDir}/nIter_{nIter}_plotBS.pdf')
+                        fig.savefig(f'{self.writeDir}/nIter_{nIter}_plotBS.png')
+                        plt.close('all')
                 sinceLastAccept = 0
                 if self.fitCoupling:
                     self.writeCoupling(cpl_dict, stub="/bestCoupling_0.dat")
@@ -245,6 +255,7 @@ class MonteCarloFit:
                     tmp += (bs[kidx, bidx] - self.expBS[kidx,bidx])**2 * self.bndWeight[bidx]
             mse += tmp * self.kptWeights[kidx]
         return mse / ctr 
+        # return mse
 
     def calcIndivMSEgaps(self, bs):
         # this can be sped up with array operations rather than for loops
@@ -509,6 +520,9 @@ def read_mc_opts(filename):
                 sp = line.split()
                 mc_opts[sp[0]] = (sp[2] == "True" or sp[2] == "true")
             elif "defPotWeight" in line:
+                sp = line.split()
+                mc_opts[sp[0]] = float(sp[2])
+            elif "writePerIter" in line: 
                 sp = line.split()
                 mc_opts[sp[0]] = float(sp[2])
             else:

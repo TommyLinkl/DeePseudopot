@@ -43,11 +43,9 @@ def perturb(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'results_eval
 
     # Run one epoch of fitting after perturbation
     NNConfig['max_num_epochs'] = 1
-    criterion_singleSystem = weighted_mse_bandStruct
-    criterion_singleKpt = weighted_mse_energiesAtKpt
     optimizer = init_optimizer(inputsFolder, PPmodel, NNConfig)
     scheduler = ExponentialLR(optimizer, gamma=NNConfig['scheduler_gamma'])
-    (training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, NNConfig, systems, hams, atomPPOrder, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, ZungerPPFunc_val, resultsFolder, cachedMats_info)
+    (training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, NNConfig, systems, hams, atomPPOrder, optimizer, scheduler, ZungerPPFunc_val, resultsFolder, cachedMats_info)
     
     print("Converge the pseudopotentials in the real and reciprocal space. ")
     qmax = np.array([10.0, 20.0, 30.0])

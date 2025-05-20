@@ -99,6 +99,16 @@ class Hamiltonian:
             print("WARNING: Calculation requires SObool, but we are not cache-ing the SOmats and NLmats. Without multiprocessing parallelization. This is not recommended. ")
 
         
+        self.checknl = False
+        for alpha in range(system.getNAtomTypes()):
+            if abs(self.PPparams[self.system.atomTypes[alpha]][6]) > 1e-8:
+                self.checknl = True
+                break
+            elif abs(self.PPparams[self.system.atomTypes[alpha]][7]) > 1e-8:
+                self.checknl = True
+                break
+
+        
         if self.coupling:
             nkpt = self.system.getNKpts()
             #nbv = self.basis.shape[0]
@@ -160,10 +170,11 @@ class Hamiltonian:
             end_time = time.time() if self.NNConfig['runtime_flag'] else None
             print(f"Building SOmat, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
 
-            start_time = time.time() if self.NNConfig['runtime_flag'] else None
-            Htot = self.buildNLmat(kidx, preComp_NLmats_kidx, addMat=Htot)
-            end_time = time.time() if self.NNConfig['runtime_flag'] else None
-            print(f"Building NLmat, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
+            if self.checknl: 
+                start_time = time.time() if self.NNConfig['runtime_flag'] else None
+                Htot = self.buildNLmat(kidx, preComp_NLmats_kidx, addMat=Htot)
+                end_time = time.time() if self.NNConfig['runtime_flag'] else None
+                print(f"Building NLmat, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
 
         if self.device.type == "cuda":
             # !!! is this sufficient to match previous performance?
@@ -266,7 +277,87 @@ class Hamiltonian:
 
         return Htot
 
-    
+
+    def buildHtot_def_NEW(self, kidx, scale=1.01, verbosity=2, requires_grad=True):
+        """
+        Just like the function above, but with the added flexibility of 
+        calculating at various k-points. 
+        """
+        if verbosity >= 3:
+            print("***************************")
+            print("You are computing deformation potentials by directly changing")
+            print("the volume of the material. To be precise, computing a")
+            print("quantity that can be correctly compared to the DFT literature,")
+            print("or experiments, requires very careful consideration of the")
+            print("g_i - g_j = 0 point in the potentials. These considerations")
+            print("are not made here. Consult the DFT literature, e.g.")
+            print("PRB 73 245206 (2006) and its references.")
+            print("***************************")
+
+        self.defscale = self.system.scale * scale
+        # modify the relevent quantities, then modify them back after diagonalizing
+        self.basis *= (self.system.scale / self.defscale)
+        self.system.kpts *= (self.system.scale / self.defscale)
+        self.system.unitCellVectors *= (self.defscale / self.system.scale)
+        self.system.atomPos *= (self.defscale / self.system.scale)
+
+        nbv = self.basis.shape[0]
+        if self.SObool:
+            Htot = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
+        else:
+            Htot = torch.zeros([nbv, nbv], dtype=torch.complex128)
+        
+        # kinetic energy
+        if self.SObool: top = 2*nbv
+        else: top = nbv
+        for i in range(top):
+            Htot[i,i] = HBAR**2 / (2*MASS) * torch.norm(self.basis[i%nbv] + self.system.kpts[kidx])**2
+
+        # local potential
+        Htot = self.buildVlocMat(addMat=Htot)
+
+        if self.SObool:
+            store_SOmats = self.SOmats
+            if self.checknl:
+                store_NLmats = self.NLmats
+            # only compute the SO integrals for the kpt corresponding to the gap (assuming direct gap).
+            # check if we cached them from the first call...
+            if self.SOmats_def is not None:
+                self.SOmats = self.SOmats_def
+            else:
+                self.SOmats_def = self.initSOmat_fast(defbool=True, idxGap=kidx)
+                self.SOmats = self.SOmats_def
+            if self.NLmats_def is not None and self.checknl:
+                self.NLmats = self.NLmats_def
+            elif self.checknl:
+                self.NLmats_def = self.initNLmat_fast(defbool=True, idxGap=kidx)
+                self.NLmats = self.NLmats_def
+
+            # the below calls are kidx=0 because they index into the SOmats and NLmats
+            # arrays, for which there is only a single kpoint. There are no calls
+            # self.system.kpts[kidx] in these functions, so it does not cause any
+            # issues.
+            Htot = self.buildSOmat(0, addMat=Htot)
+            if self.checknl:
+                Htot = self.buildNLmat(0, addMat=Htot)
+
+        
+
+        # now return everything to its non-deformed values
+        self.basis *= (self.defscale / self.system.scale)
+        self.system.kpts *= (self.defscale / self.system.scale)
+        self.system.unitCellVectors *= (self.system.scale / self.defscale)
+        self.system.atomPos *= (self.system.scale / self.defscale)
+        if self.SObool:
+            self.SOmats = store_SOmats
+            if self.checknl:
+                self.NLmats = store_NLmats
+
+        if not requires_grad: 
+            Htot = Htot.detach()
+        return Htot
+
+ 
     def buildVlocMat(self, addMat=None):
         """
         Computes the local potential, either using the algebraic form
@@ -821,7 +912,7 @@ class Hamiltonian:
             if self.NNConfig['num_cores'] != 0:
                 print("WARNING: Didn't find precomputed SOmats stored in shared memory. This buildSOmat could drastically slow down multiprocessing parallelization.")
             if self.SOmats is None: 
-                print("DANGEROUS!!! WARNING. Attempting to build the SOmat, but 1) no precomputed SOmats are stored in shared memory, 2) no cached SOmatrices in the ham class. \nCalculating the SOmats for each kpt on the fly. ")
+                print("WARNING. THIS WILL BE SLOW. Attempting to build the SOmat, but 1) no precomputed SOmats are stored in shared memory, 2) no cached SOmatrices in the ham class. \nCalculating the SOmats for each kpt on the fly. ")
                 SOmats_kidx = np.zeros((self.system.getNAtoms(), 2*self.basis.shape[0], 2*self.basis.shape[0]), dtype=np.complex128)
                 self.initSOmat_fast_oneKpt(kidx, SOmats_kidx)
             else: 
@@ -861,7 +952,7 @@ class Hamiltonian:
             if self.NNConfig['num_cores'] != 0:
                 print("WARNING: Didn't find precomputed NLmats stored in shared memory. This buildNLmat could drastically slow down multiprocessing parallelization.")
             if self.NLmats is None: 
-                print("DANGEROUS!!! WARNING. Attempting to build the NLmat, but 1) no precomputed NLmats are stored in shared memory, 2) no cached NL matrices in the ham class. \nCalculating the NLmats on the fly. ")
+                print("WARNING. THIS WILL BE SLOW. Attempting to build the NLmat, but 1) no precomputed NLmats are stored in shared memory, 2) no cached NL matrices in the ham class. \nCalculating the NLmats on the fly. ")
                 NLmats_kidx = np.zeros((self.system.getNAtoms(), 2, 2*self.basis.shape[0], 2*self.basis.shape[0]), dtype=np.complex128)
                 self.initNLmat_fast_oneKpt(kidx, NLmats_kidx)
             else: 
@@ -893,7 +984,7 @@ class Hamiltonian:
         return NLmatf
 
 
-    def calcEigValsAtK(self, kidx, cachedMats_info=None, requires_grad=True, verbosity=0):
+    def calcEigValsAtK(self, kidx, cachedMats_info=None, requires_grad=True, verbosity=0, def_H=False, def_scale=0.01):
         '''
         This function builds the Htot at a certain kpoint that is given as the input, 
         digonalizes the Htot, and obtains the eigenvalues at this kpoint. 
@@ -912,15 +1003,22 @@ class Hamiltonian:
             start_time = time.time() if self.NNConfig['runtime_flag'] else None
             shm_SOmats = shared_memory.SharedMemory(name=f"SOmats_{self.iSystem}_{kidx}")
             preComp_SOmats_kidx = np.ndarray(cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_SOmats.buf)
-            shm_NLmats = shared_memory.SharedMemory(name=f"NLmats_{self.iSystem}_{kidx}")
-            preComp_NLmats_kidx = np.ndarray(cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_NLmats.buf)
+            if self.checknl:
+                shm_NLmats = shared_memory.SharedMemory(name=f"NLmats_{self.iSystem}_{kidx}")
+                preComp_NLmats_kidx = np.ndarray(cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_NLmats.buf)
+            else: 
+                preComp_NLmats_kidx = None
             end_time = time.time() if self.NNConfig['runtime_flag'] else None
             print(f"Loading shared memory, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
         else: 
             raise ValueError("Error in calcEigValsAtK. ")
 
         start_time = time.time() if self.NNConfig['runtime_flag'] else None
-        H = self.buildHtot(kidx, preComp_SOmats_kidx, preComp_NLmats_kidx, requires_grad)
+        if not def_H: 
+            H = self.buildHtot(kidx, preComp_SOmats_kidx, preComp_NLmats_kidx, requires_grad)
+        else: 
+            H = self.buildHtot_def_NEW(kidx, scale=def_scale, requires_grad=requires_grad)
+
         if not requires_grad: 
             H = H.detach()
         end_time = time.time() if self.NNConfig['runtime_flag'] else None
@@ -1057,6 +1155,27 @@ class Hamiltonian:
                 eigValsList = pool.starmap(self.calcEigValsAtK, args_list)
             bandStruct = torch.stack(eigValsList)
         return bandStruct
+
+
+    def calcDefPots(self, cachedMats_info=None, requires_grad=True, verbosity=2): 
+        defpot_tensors = []
+        
+        for defPot_entry in self.system.defPotInfo: 
+            kidx_VB = int(defPot_entry[0])
+            kidx_CB = int(defPot_entry[2])
+            def_scale = defPot_entry[4]
+
+            eigValsAtVB = self.calcEigValsAtK(kidx_VB, cachedMats_info, requires_grad=requires_grad, verbosity=verbosity)
+            eigValsAtVB_def = self.calcEigValsAtK(kidx_VB, cachedMats_info, requires_grad=requires_grad, def_H=True, def_scale=def_scale, verbosity=verbosity)
+            eigValsAtCB = self.calcEigValsAtK(kidx_CB, cachedMats_info, requires_grad=requires_grad, verbosity=verbosity)
+            eigValsAtCB_def = self.calcEigValsAtK(kidx_CB, cachedMats_info, requires_grad=requires_grad, def_H=True, def_scale=def_scale, verbosity=verbosity)
+
+            gap_org = eigValsAtCB[int(defPot_entry[3])] - eigValsAtVB[int(defPot_entry[1])]
+            gap_def = eigValsAtCB_def[int(defPot_entry[3])] - eigValsAtVB_def[int(defPot_entry[1])]
+            defpot = (gap_org - gap_def) / 2 * (1+def_scale**3) / (1-def_scale**3)
+            defpot_tensors.append(defpot)
+
+        return torch.stack(defpot_tensors)# the same number of defpots
 
 
     def initCouplingMats(self, SOwidth=0.7, NLwidth=1.0, NLshift=1.5):
@@ -1667,9 +1786,9 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device):
     """
     print("\nInitializing the ham class for each BulkSystem. Cache-ing the SOmats, NLmats, and putting them into shared memeory. ")
     hams = []
-    cachedMats_info = None
-    shm_dict_SO = None
-    shm_dict_NL = None
+    cachedMats_info = {}
+    shm_dict_SO = {}
+    shm_dict_NL = {}
     for iSys, sys in enumerate(systemsList):
         start_time = time.time()
 
@@ -1679,12 +1798,20 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device):
         # 3. SObool = True, yes parallel --> Do the complicated storage / moving. 
         if not NNConfig['SObool']: 
             ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
+            cachedMats_info = None
+            shm_dict_SO = None
+            shm_dict_NL = None
         elif (NNConfig['SObool']) and (NNConfig['num_cores']==0): 
             ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
+            cachedMats_info = None
+            shm_dict_SO = None
+            shm_dict_NL = None
+        elif (NNConfig['SObool']) and (NNConfig['cacheSO']==0): 
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
+            cachedMats_info = None
+            shm_dict_SO = None
+            shm_dict_NL = None
         else: 
-            cachedMats_info = {}
-            shm_dict_SO = {}
-            shm_dict_NL = {}
             ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=True, cacheSO=False)
             dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
 

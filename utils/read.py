@@ -31,9 +31,9 @@ def read_NNConfigFile(filename):
                 value = value.strip()
                 if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'cacheSO', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'printGrad', 'mc_bool', 'smooth_reorder', 'eigvec_reorder']:
                     config[key] = bool(int(value))
-                elif key in ['nSystem', 'num_cores', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter', 'pre_adjust_moves', 'relE_bIdx', 'mc_perturb_mode']:
+                elif key in ['nSystem', 'num_cores', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter', 'pre_adjust_moves', 'mc_perturb_mode']:
                     config[key] = int(value)
-                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2', 'mc_percentage', 'mc_beta', 'pre_adjust_stepSize']:
+                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2', 'mc_percentage', 'mc_beta', 'pre_adjust_stepSize', 'penalize_starting', 'penalize_lambda']:
                     config[key] = float(value)
                 elif key in ['hiddenLayers']: 
                     config[key] = [int(x) for x in value.split()]
@@ -96,6 +96,7 @@ def init_critical_NNconfig():
     config['SHOWPLOTS'] = False
     config['separateKptGrad'] = True
     config['SObool'] = False
+    config['cacheSO'] = True
 
     config['smooth_reorder'] = False
     config['eigvec_reorder'] = False
@@ -148,6 +149,8 @@ class BulkSystem:
         self.BS_plot_CBVB_range = BS_plot_CBVB_range
         self.BS_plot_CBVB_range_zoom = BS_plot_CBVB_range_zoom
         self.systemName = systemName
+        self.fit_defPot = False
+        self.relE_bIdx = -1
         
         
     def setInputs(self, inputFilename):
@@ -160,8 +163,10 @@ class BulkSystem:
                     value = value.strip()
                     if key in ['maxKE', 'BS_plot_center', 'BS_plot_CBVB_range', 'BS_plot_CBVB_range_zoom']:
                         attributes[key] = float(value)
-                    elif key in ['nBands', 'idxVB', 'idxCB', 'idxGap']:            # nBands can be redundant
+                    elif key in ['nBands', 'idxVB', 'idxCB', 'idxGap', 'relE_bIdx']:            # nBands can be redundant
                         attributes[key] = int(float(value))
+                    elif key in ['fit_defPot']: 
+                        attributes[key] = bool(int(value))
                     elif key in ['systemName']: 
                         attributes[key] = value
         vars(self).update(attributes)
@@ -206,7 +211,13 @@ class BulkSystem:
         self.atomTypes = np.array(atomTypes).flatten()
         self.atomPos = torch.tensor(atomCoords, dtype=torch.float64) @ self.unitCellVectors
         # self.systemName = ''.join(self.atomTypes)
-        
+        print("UnitCellVectors, scaled (in Bohr): ")
+        print(self.unitCellVectors)
+        print("atomTypes: ")
+        print(self.atomTypes)
+        print("AtomPos, scaled (in Bohr): ")
+        print(self.atomPos)
+
     
     def setKPointsAndWeights(self, kPointsFilename):
         with open(kPointsFilename, 'r') as file:
@@ -310,6 +321,20 @@ class BulkSystem:
             self.expDefPots[0] = float(lines[0]) # VBM
             self.expDefPots[1] = float(lines[1]) # CBM
 
+    def setExpDefPot_NEW(self, expDefPotFilename):
+        data = np.loadtxt(expDefPotFilename)
+        if data.ndim == 1:
+            data = data.reshape(1, -1)
+        
+        assert data.shape[1] == 7, "Each row must have exactly 7 columns, corresponding to: kidx_VB(all 0-based index)    bidx_VB    kidx_CB    bidx_CB     latConst_ratio      defPot_gap(eV)    weight"
+        assert np.all(data[:, :4] == data[:, :4].astype(int)), "First 4 columns must be integers: kidx_VB(all 0-based index)    bidx_VB    kidx_CB    bidx_CB     latConst_ratio      defPot_gap(eV)    weight"
+        
+        # Convert the first 4 columns to int to safely use them as indices later.
+        data[:, :4] = data[:, :4].astype(int)
+        
+        self.defPotInfo = data
+        print(self.defPotInfo)
+
 
     def getCellVolume(self): 
         return float(torch.dot(self.unitCellVectors[0], torch.cross(self.unitCellVectors[1], self.unitCellVectors[2])))
@@ -388,11 +413,51 @@ def setAllBulkSystems(nSystem, inputsFolder, resultsFolder):
     for iSys, sys in enumerate(systemsList):
         sys.setSystem(inputsFolder + "system_%d.par" % iSys)
         sys.setInputs(inputsFolder + "input_%d.par" % iSys)
+        if sys.fit_defPot: 
+            sys.setExpDefPot_NEW(inputsFolder + "expDefPot_%d.par" % iSys)
         sys.setKPointsAndWeights(inputsFolder + "kpoints_%d.par" % iSys)
         sys.setExpBS(inputsFolder + "expBandStruct_%d.par" % iSys)
         sys.setBandWeights(inputsFolder + "bandWeights_%d.par" % iSys)
         sys.print_basisStates(resultsFolder + "basisStates_%d.dat" % iSys)
         atomPPOrder.append(sys.atomTypes)
+        # Write POSCAR files
+        # Get unique atom types in order of first appearance
+        unique_atom_types = []
+        for atom in sys.atomTypes:
+            if atom not in unique_atom_types:
+                unique_atom_types.append(atom)
+
+        # Count occurrences of each atom type
+        atom_counts = {atype: 0 for atype in unique_atom_types}
+        for atom in sys.atomTypes:
+            atom_counts[atom] += 1
+
+        # Group atomic positions by type
+        sorted_positions = {atype: [] for atype in unique_atom_types}
+        for iAtom, atomType in enumerate(sys.atomTypes):
+            sorted_positions[atomType].append(sys.atomPos[iAtom])
+
+        # Write POSCAR file
+        with open(f"{resultsFolder}{iSys}.POSCAR", "w") as f: 
+            f.write(f"{sys.systemName}\n1.0000\n")
+            
+            # Write unit cell vectors
+            for line in range(3): 
+                f.write(f"{sys.unitCellVectors[line,0] * AUTOAA}  {sys.unitCellVectors[line,1] * AUTOAA}  {sys.unitCellVectors[line,2] * AUTOAA}\n")
+            
+            # Write element types and counts
+            f.write(" ".join(unique_atom_types) + "\n")
+            f.write(" ".join(str(atom_counts[atype]) for atype in unique_atom_types) + "\n")
+            
+            # Specify coordinate mode (Cartesian or Direct)
+            f.write("Cartesian\n")
+            
+            # Write atomic positions in the correct order
+            for atype in unique_atom_types:
+                for pos in sorted_positions[atype]:
+                    f.write(f"{pos[0] * AUTOAA}  {pos[1] * AUTOAA}  {pos[2] * AUTOAA}\n")
+            
+
     atomPPOrder = np.unique(np.concatenate(atomPPOrder))
     nPseudopot = len(atomPPOrder)
     print(f"There are {nPseudopot} atomic pseudopotentials. They are in the order of: {atomPPOrder}")

@@ -227,6 +227,26 @@ def weighted_relative_mse_energiesAtKpt(calcEnergiesAtKpt, bulkSystem, kidx, rel
     return MSE
 
 
+def penalty_loss(f_x, x, penalize_start=4.5, lambda_penalty=1.0, penalize=True):
+    if not penalize:
+        return torch.tensor(0.0)
+
+    x_0 = penalize_start + 0.5  # Midpoint of ramp
+    k = 10.0   # Sharpness of ramp (higher = steeper transition)
+
+    # Compute the ramp function S(x)
+    S_x = 1 / (1 + torch.exp(-k * (x - x_0)))
+
+    # Ensure S_x is broadcastable to f_x
+    if S_x.shape != f_x.shape:
+        S_x = S_x.expand_as(f_x)  # Expand to match f_x shape if necessary
+
+    # Compute penalty term
+    penalty = lambda_penalty * torch.mean(S_x * torch.abs(f_x))
+
+    return penalty
+
+
 def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None, writeBS=False): 
     if (model is not None): 
         print(f"\t{runName}: Evaluating band structures using the NN-pp model. ")
@@ -235,8 +255,10 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
         print(f"\t{runName}: Evaluating band structures using the old Zunger function form. ")
     
     plot_bandStruct_list = []
-    totalMSE = 0
-    trueMSE = 0
+    total_BS_MSE = 0
+    true_BS_MSE = 0
+    totalPenalty = 0
+    defPot_MSE = 0
     for iSys, sys in enumerate(systems):
         if (model is not None): 
             hams[iSys].NN_locbool = True
@@ -257,34 +279,51 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
             kptDistInputs_vertical = sys.kptDistInputs.view(-1, 1)
             write_tensor = torch.cat((kptDistInputs_vertical, evalBS), dim=1)
             np.savetxt(write_BS_filename, write_tensor, fmt='%.5f')
-            if 'relE_bIdx' in NNConfig:
+            if sys.relE_bIdx != -1:
                 shutil.copy(write_BS_filename, write_BS_filename.replace(f'_BS_sys{iSys}.dat', f'_BS_sys{iSys}_trueE.dat'))
-                write_tensor_shifted = torch.cat((kptDistInputs_vertical, evalBS - evalBS[:, NNConfig['relE_bIdx']].unsqueeze(1) + sys.expBandStruct[:, NNConfig['relE_bIdx']].unsqueeze(1)), dim=1)
+                write_tensor_shifted = torch.cat((kptDistInputs_vertical, evalBS - evalBS[:, sys.relE_bIdx].unsqueeze(1) + sys.expBandStruct[:, sys.relE_bIdx].unsqueeze(1)), dim=1)
                 np.savetxt(BSplotFilename.replace('_plotBS.pdf', f'_BS_sys{iSys}_relative.dat'), write_tensor_shifted, fmt='%.5f')
         
-        if 'relE_bIdx' in NNConfig:
+        if sys.relE_bIdx != -1:
             plot_bandStruct_list.append(sys.expBandStruct)
             plot_bandStruct_list.append(evalBS)
-            totalMSE += weighted_relative_mse_bandStruct(evalBS, sys, NNConfig['relE_bIdx'])
-            trueMSE += weighted_mse_bandStruct(evalBS, sys)
+            total_BS_MSE += weighted_relative_mse_bandStruct(evalBS, sys, sys.relE_bIdx).detach()
+            true_BS_MSE += weighted_mse_bandStruct(evalBS, sys).detach()
         else:
             plot_bandStruct_list.append(sys.expBandStruct)
             plot_bandStruct_list.append(evalBS)
-            totalMSE += weighted_mse_bandStruct(evalBS, sys)
+            total_BS_MSE += weighted_mse_bandStruct(evalBS, sys).detach()
+
+        if ("penalize_starting" in hams[iSys].NNConfig) and ("penalize_lambda" in hams[iSys].NNConfig) and (model is not None): 
+            q = torch.linspace(hams[iSys].NNConfig["penalize_starting"], 12.0, 50).view(-1,1)
+            v_q = model(q)
+            penalty = penalty_loss(v_q, q, hams[iSys].NNConfig["penalize_starting"], hams[iSys].NNConfig["penalize_lambda"]*sys.getNKpts()).detach()
+            totalPenalty += penalty
+
+        # Add in deformation potential
+        if sys.fit_defPot: 
+            with torch.no_grad():
+                calcDefPots = hams[iSys].calcDefPots(cachedMats_info=cachedMats_info, requires_grad=False)
+
+                refDefPots = torch.tensor(sys.defPotInfo[:,5])
+                defPotWeights = torch.tensor(sys.defPotInfo[:,6])
+                defPotLoss = ((calcDefPots - refDefPots) ** 2 * defPotWeights).sum() * sys.getNKpts()
+                print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {defPotLoss:.4f}")
+                defPot_MSE += defPotLoss
+
+        print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... Total_BS_MSE = {total_BS_MSE:.4f}. Penalty = {totalPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}.")
+
     fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
-    print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. TotalMSE = {totalMSE:.4f}")
-    if 'relE_bIdx' in NNConfig:
-        fig.suptitle(f"{runName}: trueE MSE = {trueMSE:.4f}. RelE MSE = {totalMSE:.4f}")
-    else:
-        fig.suptitle(f"{runName}: totalMSE = {totalMSE:.4f}")
+    print(f"\t{runName}: Finished evaluating all band structures with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. Total_BS_MSE = {total_BS_MSE:.4f}. Penalty = {totalPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}.")
+    fig.suptitle(f"{runName}: total_BS_MSE = {total_BS_MSE:.4f}. Penalty = {totalPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}.")
     fig.savefig(BSplotFilename)
     fig.savefig(BSplotFilename.replace('.pdf', '.png'))
     plt.close('all')
     torch.cuda.empty_cache()
-    return totalMSE
+    return total_BS_MSE + totalPenalty + defPot_MSE
 
 
-def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, criterion_singleKpt, optimizer, model, cachedMats_info=None, prevBS=None, verbosity=0):
+def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cachedMats_info=None, prevBS=None, verbosity=0):
     """
     loop over kidx
     The rest of the arguments are "constants" / "constant functions" for a single kidx
@@ -297,10 +336,31 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, criterion_singleKpt, op
     if ham.NNConfig['smooth_reorder']: 
         col_ind, calcEnergies, extrapolated_eigVal = reorder_kpt_smoothness_deg2_tensors(calcEnergies, kidx, comparedBS=prevBS.detach() if prevBS is not None else None)
 
-    if 'relE_bIdx' in ham.NNConfig:
-        systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem, kidx, ham.NNConfig['relE_bIdx'])
+    if bulkSystem.relE_bIdx!=-1:
+        systemKptLoss = weighted_relative_mse_energiesAtKpt(calcEnergies, bulkSystem, kidx, bulkSystem.relE_bIdx)
     else:
-        systemKptLoss = criterion_singleKpt(calcEnergies, bulkSystem, kidx)
+        systemKptLoss = weighted_mse_energiesAtKpt(calcEnergies, bulkSystem, kidx)
+
+    # Add in penalization of non-decay
+    if ("penalize_starting" in ham.NNConfig) and ("penalize_lambda" in ham.NNConfig): 
+        q = torch.linspace(ham.NNConfig["penalize_starting"], 12.0, 50).view(-1,1)
+        v_q = model(q)
+
+        penalty = penalty_loss(v_q, q, ham.NNConfig["penalize_starting"], ham.NNConfig["penalize_lambda"])
+        systemKptLoss += penalty   # We don't divide by nkpts here. In the evaluation mode and serial versions, the penalty is multiplied with nkpts
+        # print(f"Done penalizing the non-decaying pp by {penalty}")
+
+    # Add in deformation potential
+    if bulkSystem.fit_defPot: 
+        calcDefPots = ham.calcDefPots(cachedMats_info=cachedMats_info, requires_grad=True, verbosity=0)
+
+        refDefPots = torch.tensor(bulkSystem.defPotInfo[:,5])
+
+        defPotWeights = torch.tensor(bulkSystem.defPotInfo[:,6])
+        defPotLoss = (((calcDefPots - refDefPots) ** 2 * defPotWeights).sum()) # Similarly, we don't divide by nkpts here. In the evaluation mode and serial versions, the penalty is multiplied with nkpts
+        print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {defPotLoss:.4f}")
+        systemKptLoss += defPotLoss
+
     start_time = time.time() if ham.NNConfig['runtime_flag'] else None
     optimizer.zero_grad()
     systemKptLoss.backward()
@@ -321,7 +381,7 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, criterion_singleKpt, op
     return singleKptGradients, trainLoss_systemKpt, calcEnergies, extrapolated_eigVal
 
 
-def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info=None, runtime_flag=False, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1):
+def trainIter_naive(model, systems, hams, optimizer, cachedMats_info=None, runtime_flag=False, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1):
     trainLoss = torch.tensor(0.0)
     for iSys, sys in enumerate(systems):
         hams[iSys].NN_locbool = True
@@ -345,11 +405,31 @@ def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cac
                     fig.savefig(f"{resultsFolder}epoch_{epoch+1}_newBand_{bandIdx}.pdf")
                     plt.close()
         
-        if 'relE_bIdx' in hams[iSys].NNConfig: 
-            systemLoss = criterion_singleSystem(NN_outputs, sys, hams[iSys].NNConfig['relE_bIdx'])
+        if sys.relE_bIdx != -1: 
+            systemLoss = weighted_relative_mse_bandStruct(NN_outputs, sys, sys.relE_bIdx)
         else:
-            systemLoss = criterion_singleSystem(NN_outputs, sys)
+            systemLoss = weighted_mse_bandStruct(NN_outputs, sys)
         trainLoss += systemLoss
+
+        # Add in penalization of non-decay
+        if ("penalize_starting" in hams[iSys].NNConfig) and ("penalize_lambda" in hams[iSys].NNConfig): 
+            q = torch.linspace(hams[iSys].NNConfig["penalize_starting"], 12.0, 50).view(-1,1)
+            v_q = model(q)
+
+            penalty = penalty_loss(v_q, q, hams[iSys].NNConfig["penalize_starting"], hams[iSys].NNConfig["penalize_lambda"]*sys.getNKpts())
+            trainLoss += penalty
+            # print(f"Done penalizing the non-decaying pp by {penalty}")
+
+        # Add in deformation potential
+        if sys.fit_defPot: 
+            calcDefPots = hams[iSys].calcDefPots(cachedMats_info=cachedMats_info, requires_grad=True)
+
+            refDefPots = torch.tensor(sys.defPotInfo[:,5])
+            defPotWeights = torch.tensor(sys.defPotInfo[:,6])
+            defPotLoss = ((calcDefPots - refDefPots) ** 2 * defPotWeights).sum() * sys.getNKpts()
+            print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {defPotLoss:.4f}")
+            trainLoss += defPotLoss
+        
 
     start_time = time.time() if runtime_flag else None
     optimizer.zero_grad()
@@ -365,7 +445,7 @@ def trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cac
     return model, trainLoss
 
 
-def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info=None, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, prevBS=None): 
+def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, prevBS=None): 
     def merge_dicts(dicts):
         merged_dict = {}
         for d in dicts:
@@ -392,11 +472,22 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
                     col_ind, calcEnergies, extrapolated_eigVal = reorder_kpt_smoothness_deg2_tensors(calcEnergies, kidx, comparedBS=prevBS.detach() if prevBS is not None else None)
                     extrapolated_points[kidx,:] = extrapolated_eigVal.detach().clone()
 
-                if 'relE_bIdx' in NNConfig: 
-                    systemKptLoss = criterion_singleKpt(calcEnergies, sys, kidx, hams[iSys].NNConfig['relE_bIdx'])
+                if sys.relE_bIdx != -1: 
+                    systemKptLoss = weighted_relative_mse_energiesAtKpt(calcEnergies, sys, kidx, sys.relE_bIdx)
                 else:
-                    systemKptLoss = criterion_singleKpt(calcEnergies, sys, kidx)
+                    systemKptLoss = weighted_mse_energiesAtKpt(calcEnergies, sys, kidx)
                 currBS[kidx,:] = calcEnergies.detach().clone()
+
+                # add in penalization of the non-decay
+                if ("penalize_starting" in hams[iSys].NNConfig) and ("penalize_lambda" in hams[iSys].NNConfig): 
+                    q = torch.linspace(hams[iSys].NNConfig["penalize_starting"], 12.0, 50).view(-1,1)
+                    v_q = model(q)
+
+                    penalty = penalty_loss(v_q, q, hams[iSys].NNConfig["penalize_starting"], hams[iSys].NNConfig["penalize_lambda"])
+                    systemKptLoss += penalty
+                    # print(f"Done penalizing the non-decaying pp by {penalty}")
+
+                # Add in defPot loss
 
                 start_time = time.time() if NNConfig['runtime_flag'] else None
                 optimizer.zero_grad()
@@ -420,7 +511,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
             if (NNConfig['smooth_reorder']) and (prevBS is not None): 
                 print("WARNING. We are reordering the band structure according to smoothness using the previous iteration BS. ")
             prevBS = prevBS.detach() if prevBS is not None else None
-            args_list = [(kidx, hams[iSys], sys, criterion_singleKpt, optimizer, model, cachedMats_info, prevBS) for kidx in range(sys.getNKpts())]
+            args_list = [(kidx, hams[iSys], sys, optimizer, model, cachedMats_info, prevBS) for kidx in range(sys.getNKpts())]
 
             with mp.Pool(NNConfig['num_cores']) as pool:
                 results_systemKpt = pool.starmap(calcEigValsAtK_wGrad_parallel, args_list)
@@ -470,7 +561,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKp
     return model, trainLoss, currBS
 
 
-def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, val_dataset, resultsFolder, cachedMats_info=None):
+def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, optimizer, scheduler, val_dataset, resultsFolder, cachedMats_info=None):
     trainingCOST_x =[]
     training_COST = []
     validationCOST_x = []
@@ -495,9 +586,9 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
             model.train()
 
             if NNConfig['separateKptGrad']==0: 
-                model, trainLoss = trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info, NNConfig['runtime_flag'], preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch)
+                model, trainLoss = trainIter_naive(model, systems, hams, optimizer, cachedMats_info, NNConfig['runtime_flag'], preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch)
             else: 
-                model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info, preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, prevBS=prevBS.detach() if prevBS is not None else None)
+                model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, prevBS=prevBS.detach() if prevBS is not None else None)
 
             file_trainCost.write(f"{pre_epoch-NNConfig['pre_adjust_moves']-1}  {trainLoss.item()}\n")
             file_trainCost.flush()
@@ -536,14 +627,14 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
         # train
         model.train()
         if NNConfig['separateKptGrad']==0: 
-            model, trainLoss = trainIter_naive(model, systems, hams, criterion_singleSystem, optimizer, cachedMats_info, NNConfig['runtime_flag'], resultsFolder=resultsFolder, epoch=epoch)
+            model, trainLoss = trainIter_naive(model, systems, hams, optimizer, cachedMats_info, NNConfig['runtime_flag'], resultsFolder=resultsFolder, epoch=epoch)
         else: 
-            model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, criterion_singleKpt, optimizer, cachedMats_info, resultsFolder=resultsFolder, epoch=epoch, prevBS=prevBS.detach() if prevBS is not None else None)
+            model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, resultsFolder=resultsFolder, epoch=epoch, prevBS=prevBS.detach() if prevBS is not None else None)
         file_trainCost.write(f"{epoch+1}  {trainLoss.item()}\n")
         file_trainCost.flush()
         trainingCOST_x.append(epoch+1)
         training_COST.append(trainLoss.item())
-        print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], training cost: {trainLoss.item():.4f}")
+        print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], training cost (including penalty): {trainLoss.item():.4f}")
         if (epoch<=9) or ((epoch + 1) % NNConfig['plotEvery'] == 0):
             print_and_inspect_gradients(model, f'{resultsFolder}epoch_{epoch+1}_gradients.dat', show=True)
             print_and_inspect_NNParams(model, f'{resultsFolder}epoch_{epoch+1}_params.dat', show=True)
@@ -564,7 +655,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, cr
             val_MSE = evalBS_noGrad(model, f'{resultsFolder}epoch_{epoch+1}_plotBS.pdf', f'epoch_{epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True)
             validationCOST_x.append(epoch+1)
             validation_COST.append(val_MSE)
-            print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], validation cost: {val_MSE:.4f}")
+            print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], validation cost (including penalty): {val_MSE:.4f}")
             file_valCost.write(f"{epoch+1}  {val_MSE}\n")
             file_valCost.flush()
             
@@ -695,6 +786,14 @@ def perturb_model(model, hams, percentage=0.0, mode=1):
         for ham in hams: 
             for atomType in ham.PPparams:
                 for p in range(5, 8): # SOC and NL
+                    if (np.random.random() <= 0.6): 
+                        ham.PPparams[atomType][p] += percentage/1 * np.random.choice([-1, 1])
+
+    if mode == 6: 
+        print(f"Not perturbing the model. Perturbing the SOC parameter only by absolute steps: {percentage}")
+        for ham in hams: 
+            for atomType in ham.PPparams:
+                for p in [5]: # SOC only
                     if (np.random.random() <= 0.6): 
                         ham.PPparams[atomType][p] += percentage/1 * np.random.choice([-1, 1])
 

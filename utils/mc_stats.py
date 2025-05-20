@@ -2,7 +2,7 @@ import numpy as np
 
 calc_list = []
 
-for i in range(1, 11):
+for i in range(1, 21):
     calc_list.append(f"CALCS_largeNLSOC/gap_heat_{i}_results/")
 
 for calc in calc_list: 

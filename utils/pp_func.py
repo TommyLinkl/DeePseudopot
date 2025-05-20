@@ -229,6 +229,10 @@ def FT_converge_and_write_pp(atomPPOrder, qmax_array, nQGrid_array, nRGrid_array
     cmap = plt.get_cmap('rainbow')
     figtot, axstot = plt.subplots(1, len(atomPPOrder), figsize=(9,4))
     
+    # Ensure axstot is always iterable
+    if len(atomPPOrder) == 1:
+        axstot = [axstot]  # Wrap in a list
+        
     combinations = list(product(qmax_array, nQGrid_array, nRGrid_array))
     cmap = plt.get_cmap('rainbow')
     colors = cmap(np.linspace(0, 1, len(combinations)))

@@ -119,17 +119,12 @@ def norm_retrain_func(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     ############# Fit NN to band structures ############# 
     if (not NNConfig['mc_bool']): 
         print(f"\n{'#' * 40}\nStart training of the NN to fit to band structures. ")
-        if 'relE_bIdx' in NNConfig: 
-            criterion_singleSystem = weighted_relative_mse_bandStruct
-            criterion_singleKpt = weighted_relative_mse_energiesAtKpt
-        else:
-            criterion_singleSystem = weighted_mse_bandStruct
-            criterion_singleKpt = weighted_mse_energiesAtKpt
+
         optimizer = init_optimizer(inputsFolder, PPmodel, NNConfig)
         scheduler = ExponentialLR(optimizer, gamma=NNConfig['scheduler_gamma'])
 
         start_time = time.time()
-        (training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, NNConfig, systems, hams, atomPPOrder, criterion_singleSystem, criterion_singleKpt, optimizer, scheduler, ZungerPPFunc_val, resultsFolder, cachedMats_info)
+        (training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, NNConfig, systems, hams, atomPPOrder, optimizer, scheduler, ZungerPPFunc_val, resultsFolder, cachedMats_info)
         end_time = time.time()
         print(f"Total training + evaluation elapsed time: {end_time - start_time:.2f} seconds")
         torch.cuda.empty_cache()
