@@ -2,7 +2,7 @@ import sys, os
 import torch
 import numpy as np
 from scipy.special import erf
-from scipy.integrate import quad, quadrature, quad_vec
+from scipy.integrate import quad_vec   # quad, quadrature, 
 import time
 import copy
 import gc
