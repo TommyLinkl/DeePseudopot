@@ -1,6 +1,7 @@
 trash*
 __pycache__/
 .ipynb_checkpoints/
+.vscode/
 CALCS/
 CALCS/*
 CALCS*/
@@ -14,3 +15,8 @@ log_files/
 submit_*.in
 submit_*.sh
 test_memory/results_*/*
+extract*
+fig*.pdf
+NC_data/
+*.pdf
+plot_defPot_log*
