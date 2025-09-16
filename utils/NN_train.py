@@ -797,6 +797,13 @@ def perturb_model(model, hams, percentage=0.0, mode=1):
                     if (np.random.random() <= 0.6): 
                         ham.PPparams[atomType][p] += percentage/1 * np.random.choice([-1, 1])
 
+    if mode == 7: 
+        print(f"Not perturbing the local model. Perturbing the NL parameter only by absolute steps: {percentage}")
+        for ham in hams: 
+            for atomType in ham.PPparams:
+                for p in [6,7]: # NL only
+                    if (np.random.random() <= 0.6): 
+                        ham.PPparams[atomType][p] += percentage/1 * np.random.choice([-1, 1])
 
     return new_model, old_hams_PPparams
 
