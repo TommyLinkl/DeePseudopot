@@ -12,7 +12,7 @@ from multiprocessing import Process, Queue, Pool, shared_memory
 import gc
 
 from .constants import *
-from .pp_func import pot_func, pot_funcLR
+from .pp_func import pot_func, pot_funcLR, long_range_correction
 from .read import init_critical_NNconfig
 
 torch.set_default_dtype(torch.float64)
@@ -400,6 +400,8 @@ class Hamiltonian:
                 elif self.NNConfig['checkpoint']==1: 
                     atomFF = checkpoint(compute_atomFF, use_reentrant=False)
                 atomFF = atomFF[:, thisAtomIndex].view(nbv, nbv)
+                lr_coeff = self.PPparams[self.system.atomTypes[alpha]][4]
+                atomFF = atomFF + long_range_correction(torch.norm(gdiff, dim=2), self.LRgamma, lr_coeff)
             else:
                 # atomFF = pot_func(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
                 atomFF = pot_funcLR(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]], self.LRgamma)
@@ -1378,6 +1380,8 @@ class Hamiltonian:
             if self.NN_locbool:
                 atomFF = self.model(torch.norm(gqDiff, dim=2).view(-1,1))
                 atomFF = atomFF[:, thisAtomIndex].view(nbv, nbv)
+                lr_coeff = self.PPparams[self.system.atomTypes[alpha]][4]
+                atomFF = atomFF + long_range_correction(torch.norm(gqDiff, dim=2), self.LRgamma, lr_coeff)
             else:
                 #atomFF = pot_func(torch.norm(gqDiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
                 atomFF = pot_funcLR(torch.norm(gqDiff, dim=2), self.PPparams[self.system.atomTypes[alpha]], self.LRgamma)

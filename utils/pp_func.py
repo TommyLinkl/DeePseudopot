@@ -13,6 +13,20 @@ def pot_func(x, params):
     return pot
 
 
+def long_range_correction(x, gamma, lr_coeff):
+    """Gaussian-screened Coulomb tail added to the short-range potential."""
+    if not isinstance(lr_coeff, torch.Tensor):
+        lr_coeff = torch.as_tensor(lr_coeff, dtype=x.dtype, device=x.device)
+    elif lr_coeff.dtype != x.dtype or lr_coeff.device != x.device:
+        lr_coeff = lr_coeff.to(dtype=x.dtype, device=x.device)
+
+    correction = torch.zeros_like(x)
+    mask = x > 1e-4
+    if mask.any():
+        correction[mask] = -lr_coeff * 4 * np.pi / (x[mask]**2) * torch.exp(-x[mask]**2 / (4 * gamma**2))
+    return correction
+
+
 def pot_funcLR(x, params, gamma):
     pot = params[0]*(x*x - params[1]) / (params[2] * torch.exp(params[3]*x*x) - 1.0)
     nzid = torch.nonzero(x > 1e-4, as_tuple=True) # x is batched, but want to avoid division by 0
