@@ -2,7 +2,7 @@ import sys, os
 import torch
 import numpy as np
 from scipy.special import erf
-from scipy.integrate import quad, quadrature, quad_vec
+from scipy.integrate import quad_vec
 from scipy.optimize import linear_sum_assignment
 import time
 import copy
@@ -134,7 +134,7 @@ class Hamiltonian:
             model.to(device)
         
 
-    def buildHtot(self, kidx, preComp_SOmats_kidx=None, preComp_NLmats_kidx=None, requires_grad=True, file_preFix="CALCS_CsPbI3_dispersion_2/hamiltonian_results/"):
+    def buildHtot(self, kidx, preComp_SOmats_kidx=None, preComp_NLmats_kidx=None, requires_grad=True, file_preFix="CALCS_GaP_totalRho/wavefunction_oldZunger_results/"):
         """
         Build the total Hamiltonian for a given kpt, specified by its kidx. 
         preComp_SOmats_kidx and preComp_NLmats_kidx are the pre-computed
@@ -1253,11 +1253,11 @@ class Hamiltonian:
         bandStruct = torch.zeros([nkpt, nbands], requires_grad=False)
         if (self.NNConfig['num_cores']==0):     # No multiprocessing
             for kidx in range(nkpt):
-                if kidx>-1: 
+                if kidx<-1: 
                     eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False)
                 else:
                     # !!! FOR TESTING ONLY: 
-                    eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False, writeEVecsToFile=True, writeEVecsFolderName="CALCS_CsPbI3_dispersion_2/hamiltonian_results/")
+                    eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False, parallelization=False, writeEVecsToFile=True, writeEVecsFolderName="CALCS_GaP_totalRho/wavefunction_oldZunger_results/")
 
                 bandStruct[kidx,:] = eigValsAtK
             self._copy_currIter_to_prevIter_shm()

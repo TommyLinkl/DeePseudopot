@@ -298,7 +298,7 @@ class BulkSystem:
 
 
     def getCellVolume(self): 
-        return float(torch.dot(self.unitCellVectors[0], torch.cross(self.unitCellVectors[1], self.unitCellVectors[2])))
+        return float(torch.dot(self.unitCellVectors[0], torch.cross(self.unitCellVectors[1], self.unitCellVectors[2], dim=0)))
     
     def getNAtoms(self):
         return len(self.atomTypes)
@@ -314,9 +314,9 @@ class BulkSystem:
     def getGVectors(self):
         cellVolume = self.getCellVolume()
         prefactor = 2 * np.pi / cellVolume
-        gVector1 = prefactor * torch.cross(self.unitCellVectors[1], self.unitCellVectors[2])
-        gVector2 = prefactor * torch.cross(self.unitCellVectors[2], self.unitCellVectors[0])
-        gVector3 = prefactor * torch.cross(self.unitCellVectors[0], self.unitCellVectors[1])
+        gVector1 = prefactor * torch.cross(self.unitCellVectors[1], self.unitCellVectors[2], dim=0)
+        gVector2 = prefactor * torch.cross(self.unitCellVectors[2], self.unitCellVectors[0], dim=0)
+        gVector3 = prefactor * torch.cross(self.unitCellVectors[0], self.unitCellVectors[1], dim=0)
         gVectors = torch.cat((gVector1.unsqueeze(0), gVector2.unsqueeze(0), gVector3.unsqueeze(0)), dim=0).to(torch.float64)
         return gVectors
     
