@@ -42,6 +42,15 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
 
     # Evaluate the band structures and pseudopotentials for the initialized NN
     print("\nEvaluating band structures using the initialized pseudopotentials. ")
+    # TODO: print out all the parameters. Add a print_and_inspect_NNParams for printing. Let's also print out all the SOC and NL parameters
+    for iHam, ham in enumerate(hams):
+        print(f"[info] For system #{iHam}, the PPparams are: ")
+        for atomType in ham.PPparams:
+            print(f"  {atomType}: ", end="")
+            for p in range(9):
+                print(f"{ham.PPparams[atomType][p]:.6f}  ", end="")
+            print()
+    # TODO: Print out the Hamiltonian and each components within evalBS_noGrad function
     init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}initZunger_plotBS.pdf', 'Init NN BS', NNConfig, hams, systems, cachedMats_info, writeBS=True)
 
     print("Converge the pseudopotentials in the real and reciprocal space for the initialized NN. ")
