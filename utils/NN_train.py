@@ -691,13 +691,13 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
 
 def perturb_model(model, hams, percentage=0.0, mode=1): 
     def check_atomPPOrder():
-        atomPPOrder = getattr(hams[0], 'atomPPOrder', None)  # This should be consistent across all hams
+        atomPPOrder = getattr(hams[0], 'atomPPorder', None)  # This should be consistent across all hams
         if atomPPOrder is None:
             raise AttributeError("Expected the first ham to define `atomPPOrder`.")
 
         reference_order = tuple(atomPPOrder)
         for idx, ham in enumerate(hams[1:], start=1):
-            ham_order = getattr(ham, 'atomPPOrder', None)
+            ham_order = getattr(ham, 'atomPPorder', None)
             if ham_order is None:
                 raise AttributeError(f"Hamiltonian at index {idx} does not have `atomPPOrder` defined.")
             if tuple(ham_order) != reference_order:
