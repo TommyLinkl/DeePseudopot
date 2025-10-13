@@ -690,6 +690,24 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
 
 
 def perturb_model(model, hams, percentage=0.0, mode=1): 
+    def check_atomPPOrder():
+        atomPPOrder = getattr(hams[0], 'atomPPorder', None)  # This should be consistent across all hams
+        if atomPPOrder is None:
+            raise AttributeError("Expected the first ham to define `atomPPOrder`.")
+
+        reference_order = tuple(atomPPOrder)
+        for idx, ham in enumerate(hams[1:], start=1):
+            ham_order = getattr(ham, 'atomPPorder', None)
+            if ham_order is None:
+                raise AttributeError(f"Hamiltonian at index {idx} does not have `atomPPOrder` defined.")
+            if tuple(ham_order) != reference_order:
+                raise ValueError(
+                    "`atomPPOrder` must be consistent across all Hamiltonians. "
+                    f"First Hamiltonian order={reference_order}, index {idx} order={tuple(ham_order)}.")
+        return atomPPOrder
+
+    atomPPOrder = check_atomPPOrder()
+
     # copy to new_model. Make changes on the new ones
     new_model = copy.deepcopy(model)
 
@@ -702,15 +720,14 @@ def perturb_model(model, hams, percentage=0.0, mode=1):
         for param in new_model.parameters():
             perturbation = 1 + torch.rand_like(param) * (2 * percentage) - percentage
             param.data *= perturbation
-    
-        for ham in hams: 
-            for atomType in ham.PPparams:
-                # perturb SOC constant
-                ham.PPparams[atomType][5] *= (1 + np.random.random() * (2 * percentage/100) - percentage/100)
-
-                # perturb NL constants
-                ham.PPparams[atomType][6] *= (1 + np.random.random() * (2 * percentage/100) - percentage/100)
-                ham.PPparams[atomType][7] *= (1 + np.random.random() * (2 * percentage/100) - percentage/100)
+            
+        for atomType in atomPPOrder:
+            # perturb SOC constant & NL constants
+            for p in range(5, 8): # SOC and NL
+                scale = (1 + np.random.random() * (2 * percentage/100) - percentage/100)
+                for ham in hams: 
+                    if atomType in ham.PPparams:
+                        ham.PPparams[atomType][p] *= scale
 
     if mode == 2: 
         print(f"Perturbing the model by percentage: {percentage}")
@@ -735,10 +752,13 @@ def perturb_model(model, hams, percentage=0.0, mode=1):
 
                 param += perturbation
 
-        for ham in hams: 
-            for atomType in ham.PPparams:
-                for p in range(5, 8): # SOC and NL
-                    ham.PPparams[atomType][p] *= (1 + np.random.random() * (2 * percentage/1000) - percentage/1000)
+        for atomType in atomPPOrder:
+            # perturb SOC constant & NL constants
+            for p in range(5, 8): # SOC and NL
+                scale = (1 + np.random.random() * (2 * percentage/1000) - percentage/1000)
+                for ham in hams: 
+                    if atomType in ham.PPparams:
+                        ham.PPparams[atomType][p] *= scale
 
     if mode == 3: 
         print(f"Perturbing the model by std after normalization: {percentage}")
@@ -769,12 +789,15 @@ def perturb_model(model, hams, percentage=0.0, mode=1):
             if (np.random.random() <= 0.6): 
                 random_sign = torch.randint(0, 2, param.shape, dtype=torch.float64) * 2 - 1
                 param.data += percentage * random_sign
-
-        for ham in hams: 
-            for atomType in ham.PPparams:
-                for p in range(5, 8): # SOC and NL
-                    if (np.random.random() <= 0.6): 
-                        ham.PPparams[atomType][p] += percentage/1000 * np.random.choice([-1, 1])
+  
+        for atomType in atomPPOrder:
+            # perturb SOC constant & NL constants
+            for p in range(5, 8): # SOC and NL
+                step = percentage/1000 * np.random.choice([-1, 1])
+                if (np.random.random() <= 0.6): 
+                    for ham in hams: 
+                        if atomType in ham.PPparams:
+                            ham.PPparams[atomType][p] += step
 
     if mode == 5: 
         print(f"Perturbing the model by absolute steps: {percentage/10}. Perturbing the NL and SOC parameters by absolute steps: {percentage}")
@@ -783,27 +806,34 @@ def perturb_model(model, hams, percentage=0.0, mode=1):
                 random_sign = torch.randint(0, 2, param.shape, dtype=torch.float64) * 2 - 1
                 param.data += percentage/10 * random_sign
 
-        for ham in hams: 
-            for atomType in ham.PPparams:
-                for p in range(5, 8): # SOC and NL
-                    if (np.random.random() <= 0.6): 
-                        ham.PPparams[atomType][p] += percentage/1 * np.random.choice([-1, 1])
+        for atomType in atomPPOrder:
+            # perturb SOC constant & NL constants
+            for p in range(5, 8): # SOC and NL
+                step = percentage/1 * np.random.choice([-1, 1])
+                if (np.random.random() <= 0.6): 
+                    for ham in hams: 
+                        if atomType in ham.PPparams:
+                            ham.PPparams[atomType][p] += step
 
     if mode == 6: 
         print(f"Not perturbing the model. Perturbing the SOC parameter only by absolute steps: {percentage}")
-        for ham in hams: 
-            for atomType in ham.PPparams:
-                for p in [5]: # SOC only
-                    if (np.random.random() <= 0.6): 
-                        ham.PPparams[atomType][p] += percentage/1 * np.random.choice([-1, 1])
+        for atomType in atomPPOrder:
+            for p in [5]: # SOC only
+                step = percentage/1 * np.random.choice([-1, 1])
+                if (np.random.random() <= 0.6): 
+                    for ham in hams: 
+                        if atomType in ham.PPparams:
+                            ham.PPparams[atomType][p] += step
 
     if mode == 7: 
         print(f"Not perturbing the local model. Perturbing the NL parameter only by absolute steps: {percentage}")
-        for ham in hams: 
-            for atomType in ham.PPparams:
-                for p in [6,7]: # NL only
-                    if (np.random.random() <= 0.6): 
-                        ham.PPparams[atomType][p] += percentage/1 * np.random.choice([-1, 1])
+        for atomType in atomPPOrder:
+            for p in [6,7]: # NL only
+                step = percentage/1 * np.random.choice([-1, 1])
+                if (np.random.random() <= 0.6): 
+                    for ham in hams: 
+                        if atomType in ham.PPparams:
+                            ham.PPparams[atomType][p] += step
 
     return new_model, old_hams_PPparams
 
