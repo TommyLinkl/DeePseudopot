@@ -69,19 +69,33 @@ def plotBandStruct(bulkSystem_list, bandStruct_list, SHOWPLOTS):
         # plot ref
         numBands = len(bandStruct_list[2*iSystem][0])
         numKpts = len(bandStruct_list[2*iSystem])
-        for i in range(numBands): 
-            if bulkSystem_list[iSystem].bandWeights[i]!=0:
-                axs_flat[2*iSystem+0].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", alpha=0.5, markersize=2)
-                axs_flat[2*iSystem+1].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", alpha=0.5, markersize=2)
+        if numKpts != 1: 
+            for i in range(numBands): 
+                if bulkSystem_list[iSystem].bandWeights[i]!=0:
+                    axs_flat[2*iSystem+0].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", alpha=0.5, markersize=2)
+                    axs_flat[2*iSystem+1].plot(np.arange(numKpts), bandStruct_list[2*iSystem][:, i].detach().numpy(), "bo", alpha=0.5, markersize=2)
+        else: 
+            for i in range(numBands): 
+                if bulkSystem_list[iSystem].bandWeights[i]!=0:
+                    repeat_times = 3
+                    axs_flat[2*iSystem+0].plot(np.arange(repeat_times), np.tile(bandStruct_list[2*iSystem][:, i].detach().numpy(), repeat_times), "bo", alpha=0.5, markersize=2)
+                    axs_flat[2*iSystem+1].plot(np.arange(repeat_times), np.tile(bandStruct_list[2*iSystem][:, i].detach().numpy(), repeat_times), "bo", alpha=0.5, markersize=2)
         axs_flat[2*iSystem+0].plot([], [], "bo", alpha=0.5, markersize=2, label='Reference')
                 
         # plot prediction
         numBands = len(bandStruct_list[2*iSystem+1][0])
         numKpts = len(bandStruct_list[2*iSystem+1])
-        for i in range(numBands): 
-            if bulkSystem_list[iSystem].bandWeights[i]!=0:
-                axs_flat[2*iSystem+0].plot(np.arange(numKpts), np.sort(bandStruct_list[2*iSystem+1].detach().numpy(), axis=1)[:, i], "r-", alpha=0.6)
-                axs_flat[2*iSystem+1].plot(np.arange(numKpts), np.sort(bandStruct_list[2*iSystem+1].detach().numpy(), axis=1)[:, i], "r-", alpha=0.6)
+        if numKpts != 1: 
+            for i in range(numBands): 
+                if bulkSystem_list[iSystem].bandWeights[i]!=0:
+                    axs_flat[2*iSystem+0].plot(np.arange(numKpts), np.sort(bandStruct_list[2*iSystem+1].detach().numpy(), axis=1)[:, i], "r-", alpha=0.6)
+                    axs_flat[2*iSystem+1].plot(np.arange(numKpts), np.sort(bandStruct_list[2*iSystem+1].detach().numpy(), axis=1)[:, i], "r-", alpha=0.6)
+        else: 
+            for i in range(numBands): 
+                if bulkSystem_list[iSystem].bandWeights[i]!=0:
+                    repeat_times = 3
+                    axs_flat[2*iSystem+0].plot(np.arange(repeat_times), np.tile(np.sort(bandStruct_list[2*iSystem+1].detach().numpy(), axis=1)[:, i], repeat_times), "r-", alpha=0.6)
+                    axs_flat[2*iSystem+1].plot(np.arange(repeat_times), np.tile(np.sort(bandStruct_list[2*iSystem+1].detach().numpy(), axis=1)[:, i], repeat_times), "r-", alpha=0.6)
         axs_flat[2*iSystem+0].plot([], [], "r-", alpha=0.6, label="NN prediction")
         axs_flat[2*iSystem+0].legend(frameon=False)
         # refEList = bandStruct_list[2*iSystem][bandStruct_list[2*iSystem] > -50]
@@ -112,6 +126,10 @@ def plotBandStructFromFile(refFile, calcFile):
     # plot ref
     numBands = len(refBS[0])
     numKpts = len(refBS)
+    if numKpts == 1: 
+        repeat_times = 3
+        refBS = np.tile(refBS, (repeat_times, 1))
+        numKpts = repeat_times
     for i in range(numBands): 
         if i==0: 
             axs[0].plot(np.arange(numKpts), refBS[:, i], "bo", alpha=0.5, markersize=2, label="Reference")
@@ -123,6 +141,10 @@ def plotBandStructFromFile(refFile, calcFile):
     # plot prediction
     numBands = len(calcBS[0])
     numKpts = len(calcBS)
+    if numKpts == 1: 
+        repeat_times = 3
+        calcBS = np.tile(calcBS, (repeat_times, 1))
+        numKpts = repeat_times
     for i in range(numBands): 
         if i==0: 
             axs[0].plot(np.arange(numKpts), calcBS[:, i], "r-", alpha=0.6, label="Calc")
