@@ -856,14 +856,6 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
         newModel, old_PPparams = perturb_model(currModel, hams, percentage=NNConfig['mc_percentage'], mode=NNConfig['mc_perturb_mode'] if 'mc_perturb_mode' in NNConfig else 1)
         newLoss = evalBS_noGrad(newModel, f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf', f'mc_iter_{iter+1}', NNConfig, hams, systems, cachedMats_info)
         print(f"newLoss={newLoss.item():.4f}. ")
-        # Printing out all the parameters. The NN parameters are already printed out. Let's print out all the SOC and NL parameters
-        for iHam, ham in enumerate(hams):
-            print(f"[info] For system #{iHam}, the PPparams are: ")
-            for atomType in ham.PPparams:
-                print(f"  {atomType}: ", end="")
-                for p in range(9):
-                    print(f"{ham.PPparams[atomType][p]:.6f}  ", end="")
-                print()
 
         mc_rand = np.exp(-1 * NNConfig['mc_beta'] * (np.sqrt(newLoss) - np.sqrt(currLoss)))
         mc_accept_bool = mc_rand > np.random.uniform(low=0.0, high=1.0)
