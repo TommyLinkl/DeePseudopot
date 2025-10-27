@@ -3,6 +3,9 @@ import numpy as np
 from itertools import product
 import matplotlib as mpl
 import matplotlib.pyplot as plt 
+from matplotlib import rc
+mpl.rcParams['pdf.fonttype'] = 42
+mpl.rcParams['ps.fonttype'] = 42
 mpl.rcParams['lines.markersize'] = 3
 from .constants import * 
 
