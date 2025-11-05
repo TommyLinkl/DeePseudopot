@@ -1,0 +1,12 @@
+# Core runtime dependencies for DeepPseudopot
+numpy>=1.21
+scipy>=1.7
+torch>=1.13
+matplotlib>=3.5
+pillow>=8.0
+pandas>=1.3
+scikit-learn>=1.0
+
+# Optional utilities and developer tooling
+psutil>=5.9
+threadpoolctl>=3.1

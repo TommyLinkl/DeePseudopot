@@ -1,58 +1,59 @@
-# NN_pseudopotential_fitting
-Semi-empirical pseudopotential methods enable low-cost, high-accuracy quantum chemistry calculations in large systems. They are particularly useful in obtaining accurate eletronic, optical and dynamics properties in nano-scale systems.   
+# DeepPseudopot
 
-Traditional pseudopotentials typically has a physics-driven function form, with parameters fitted to reproduce high-level *ab initio* or empirical results. Such function forms contain many physical or arbitrary contraints, limiting the degrees of freedom of the pseudopotentials. 
+DeepPseudopot is a machine-learned atomistic pseudopotential model that extends the semi-empirical pseudopotential method (SEPM) for simulating large and complex material systems. 
 
-This code parametrizes pseudopotentials for semiconductor nanocrystal systems through physics-inspired deep neural networks, combining the flexibility of neural nets and the necessary physical constraints. The pseudopotentials generated using this method provides better fit to *ab initio* or empirical results and converge faster than traditional pseudopotential functions. 
+It excels at capturing the electronic structure, photophysics, and charge-carrier dynamics in systems where *ab initio* methods such as GW or hybrid-functional DFT become computationally prohibitive — particularly in nanostructures, alloys, and polymorphic materials.
 
-## Code details
+## How to Cite
+Please cite the following paper when referencing DeepPseudopot:
 
-Running this code requires python 3.6+ for use of f-strings, guaranteed 
-deterministic dict iteration, etc.
+- Preprint: [arXiv:2505.09846](https://arxiv.org/abs/2505.09846).
+- npj Computational Materials article (soon in press).
 
-- ``test.ipynb``  
-A Jupyter Notebook script that runs ``main.py`` on sample inputs. 
+## Install & Quick Start
+1. **Install dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. **Prepare an input bundle** with the following at minimum:
+   - global training settings `NN_config.par`
+   - periodic system definitions `system_X.par`
+   - $\mathbf{k}$-point paths `kpoints_X.par`
+   - band-specific weights in loss function definition `bandWeights_X.par`
+   - reference band structures `expBandStruct_X.par`
+   - miscellaneous convergence and plotting-related parameters `input_X.par`
+   - initial pseudopotentials for each element `init_<atom>Params.par`
+   
+   See `docs/manual.md` for details about keyword options and explanations, input units, and restart conventions.
+3. **Launch a run**
+   ```bash
+   python main.py /path/to/inputs/ /path/to/results/
+   ```
 
-- ``main.py``  
-Run this python script to parametrize pseudopotentials through physics-inspired deep neural networks. 
+## Order of Pseudopotential Parameters in the Function Form
+The local pseudopotential files `init_<atom>Params.par` and their derivatives expect nine parameters in the following order:
+- `ppParams[0]` – `ppParams[3]`: Zunger-form local coefficients
+- `ppParams[4]`: long-range parameter (only defined for $N-1$ species to enforce charge neutrality)
+- `ppParams[5]`: spin–orbit coupling parameter
+- `ppParams[6]`, `ppParams[7]`: nonlocal parameters
+- `ppParams[8]`: strain-tensor parameter
 
-- ``utils/``  
-This directory includes classes and functions called by ``main.py``. 
-    - ``read.py``: reads in the inputs and constructs the class bulkSystem. 
-    - ``nn_models.py``: constructs neural networks. 
-    - ``pot_func.py``: includes a variety of utility functions for pseudopotentials. 
-    - ``bandStruct.py``: builds the Hamiltonian matrix at every k-point using the NN-pseudopotential. It then diagonalizes Hamiltonian matrices to get corresponding band stuctures. 
-    - ``init_NN_train.py``: initialized the neural network by fitting to the latest function form of the pseudopotentials. 
-    - ``NN_train.py``: trains the neural network by minimizing the loss with respect to the reference band structures. 
+## For Developers - Code Repository Layout
+- `main.py` – entry point for training pseudopotentials from an input bundle.
+- `eval_fullBand.py` – similar to `main.py`, but evaluates full band structures with streamlined utilities and parallelism tuned for inference. 
+- `docs/` – user documentation; see `docs/manual.md` for keyword definitions, workflows, and troubleshooting.
+- `utils/` – primary implementation modules live here; including readers, Hamiltonian builders, neural network models, training loops, Fourier transforms, and visualization scripts. 
+- `test_ham/`, `test_parallel/`, `test_memory/` – regression and stress-test suites covering band-structure accuracy, multiprocessing, eigensolvers, and memory use.
 
-- ``inputs/``  
-This directory contains sample input data for running the code, including semiconductor system configurations, expected band structures, k-point inputs, latest parameters for the pseudopotential function form, etc.   
+## Extended Toolkit
+| Script | Purpose |
+| --- | --- |
+| `charge_density_from_wfns.py` | Builds real-space charge densities from plane-wave eigenvectors calculated from DeepPseudopot.
+| `convert_bgwBS.py` | Translates BerkeleyGW or Quantum ESPRESSO outputs into the DeepPseudopot bundle format.
+| `convert_convCell_to_primCell.py` | Converts conventional cells into primitive cells during input preparation.
+| `utils/cluster_pp.py` | Performs PCA/K-means analyses to cluster neural network pseudopotentials and assess coverage.
+| `inflate_kpoints.py` | Densifies k-point paths for higher-resolution band structure calculations.
+| `plot_BS_from_file.py`, `plot_SOC_NL_T_Vloc.py` | Plotting scripts for band structures and decomposed potential components.
 
-I have done testing on two calculations: 1. ZB_CdSe and 2. InAs, InP, GaAs, GaP systems. Please move the inputs from each folder into the parent ``input/`` directory before running the code for testing. 
-
-- ``results/``  
-This directory contains results from the code by running with the sample input data. For reference, results for the two sample runs are collected in separate folders. 
-
-- ``zbCdSe_fitting_numpy.ipynb``
-A testing Jupyter notebook script that calculates the zinc-blende CdSe band structure from the Zunger pseudopotential form via numpy. 
-
-- ``zbCdSe_fitting_NN_init.ipynb``
-A testing Jupyter notebook script that uses a neural network to fit the band structure of zinc-blende CdSe. Adapts numpy methods to PyTorch tensor library. 
-
-## Theory background
-
-xxx
-
-
-## Parameter order
-the order of the input params is:
-
-- ppParams[0]-ppParams[3] = local Zunger potential, as before
-
-- ppParams[4] = long-range constant (only defined for N-1 atom types, since there is a constraint)
-
-- ppParams[5] = SOC constant
-
-- ppParams[6]-ppParams[7] = nonlocal constants
-
-- ppParams[8] = strain tensor constant
+## Detailed Manual for usage
+Consult `docs/manual.md` for complete file formats, workflow recipes, restart procedures, and troubleshooting tips. 
