@@ -10,7 +10,7 @@ Please cite the following paper when referencing DeepPseudopot:
 - Preprint: [arXiv:2505.09846](https://arxiv.org/abs/2505.09846).
 - npj Computational Materials article (soon in press).
 
-## Install & Quick Start
+## Installation & Quick Start
 1. **Install dependencies**
    ```bash
    pip install -r requirements.txt
