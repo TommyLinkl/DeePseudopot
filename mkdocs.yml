@@ -17,3 +17,15 @@ theme:
   name: material
 plugins:
   - search
+markdown_extensions:
+  - admonition
+  - codehilite
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
+extra_javascript:
+    - https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js
+extra_css:
+  - css/custom.css

@@ -1,29 +1,35 @@
-## Installation & Quick Start
+# Installation & Quick Start
 
-!!! example "Install dependencies"
-    ```bash
-    pip install -r requirements.txt
-    ```
+1. **Clone the repository**
+        
+        git clone https://github.com/TommyLinkl/DeePseudopot.git
+        cd DeePseudopot
 
-!!! note "Assemble an input bundle"
-    At minimum, include the following artifacts (see [Input Data Description](inputs.md) for keyword tables and restart guidance):
+2. **Install dependencies**
 
-    | Artifact | Purpose |
+        pip install -r requirements.txt
+
+3. **Assemble an input bundle**
+
+    At minimum, include the following input files for a deep-learning pseudopotential training calculation. Please see [Input Data Description](inputs.md) for details on input keywords. 
+
+    | Inputs | Purpose |
     | --- | --- |
     | `NN_config.par` | Global training and optimization settings. |
-    | `system_X.par` | Periodic system definitions and atom ordering. |
-    | `kpoints_X.par` | High-symmetry paths and sampling in reciprocal space ($\mathbf{k}$-points). |
-    | `bandWeights_X.par` | Per-band weights in the loss definition. |
-    | `expBandStruct_X.par` | Reference band structures used for supervision. |
+    | `system_X.par` | Defines the periodic system. |
+    | `kpoints_X.par` | $\mathbf{k}$-point paths in Brillouin zone for the band structures. |
+    | `bandWeights_X.par` | Per-band weights in the training loss definition. |
+    | `expBandStruct_X.par` | Reference band structures used for training. |
     | `input_X.par` | Convergence controls, plot toggles, and miscellaneous simulation knobs. |
-    | `init_<atom>Params.par` | Initial pseudopotentials or analytic seed parameters per element. |
+    | `init_<atom>Params.par` | Analytic pseudopotential parameters per element, used for model initialization. |
 
-!!! example "Launch a training run"
-    ```bash
+4. **Launch a training run**
+
+    ```
     python main.py /path/to/inputs/ /path/to/results/
     ```
 
-## For Developers - Code Repository Layout
+## Code Repository Layout (for developers)
 `main.py`
 : Entry point for training pseudopotentials from an input bundle.
 

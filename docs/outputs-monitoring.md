@@ -3,10 +3,13 @@
 For a complete catalogue of exported artefacts, visit the [Output Data Description](outputs.md). This page focuses on how to track progress while a run is active, recover from interruptions, and apply the developer tools bundled with the repository.
 
 ## Monitoring, Restart, and Checkpoints
-- **Logging**: stdout/stderr contain key configuration echoes and warnings (e.g., conflicting flags). Redirect to `run.log` for lengthy jobs.
-- **Gradient restarts**: copy the desired `epoch_<N>_PPmodel.pth` to `<inputs>/init_PPmodel.pth`; optionally copy the associated optimizer state (`init_AdamState.pth`).
-- **Monte Carlo restarts**: copy the latest `mc_checkpoint.pth` into the input directory as `init_PPmodel.pth`.
-- **Memory management**: `separateKptGrad = 1` recomputes gradients per k-point (lower peak memory), while `checkpoint = 1` trades compute for memory by re-evaluating activations. Use `test_memory/` utilities to gauge headroom.
+| Key / Artefact | Type | Applies to | Required? | Notes |
+| --- | --- | --- | --- | --- |
+| Stdout/stderr logs | stream | All runs | Yes | Captures configuration echoes and warnings; redirect to `run.log` for long jobs. |
+| `epoch_<N>_PPmodel.pth`, `epoch_<N>_plot*.{pdf,png}` | files | Gradient runs | Optional outputs | Copy the desired epoch checkpoint to `<inputs>/init_PPmodel.pth` (and `init_AdamState.pth` if keeping optimizer state) for restarts. |
+| `mc_checkpoint.pth`, `best_pot.*`, `best_plotPP.*` | files | Monte Carlo runs | Optional outputs | Promote the chosen MC checkpoint into the next run by copying it to `init_PPmodel.pth`. |
+| `separateKptGrad` | int (0/1) | Memory tuning | Optional | When set to 1, recomputes gradients per k-point to lower peak memory. |
+| `checkpoint` | int (0/1) | Memory tuning | Optional | Saves memory by re-evaluating activations; trades compute for RAM. |
 
 ## Utilities and Tests
 - `inflate_kpoints.py` – generates denser k-paths; pass input file paths as arguments.

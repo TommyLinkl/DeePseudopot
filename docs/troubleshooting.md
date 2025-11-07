@@ -1,10 +1,12 @@
 # Troubleshooting Guide
 
-- **Missing keys**: ensure `PPmodel`, `nSystem`, and `hiddenLayers` appear in `NN_config.par`. Additional keys become mandatory when certain modes are activated (e.g., `max_num_epochs > 0`).
-- **Inconsistent band counts**: lengths of `bandWeights_X.par` and columns in `expBandStruct_X.par` must equal `nBands` in `input_X.par`.
-- **Divergent training loss**: reduce `optimizer_lr`, adjust `bandWeights_X.par`, or tighten scheduler decay (`scheduler_gamma < 1`).
-- **Movie export failures**: install `ffmpeg`, verify PNG frames exist, or disable movie generation by removing relevant options.
-- **SciPy integration errors**: ensure `scipy >= 1.7` to access `quad_vec`.
-- **Memory exhaustion**: combine `separateKptGrad`, `checkpoint`, or lower `maxKE`. Use `num_cores = 0` to disable multiprocessing on memory-constrained nodes.
+| Issue | Key / Option | Applies to | Fix |
+| --- | --- | --- | --- |
+| Missing keys | `PPmodel`, `nSystem`, `hiddenLayers`, mode-specific flags | `NN_config.par` | Ensure all required keys are present; additional options become mandatory when activating features (e.g., set `max_num_epochs` when training). |
+| Inconsistent band counts | `bandWeights_X.par`, `expBandStruct_X.par`, `nBands` | Input bundle | Verify the number of bands matches across files (`len(bandWeights) == nBands == columns in expBandStruct`). |
+| Divergent training loss | `optimizer_lr`, `scheduler_gamma`, `bandWeights_X.par` | Gradient workflow | Lower `optimizer_lr`, adjust weights, and ensure `scheduler_gamma < 1` for adequate decay. |
+| Movie export failures | `ffmpeg`, plotting options | Post-processing | Install `ffmpeg`, confirm PNG frames exist, or disable movie generation in `NN_config.par`. |
+| SciPy integration errors | `scipy` version | Initialization / transforms | Upgrade to `scipy >= 1.7` to access `quad_vec`. |
+| Memory exhaustion | `separateKptGrad`, `checkpoint`, `maxKE`, `num_cores` | Large systems | Enable `separateKptGrad = 1`, `checkpoint = 1`, reduce `maxKE`, or set `num_cores = 0` to limit multiprocessing. |
 
-Need to recheck configuration decisions after debugging? Revisit the [Configuration Reference](configuration.md) or [Workflow Modes](workflows.md) for deeper adjustments.
+Need to recheck configuration choices after debugging? Revisit the [Configuration Reference](configuration.md) or [Workflow Modes](workflows.md) for deeper adjustments.
