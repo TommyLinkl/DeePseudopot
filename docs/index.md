@@ -17,5 +17,4 @@ Please cite the following paper when referencing DeepPseudopot:
 - [Workflow Modes](workflows.md) – Supported training and refinement workflow modes, plus a step-by-step execution flow.
 - [Input Data Description](inputs.md) – Checklist and pointers for every configuration, lattice, and spectral input.
 - [Output Data Description](outputs.md) – Catalogue of initialization, checkpoint, and final deliverables.
-- [Monitoring](outputs-monitoring.md) – Runtime monitoring tips, restart strategy, and developer utilities.
 - [Troubleshooting Guide](troubleshooting.md) – Quick answers to the most common failure modes.

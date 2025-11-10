@@ -103,7 +103,7 @@ Enable by setting `mc_bool = 1` while keeping `max_num_epochs = 0`. The Monte Ca
 | `mc_beta` | float | Inverse temperature $\beta$ in the Monte Carlo Metropolis criterion. Larger $\beta$ makes the search greedier; smaller $\beta$ increases acceptance of uphill moves. |
 | `mc_beta_schedule` | string | Optional path to a text file containing `iteration_index  beta` pairs. Overrides `mc_beta` to implement annealing/tempering schedules. |
 
-The Monte Carlo workflow often read companion files described in [System & Data Files](system-data.md#5-monte-carlo-and-specialized-controls): `mcOpts*.par` (global MC settings), `<atom>ParamSteps.par` (per-atom step sizes), and `mc_beta_schedule` files.
+The Monte Carlo workflow often read companion files described in [System & Data Files](system-data.md#4-monte-carlo-and-specialized-controls): `mcOpts*.par` (global MC settings), `<atom>ParamSteps.par` (per-atom step sizes), and `mc_beta_schedule` files.
 
 ## Eigenvalue Reordering
 | Key | Type | Effect / Options |

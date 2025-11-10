@@ -127,7 +127,7 @@ Preferred for traditional Zunger, as well as for NL/SO parameters where the loss
 
 - Users can connect a chain of Zunger initialization, Monte Carlo fitting, and gradient-based training of NN local potentials by reusing the `final_pot*`, `epoch_<N>_*`, or `mc_checkpoint.pth` files as the initialization files for the next stage.
 
-After picking a workflow, consult the [Output Data Description](outputs.md) for expected outputs and use [Monitoring & Utilities](outputs-monitoring.md) for restart procedures.
+After picking a workflow, consult the [Output Data Description](outputs.md) for expected outputs and use [Troubleshooting Guide](troubleshooting.md) for restart procedures.
 
 
 ## 3. Initialization Strategies
