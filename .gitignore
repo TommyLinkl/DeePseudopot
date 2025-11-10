@@ -20,3 +20,5 @@ fig*.pdf
 NC_data/
 *.pdf
 plot_defPot_log*
+site/
+.DS_Store
