@@ -6,9 +6,8 @@ nav:
   - Workflow Modes: workflows.md
   - Input Data Description:
     - Summary: inputs.md
-    - Environment & Input Bundle: setup.md
-    - Configuration Reference: configuration.md
-    - System & Data Files: system-data.md
+    - Global Calculations Settings: configuration.md
+    - System-specific Data Files: system-data.md
   - Output Data Description:
     - Summary: outputs.md
     - Monitoring & Utilities: outputs-monitoring.md
@@ -25,6 +24,9 @@ markdown_extensions:
   - pymdownx.superfences
   - pymdownx.arithmatex:
       generic: true
+  - pymdownx.tasklist:
+      custom_checkbox: true      # nice Material-style boxes
+      clickable_checkbox: true   # (optional) let users click them in the browser
 extra_javascript:
     - https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js
 extra_css:
