@@ -8,9 +8,7 @@ nav:
     - Summary: inputs.md
     - Global Calculations Settings: configuration.md
     - System-specific Data Files: system-data.md
-  - Output Data Description:
-    - Summary: outputs.md
-    - Monitoring & Utilities: outputs-monitoring.md
+  - Output Data Description: outputs.md
   - Troubleshooting Guide: troubleshooting.md
 theme:
   name: material

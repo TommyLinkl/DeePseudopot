@@ -1,12 +1,27 @@
 # Troubleshooting Guide
 
-| Issue | Key / Option | Applies to | Fix |
-| --- | --- | --- | --- |
-| Missing keys | `PPmodel`, `nSystem`, `hiddenLayers`, mode-specific flags | `NN_config.par` | Ensure all required keys are present; additional options become mandatory when activating features (e.g., set `max_num_epochs` when training). |
-| Inconsistent band counts | `bandWeights_X.par`, `expBandStruct_X.par`, `nBands` | Input bundle | Verify the number of bands matches across files (`len(bandWeights) == nBands == columns in expBandStruct`). |
-| Divergent training loss | `optimizer_lr`, `scheduler_gamma`, `bandWeights_X.par` | Gradient workflow | Lower `optimizer_lr`, adjust weights, and ensure `scheduler_gamma < 1` for adequate decay. |
-| Movie export failures | `ffmpeg`, plotting options | Post-processing | Install `ffmpeg`, confirm PNG frames exist, or disable movie generation in `NN_config.par`. |
-| SciPy integration errors | `scipy` version | Initialization / transforms | Upgrade to `scipy >= 1.7` to access `quad_vec`. |
-| Memory exhaustion | `separateKptGrad`, `checkpoint`, `maxKE`, `num_cores` | Large systems | Enable `separateKptGrad = 1`, `checkpoint = 1`, reduce `maxKE`, or set `num_cores = 0` to limit multiprocessing. |
+Use this page to monitor in-flight runs, restart cleanly after interruptions, and resolve the most common configuration or data issues. For a full catalogue of generated files, see the [Output Data Description](outputs.md).
 
-Need to recheck configuration choices after debugging? Revisit the [Configuration Reference](configuration.md) or [Workflow Modes](workflows.md) for deeper adjustments.
+## Monitor & Restart
+
+| Artefact / Setting | Applies to | How to use |
+| --- | --- | --- |
+| Stdout / stderr logs | All runs | Tail logs in real time or redirect to `run.log` to capture warnings and configuration echoes. |
+| `epoch_<N>_PPmodel.pth` | Gradient runs | Copy the desired epoch checkpoint to `<inputs>/init_PPmodel.pth` (and `init_AdamState.pth` if preserving optimizer state) to resume from that epoch. |
+| `best_pot.*`, <br>`best_plotPP.*` | Monte Carlo | Promote the chosen file to `init_PPmodel.pth` and change the parameters to rerun for the next stage. |
+| `separateKptGrad`, <br>`checkpoint` | Memory relief | Enable `separateKptGrad = 1` to process $\mathbf{k}$-points sequentially; add `checkpoint = 1` if memory pressure persists (expect slower runtimes). |
+
+## Quick Fixes
+
+| Symptom | Likely cause | Recommended fix |
+| --- | --- | --- |
+| Parser errors about missing keys | Required entries absent in `NN_config.par` | Ensure `PPmodel`, `hiddenLayers`, `nSystem`, and any mode-specific knobs (e.g., `max_num_epochs`, `mc_iter`) are present. |
+| Band-count mismatch | `nBands` disagrees with `bandWeights_X.par` or `expBandStruct_X.par` | Regenerate inputs so `len(bandWeights) = nBands = columns(expBandStruct) - 1`. |
+| Divergent or unstable loss | Step size too large or band weights skewed | Reduce `optimizer_lr`, confirm `scheduler_gamma < 1`, and inspect `bandWeights_X.par` for extreme values. |
+| Memory exhaustion | Large `maxKE`, too many cores, no gradient splitting | Set `separateKptGrad = 1`, consider `checkpoint = 1`, reduce `maxKE`, or run with `num_cores = 0`. |
+
+## Utilities & Self-Checks
+
+- `inflate_kpoints.py` densifies $\mathbf{k}$-point paths for debugging convergence.
+- `plot_BS_from_file.py`, `plot_SOC_NL_T_Vloc.py` visualize existing results without rerunning training.
+- `utils/pp_func.py` exposes Fourier-transform helpers for notebooks.
