@@ -1,0 +1,1074 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reference manual and usage guides for DeepPseudopot.">
+      
+      
+      
+      
+        <link rel="prev" href="../inputs/">
+      
+      
+        <link rel="next" href="../system-data/">
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.23">
+    
+    
+      
+        <title>Global Calculations Settings - DeepPseudopot Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.84d31ad4.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../css/custom.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#global-configuration-settings-nn_configpar" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="DeepPseudopot Documentation" class="md-header__button md-logo" aria-label="DeepPseudopot Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DeepPseudopot Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Global Calculations Settings
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="DeepPseudopot Documentation" class="md-nav__button md-logo" aria-label="DeepPseudopot Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    DeepPseudopot Documentation
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Introduction
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Installation & Quick Start
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Workflow Modes
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Input Data Description
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Input Data Description
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Summary
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Global Calculations Settings
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    Global Calculations Settings
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#minimum-required-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      Minimum Required Keys
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#execution-controls-diagnostic-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      Execution Controls &amp; Diagnostic Flags
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#spin-orbit" class="md-nav__link">
+    <span class="md-ellipsis">
+      Spin-Orbit
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-architecture-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      Model Architecture Details
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#initialization-calculation-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      Initialization Calculation Settings
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gradient-based-training-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      Gradient-Based Training Loop
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Gradient-Based Training Loop">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pre-adjustment-nudges-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      Pre-adjustment Nudges (Optional)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#monte-carlo-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      Monte Carlo Mode
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#eigenvalue-reordering" class="md-nav__link">
+    <span class="md-ellipsis">
+      Eigenvalue Reordering
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../system-data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    System-specific Data Files
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Output Data Description
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting Guide
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#minimum-required-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      Minimum Required Keys
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#execution-controls-diagnostic-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      Execution Controls &amp; Diagnostic Flags
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#spin-orbit" class="md-nav__link">
+    <span class="md-ellipsis">
+      Spin-Orbit
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#model-architecture-details" class="md-nav__link">
+    <span class="md-ellipsis">
+      Model Architecture Details
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#initialization-calculation-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      Initialization Calculation Settings
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gradient-based-training-loop" class="md-nav__link">
+    <span class="md-ellipsis">
+      Gradient-Based Training Loop
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Gradient-Based Training Loop">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pre-adjustment-nudges-optional" class="md-nav__link">
+    <span class="md-ellipsis">
+      Pre-adjustment Nudges (Optional)
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#monte-carlo-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      Monte Carlo Mode
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#eigenvalue-reordering" class="md-nav__link">
+    <span class="md-ellipsis">
+      Eigenvalue Reordering
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="global-configuration-settings-nn_configpar">Global Configuration Settings (<code>NN_config.par</code>)</h1>
+<p><code>NN_config.par</code> contains all the global runtime and calculation settings. </p>
+<p>The parser accepts <code>key = value</code> pairs, ignores blank lines, and strips anything after <code>#</code>. Booleans are written as <code>0</code>/<code>1</code>, and integer lists such as <code>hiddenLayers</code> are space-separated.</p>
+<h2 id="minimum-required-keys">Minimum Required Keys</h2>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Purpose / Options</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PPmodel</code></td>
+<td>string</td>
+<td>Class name from <code>utils/nn_models.py</code>. <br>Common choices are: <code>Net_relu_xavier</code>, <code>Net_celu_HeInit_decayGaussian</code>, <code>Net_relu_xavier_BN_dropout_decayGaussian</code>, <code>Net_sigmoid_xavier_decayGaussian</code>, <code>Net_celu_RandInit_decayGaussian</code>, <code>ZeroFunction</code>. Each suffix encodes activation (relu/celu/sigmoid), initialization (xavier/HeInit/RandInit), normalization (<code>BN</code>), dropout, and gating (<code>decay</code>, <code>decayGaussian</code>).</td>
+</tr>
+<tr>
+<td><code>hiddenLayers</code></td>
+<td>list of int</td>
+<td>Space-separated layer widths, e.g., <code>32 32</code>. <br>The code automatically prepends an 1D input layer (<span class="arithmatex">\(\|\mathbf{G}\|\)</span>) and appends an output layer whose size equals the number of unique atoms inferred from <code>system_X.par</code>.</td>
+</tr>
+<tr>
+<td><code>nSystem</code></td>
+<td>int</td>
+<td>Number of <code>system_X</code> datasets to ingest. Must match the number of indexed input bundles (<code>system_0.par</code>, <code>system_1.par</code>, ...).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="execution-controls-diagnostic-flags">Execution Controls &amp; Diagnostic Flags</h2>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Effect / Options</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>num_cores</code></td>
+<td>int</td>
+<td><code>0</code> disables multiprocessing (default). A positive value spawns that many worker processes for Hamiltonian assembly and caches SO/NL matrices in shared memory. <br>The value is clipped to the available CPU count.</td>
+</tr>
+<tr>
+<td><code>SHOWPLOTS</code></td>
+<td>bool (0/1)</td>
+<td><code>1</code> opens interactive Matplotlib windows for band/potential plots. Set <code>0</code> for cluster or batch runs to avoid GUI errors.</td>
+</tr>
+<tr>
+<td><code>separateKptGrad</code></td>
+<td>bool (0/1)</td>
+<td>When <code>1</code>, separates the loss function for each <span class="arithmatex">\(\mathbf{k}\)</span>-point and gradient accumulation for the parameters. Recommended for all calculations. Slightly increases cost in runtime but drastically shrinks peak memory usage.</td>
+</tr>
+<tr>
+<td><code>checkpoint</code></td>
+<td>bool (0/1)</td>
+<td>Enables PyTorch gradient checkpointing. Helpful in cases when memory limit is a major issue. Not generally recommended. Particularly, if both <code>checkpoint</code> and <code>separateKptGrad</code> are <code>1</code>, a warning is emitted because the run becomes slow.</td>
+</tr>
+<tr>
+<td><code>memory_flag</code></td>
+<td>bool (0/1)</td>
+<td>Toggle for generating memory usage reports for debugging (run with <code>mprof</code> to generate the report and plots).</td>
+</tr>
+<tr>
+<td><code>runtime_flag</code></td>
+<td>bool (0/1)</td>
+<td>Toggle for wall-clock timers and debugging print statements to stdout.</td>
+</tr>
+<tr>
+<td><code>printGrad</code></td>
+<td>bool (0/1)</td>
+<td>Toggle for printing out per-layer gradient norms each epoch. Helps debug vanishing/exploding gradients or confirm that all atoms receive updates.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="spin-orbit">Spin-Orbit</h2>
+<p>See <a href="../workflows/#long-range-lr-spin-orbit-coupling-soc-nonlocal-nl-and-strain-terms">Long-range (LR), spin-orbit coupling (SOC), nonlocal (NL), and strain terms</a> for additional context on how these channels enter the Hamiltonian.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Effect / Options</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SObool</code></td>
+<td>bool (0/1)</td>
+<td>Toggle for the spin-orbit coupling matrices. Only enable when the bundle includes SO information in <code>init_&lt;atom&gt;Params.par</code> and the training data expects SOC splittings, as constructing the SOC Hamiltonian drastically increases runtime and memory.</td>
+</tr>
+<tr>
+<td><code>cacheSO</code></td>
+<td>bool (0/1)</td>
+<td>Valid only when <code>SObool = 1</code>. Caches SO/NL matrices in shared memory for faster repeated access, but slightly memory hungry. <code>0</code> recomputes the matrices each epoch (slower but safer on limited RAM). <br>Strongly recommended to turn on when training with SO/NL parameters.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="model-architecture-details">Model Architecture Details</h2>
+<p>For a broader discussion of the available NN architectures and analytic forms, see <a href="../workflows/#1-pseudopotential-model-selection">Pseudopotential Model Selection</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Effect / Options</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PPmodel_decay_rate</code>, <br><code>PPmodel_decay_center</code></td>
+<td>float</td>
+<td>Used only by <code>*_decay</code> variants. <code>PPmodel_decay_rate</code> sets the steepness of the logistic tail; <code>PPmodel_decay_center</code> is the <span class="arithmatex">\(\|\mathbf{G}\|\)</span> value (in Bohr<span class="arithmatex">\(^{-1}\)</span>) where decay begins. Increase <code>PPmodel_decay_rate</code> for sharper cutoffs.</td>
+</tr>
+<tr>
+<td><code>PPmodel_gaussian_std</code></td>
+<td>float</td>
+<td>Used by <code>*_decayGaussian</code> variants. Controls the Gaussian envelope width in the reciprocal space.</td>
+</tr>
+<tr>
+<td><code>PPmodel_scale</code></td>
+<td>list of float</td>
+<td>Exclusive to <code>Net_celu_HeInit_scale_decayGaussian</code>. Provide one scaling factor per atom species to bias certain channels (e.g., heavier atoms) during initialization.</td>
+</tr>
+<tr>
+<td><code>penalize_starting</code></td>
+<td>float</td>
+<td>Lower bound (in Bohr<span class="arithmatex">\(^{-1}\)</span>) of the reciprocal-space range where the penalty is applied.</td>
+</tr>
+<tr>
+<td><code>penalize_lambda</code></td>
+<td>float</td>
+<td>Strength of the penalty that discourages deviations from the initialization curve beyond <code>penalize_starting</code>. Increase to keep the NN closer to the analytic prior.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Tip: browse <code>utils/nn_models.py</code> to see the full catalog and the mathematical form of each <code>PPmodel</code>. The suffixes encode activation (<code>relu</code>, <code>celu</code>, <code>sigmoid</code>), initializer (<code>xavier</code>, <code>HeInit</code>, <code>RandInit</code>), and whether batch norm (<code>BN</code>), dropout, or decay gates are included.</p>
+</blockquote>
+<h2 id="initialization-calculation-settings">Initialization Calculation Settings</h2>
+<p>Additional guidance on these options appears in <a href="../workflows/#3-initialization-strategies">Initialization Strategies</a>.</p>
+<p>These knobs control the initialization of the neural network pseudopotential's initialization against analytic potentials. Such initialization is run only when <code>init_Zunger_num_epochs &gt; 0</code> and analytic <code>init_&lt;atom&gt;Params.par</code> vectors (or <code>init_qSpace_pot.par</code>) are present.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Effect / Options</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>init_Zunger_num_epochs</code></td>
+<td>int</td>
+<td><code>0</code> (default) skips analytic pre-training. Any positive value trains against the Zunger (or tabulated) curves for that many epochs before fitting bands.</td>
+</tr>
+<tr>
+<td><code>init_Zunger_optimizer</code></td>
+<td>string</td>
+<td>Optimizer for the initialization stage. <br>Supported: <code>adam</code> (default) or <code>sgd</code>.</td>
+</tr>
+<tr>
+<td><code>init_Zunger_optimizer_lr</code></td>
+<td>float</td>
+<td>Learning rate during initialization. Required when <code>init_Zunger_num_epochs &gt; 0</code>.</td>
+</tr>
+<tr>
+<td><code>init_Zunger_scheduler_gamma</code></td>
+<td>float</td>
+<td>Exponential LR decay applied every <code>schedulerStep</code> init epochs. <br>Leave unset (or <code>=1.0</code>) to keep the LR constant.</td>
+</tr>
+<tr>
+<td><code>init_Zunger_plotEvery</code></td>
+<td>int</td>
+<td>Frequency for saving <code>initZunger_plotPP.*</code> or <code>initZunger_epoch_*</code> outputs. Use large values (e.g., <code>500</code>) to minimize I/O, or <code>-1</code> to skip.</td>
+</tr>
+<tr>
+<td><code>init_Zunger_printGrad</code></td>
+<td>bool (0/1)</td>
+<td><code>1</code> prints gradient statistics during initialization, useful for diagnosing stagnant curves.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>Order of initialization: <br>
+Load <code>init_PPmodel.pth</code>/<code>init_AdamState.pth</code> if present, otherwise fit to <code>init_qSpace_pot.par</code>/<code>init_&lt;atom&gt;Params.par</code>, otherwise fall back to the weight initializer baked into <code>PPmodel</code> (Xavier/He/etc.).</p>
+</blockquote>
+<h2 id="gradient-based-training-loop">Gradient-Based Training Loop</h2>
+<p>Active only when <code>max_num_epochs &gt; 0</code> and <code>mc_bool = 0</code>. See <a href="../workflows/#2-workflow-selection">Workflow Selection</a> for guidance on when to use this mode versus Monte Carlo.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Effect / Options</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>max_num_epochs</code></td>
+<td>int</td>
+<td>Positive integer activates gradient training.</td>
+</tr>
+<tr>
+<td><code>optimizer</code></td>
+<td>string</td>
+<td>PyTorch optimizer name. <br>Supported: <code>adam</code> (default), <code>sgd</code>, <code>asgd</code>, <code>lbfgs</code>, <code>adadelta</code>, <code>adagrad</code>, <code>adamw</code>, <code>sparseadam</code>, <code>adamax</code>, <code>nadam</code>, <code>radam</code>, <code>rmsprop</code>.</td>
+</tr>
+<tr>
+<td><code>optimizer_lr</code></td>
+<td>float</td>
+<td>Initial learning rate for the chosen optimizer.</td>
+</tr>
+<tr>
+<td><code>sgd_momentum</code>, <br><code>adam_beta1</code>, <br><code>adam_beta2</code></td>
+<td>float</td>
+<td>Optional overrides for the optimizer hyperparameters. Ignored unless the optimizer supports them.</td>
+</tr>
+<tr>
+<td><code>scheduler_gamma</code></td>
+<td>float</td>
+<td>Multiplicative decay factor for the exponential LR scheduler (values &lt;1 decay the LR).</td>
+</tr>
+<tr>
+<td><code>schedulerStep</code></td>
+<td>int</td>
+<td>Number of epochs between scheduler updates. Combine with <code>scheduler_gamma</code> to control how quickly the LR decays.</td>
+</tr>
+<tr>
+<td><code>plotEvery</code></td>
+<td>int</td>
+<td>Save <code>epoch_&lt;N&gt;_PPmodel.pth</code>, band plots, and cost snapshots every <code>plotEvery</code> epochs.</td>
+</tr>
+<tr>
+<td><code>patience</code></td>
+<td>int</td>
+<td>Early-stopping patience measured in epochs. Defaults to <code>max_num_epochs + 1</code> (effectively disables early stopping).</td>
+</tr>
+<tr>
+<td><code>perturbEvery</code></td>
+<td>int</td>
+<td>If &gt;0, injects a random perturbation into NN weights every <code>perturbEvery</code> epochs. Set <code>-1</code> or omit to disable.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>When switching optimizers mid-project, remove any stale <code>init_AdamState.pth</code> files; otherwise PyTorch will attempt to load incompatible states.</p>
+</blockquote>
+<h3 id="pre-adjustment-nudges-optional">Pre-adjustment Nudges (Optional)</h3>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Effect / Options</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pre_adjust_moves</code></td>
+<td>int</td>
+<td>Number of single-parameter “pre-adjust” iterations to run before epoch 0. Each move optimizes the weight scalar with the largest gradient magnitude. <br>This is a handy feature when initial losses are huge as this method guarantees decrease of loss when learning rate is small.</td>
+</tr>
+<tr>
+<td><code>pre_adjust_stepSize</code></td>
+<td>float</td>
+<td>Optional learning rate for the pre-adjust stage. Defaults to <code>optimizer_lr</code> if omitted.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="monte-carlo-mode">Monte Carlo Mode</h2>
+<p>See <a href="../workflows/#2-workflow-selection">Workflow Selection</a> for the decision chart comparing Monte Carlo refinement and gradient training.</p>
+<p>Enable by setting <code>mc_bool = 1</code> while keeping <code>max_num_epochs = 0</code>. The Monte Carlo kernel honors the following keys:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Effect / Options</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mc_bool</code></td>
+<td>bool (0/1)</td>
+<td><code>1</code> activates Monte Carlo refinement. Requires <code>max_num_epochs = 0</code>.</td>
+</tr>
+<tr>
+<td><code>mc_iter</code></td>
+<td>int</td>
+<td>Number of trial moves per Monte Carlo block. After each block the code logs cost traces and (optionally) writes plots.</td>
+</tr>
+<tr>
+<td><code>mc_perturb_mode</code></td>
+<td>int</td>
+<td>Selects one of the perturbation kernels defined in <code>utils/NN_train.py::perturb_model</code> (<span class="arithmatex">\(\varepsilon\)</span> = <code>mc_percentage</code>): <br> <strong>Mode 1</strong> – Multiply every NN weight by a random factor in <span class="arithmatex">\([1-\varepsilon, 1+\varepsilon]\)</span>; SOC/NL parameters scale by <span class="arithmatex">\((1 \pm  \varepsilon/100)\)</span>. <br> <strong>Mode 2</strong> – Magnitude-aware perturbations: if the weight value has absolute value larger than 20, they are nudged back toward zero by at most <span class="arithmatex">\(\varepsilon \cdot \|value\|\)</span>, near-zero values amplified by up to <span class="arithmatex">\(10\cdot \varepsilon\cdot value\)</span>, SOC/NL scale by <span class="arithmatex">\((1 \pm  \varepsilon/1000)\)</span>. <br> <strong>Mode 3</strong> – Normalize each tensor, randomly shift 50% of entries by <span class="arithmatex">\(N(0, \varepsilon)\)</span> in normalized space, then denormalize (NN weights only). <br> <strong>Mode 4</strong> – Add absolute steps of <span class="arithmatex">\(\pm \varepsilon\)</span> to ~60% of NN weights and <span class="arithmatex">\(\pm \varepsilon/1000\)</span> to SOC/NL parameters. (Larger NN weights perturbations than SOC/NL parameters) <br> <strong>Mode 5</strong> – Add absolute steps of <span class="arithmatex">\(\pm \varepsilon/10\)</span> to ~60% of NN weights and <span class="arithmatex">\(\pm \varepsilon\)</span> to SOC/NL parameters. (Larger SOC/NL parameter perturbations than NN weights) <br> <strong>Mode 6</strong> – Keep NN weights fixed; perturb SOC parameters only by <span class="arithmatex">\(\pm \varepsilon\)</span>. <br> <strong>Mode 7</strong> – Keep NN weights fixed; perturb NL parameters only by <span class="arithmatex">\(\pm \varepsilon\)</span>.</td>
+</tr>
+<tr>
+<td><code>mc_percentage</code></td>
+<td>float</td>
+<td>The \varepsilon magnitude passed to the selected perturbation mode. Increase to encourage larger exploration steps; decrease for conservative proposals.</td>
+</tr>
+<tr>
+<td><code>mc_beta</code></td>
+<td>float</td>
+<td>Inverse temperature <span class="arithmatex">\(\beta\)</span> in the Monte Carlo Metropolis criterion. Larger <span class="arithmatex">\(\beta\)</span> makes the search greedier; smaller <span class="arithmatex">\(\beta\)</span> increases acceptance of uphill moves.</td>
+</tr>
+<tr>
+<td><code>mc_beta_schedule</code></td>
+<td>string</td>
+<td>Optional path to a text file containing <code>iteration_index  beta</code> pairs. Overrides <code>mc_beta</code> to implement annealing/tempering schedules.</td>
+</tr>
+</tbody>
+</table>
+<p>The Monte Carlo workflow often read companion files described in <a href="../system-data/#4-monte-carlo-and-specialized-controls">System &amp; Data Files</a>: <code>mcOpts*.par</code> (global MC settings), <code>&lt;atom&gt;ParamSteps.par</code> (per-atom step sizes), and <code>mc_beta_schedule</code> files.</p>
+<h2 id="eigenvalue-reordering">Eigenvalue Reordering</h2>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Effect / Options</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>smooth_reorder</code></td>
+<td>bool (0/1)</td>
+<td>Enables the smooth eigenvalue-matching heuristic. Use when frequent band crossings cause large loss spikes.</td>
+</tr>
+<tr>
+<td><code>eigvec_reorder</code></td>
+<td>bool (0/1)</td>
+<td>Forces eigenvector-based band sorting (more robust but slower).</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "..", "features": [], "search": "../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.f55a23d4.min.js"></script>
+      
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

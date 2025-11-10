@@ -1,0 +1,1214 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reference manual and usage guides for DeepPseudopot.">
+      
+      
+      
+      
+        <link rel="prev" href="../install/">
+      
+      
+        <link rel="next" href="../inputs/">
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.23">
+    
+    
+      
+        <title>Workflow Modes - DeepPseudopot Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.84d31ad4.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../css/custom.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#workflow-modes" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="DeepPseudopot Documentation" class="md-header__button md-logo" aria-label="DeepPseudopot Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DeepPseudopot Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Workflow Modes
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="DeepPseudopot Documentation" class="md-nav__button md-logo" aria-label="DeepPseudopot Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    DeepPseudopot Documentation
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Introduction
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Installation & Quick Start
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    Workflow Modes
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    Workflow Modes
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-pseudopotential-model-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Pseudopotential Model Selection
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Pseudopotential Model Selection">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#neural-network-local-potentials" class="md-nav__link">
+    <span class="md-ellipsis">
+      Neural-network local potentials
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analytic-local-pseudopotential-form-zunger-form" class="md-nav__link">
+    <span class="md-ellipsis">
+      Analytic local pseudopotential form ('Zunger form')
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#long-range-lr-spin-orbit-coupling-soc-nonlocal-nl-and-strain-terms" class="md-nav__link">
+    <span class="md-ellipsis">
+      Long-range (LR), spin-orbit coupling (SOC), nonlocal (NL), and strain terms
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-workflow-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Workflow Selection
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Workflow Selection">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gradient-based-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      Gradient-based training
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#monte-carlo-fitting-parallel-tempering" class="md-nav__link">
+    <span class="md-ellipsis">
+      Monte Carlo fitting (parallel tempering)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#initialization-only-validation-sweeps" class="md-nav__link">
+    <span class="md-ellipsis">
+      Initialization-only / validation sweeps
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#band-structure-evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Band-structure evaluation
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hybrid-workflows" class="md-nav__link">
+    <span class="md-ellipsis">
+      Hybrid workflows
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-initialization-strategies" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. Initialization Strategies
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#overall-execution-flow-of-mainpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      Overall Execution Flow of main.py
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#extended-toolkit" class="md-nav__link">
+    <span class="md-ellipsis">
+      Extended Toolkit
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Input Data Description
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Input Data Description
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Summary
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Global Calculations Settings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../system-data/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    System-specific Data Files
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Output Data Description
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting Guide
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-pseudopotential-model-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Pseudopotential Model Selection
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Pseudopotential Model Selection">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#neural-network-local-potentials" class="md-nav__link">
+    <span class="md-ellipsis">
+      Neural-network local potentials
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analytic-local-pseudopotential-form-zunger-form" class="md-nav__link">
+    <span class="md-ellipsis">
+      Analytic local pseudopotential form ('Zunger form')
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#long-range-lr-spin-orbit-coupling-soc-nonlocal-nl-and-strain-terms" class="md-nav__link">
+    <span class="md-ellipsis">
+      Long-range (LR), spin-orbit coupling (SOC), nonlocal (NL), and strain terms
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-workflow-selection" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Workflow Selection
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Workflow Selection">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gradient-based-training" class="md-nav__link">
+    <span class="md-ellipsis">
+      Gradient-based training
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#monte-carlo-fitting-parallel-tempering" class="md-nav__link">
+    <span class="md-ellipsis">
+      Monte Carlo fitting (parallel tempering)
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#initialization-only-validation-sweeps" class="md-nav__link">
+    <span class="md-ellipsis">
+      Initialization-only / validation sweeps
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#band-structure-evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      Band-structure evaluation
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hybrid-workflows" class="md-nav__link">
+    <span class="md-ellipsis">
+      Hybrid workflows
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-initialization-strategies" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. Initialization Strategies
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#overall-execution-flow-of-mainpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      Overall Execution Flow of main.py
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#extended-toolkit" class="md-nav__link">
+    <span class="md-ellipsis">
+      Extended Toolkit
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="workflow-modes">Workflow Modes</h1>
+<p>DeepPseudopot's utility can be expanded along three directions: </p>
+<p>(1) selecting the pseudopotential model family, </p>
+<p>(2) choosing an optimization workflow, and </p>
+<p>(3) deciding how to initialize that model. </p>
+<p>This page summarizes each knob so you can assemble the combination that matches your study. Please see our paper for theoretical details. </p>
+<h2 id="1-pseudopotential-model-selection">1. Pseudopotential Model Selection</h2>
+<div class="arithmatex">\[
+\hat{H}=\hat{T}+\hat{V}_{\mathrm{loc}}+\hat{V}_{\mathrm{nl}}+\hat{V}_{\mathrm{soc}},
+\]</div>
+<div class="arithmatex">\[
+\hat{V}_{\mathrm{loc}}=\sum_{\alpha}^{\mathrm{N_{at}}}\hat{v}_{\mathrm{loc}}^{\alpha},\quad
+\hat{V}_{\mathrm{nl}}=\sum_{\alpha}^{\mathrm{N_{at}}}\hat{v}_{\mathrm{nl}}^{\alpha},\quad
+\hat{V}_{\mathrm{soc}}=\sum_{\alpha}^{\mathrm{N_{at}}}\hat{v}_{\mathrm{soc}}^{\alpha}.
+\]</div>
+<h3 id="neural-network-local-potentials">Neural-network local potentials</h3>
+<p>DeepPseudopot's default use case is to learn a screened local pseudopotential modeled by a deep neural network, combined with a non-local (NL) angular momentum-dependent correction term and a spin orbit coupling (SOC) term supplied in the bundle. </p>
+<p>$$
+v_{\mathrm{loc}}^{\alpha}\left(G\right) = \Bigl[\left(h^{H} \circ \cdots \circ h^{2} \circ h^{1} \right)\left(G\right)\Bigr]_{\alpha}, 
+$$
+where <span class="arithmatex">\(h^{i}(x) = \sigma\bigl(W^{i} x + b^{i}\bigr)\)</span> is the output of the <span class="arithmatex">\(i\)</span>-th hidden layer, <span class="arithmatex">\(\sigma\)</span> is an activation function, and <span class="arithmatex">\(W^{i}\)</span> and <span class="arithmatex">\(b^{i}\)</span> are the weights and bias tensors.</p>
+<p>The following <code>NN_config.par</code> keys govern the NN flavor, particularly <code>PPmodel</code>. The <code>PPmodel</code> catalog spans sigmoid, tanh, ReLU, and CELU activations with Xavier or He initialization, optional batch normalization, logistic decays, and Gaussian gating (<code>*_decayGaussian</code>). Gaussian-gated variants guarantee smooth decay at large <span class="arithmatex">\(G\)</span> in the reciprocal space; logistic decays (<code>*_decay</code>) offer a softer cutoff.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Applies to</th>
+<th>Required?</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>PPmodel</code></td>
+<td>string</td>
+<td>All NN runs</td>
+<td>Yes</td>
+<td>Class name from <code>utils/nn_models.py</code> (e.g., <code>Net_relu_xavier</code>, <code>Net_celu_HeInit_decayGaussian</code>). Determines activation, normalization, dropout, and gating.</td>
+</tr>
+<tr>
+<td><code>hiddenLayers</code></td>
+<td>list[int]</td>
+<td>All NN runs</td>
+<td>Yes</td>
+<td>Number of neurons in each hidden layer, not including the input and output layers which are set automatically by the code. E.g., <code>64 64</code> for a fully connected MLP with <code>[1, 64, 64, 3]</code> for three elements.</td>
+</tr>
+<tr>
+<td><code>PPmodel_decay_rate</code></td>
+<td>float</td>
+<td><code>Net_*_decay</code> variants</td>
+<td>Only for decay models</td>
+<td>Logistic decay rate in the reciprocal space used to attenuate the NN output at large <span class="arithmatex">\(G\)</span>.</td>
+</tr>
+<tr>
+<td><code>PPmodel_decay_center</code></td>
+<td>float</td>
+<td><code>Net_*_decay</code> variants</td>
+<td>Only for decay models</td>
+<td>Logistic inflection point (in units of Bohr<span class="arithmatex">\(^{-1}\)</span>) specifying where attenuation begins.</td>
+</tr>
+<tr>
+<td><code>PPmodel_gaussian_std</code></td>
+<td>float</td>
+<td><code>Net_*_decayGaussian</code> variants</td>
+<td>Only for decayGaussian models</td>
+<td>Standard deviation <span class="arithmatex">\(\sigma\)</span> in the Gaussian envelope <span class="arithmatex">\(\exp[-q^2/(2\sigma^2)]\)</span>.</td>
+</tr>
+<tr>
+<td><code>PPmodel_scale</code></td>
+<td>list[float]</td>
+<td><code>Net_celu_HeInit_scale_decayGaussian</code></td>
+<td>Only for scale variant</td>
+<td>Per-species scaling factors applied after the Gaussian envelope; length must equal the number of atom types.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="analytic-local-pseudopotential-form-zunger-form">Analytic local pseudopotential form ('Zunger form')</h3>
+<p>DeepPseudopot also retains the functionality to fit semi-empirical local potential forms first proposed by Wang and Zunger for III-V and II-VI semiconductors (<a href="https://doi.org/10.1103/PhysRevB.51.17398">Phys. Rev. B <strong>51</strong>, 17398</a>):</p>
+<div class="arithmatex">\[
+V_{\text{Zunger}}(G) = \frac{a_0\,(G^2 - a_1)}{a_2\,\exp(a_3 G^2) - 1}.
+\]</div>
+<p>Parameters <span class="arithmatex">\(a_0 \dots a_3\)</span> map to <code>ppParams[0:4]</code> within each <code>init_&lt;atom&gt;Params.par</code> input file. You can:</p>
+<ol>
+<li>Use the analytic form as an initialization target for the NN local pseudopotential, which trains the NN to reproduce <span class="arithmatex">\(V_{\text{Zunger}}(G)\)</span> before band-structure fitting, or</li>
+<li>Optimize the analytic potential directly by setting <code>PPmodel = ZeroFunction</code> (or a similar pass-through) so that only the Zunger coefficients are varied via Monte Carlo/gradient updates (more in <a href="#2-workflow-selection">Workflow Selection</a>).</li>
+</ol>
+<p>Relevant keys:</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Applies to</th>
+<th>Required?</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>init_&lt;atom&gt;Params.par</code></td>
+<td>file</td>
+<td>Each species</td>
+<td>Required when using analytic form</td>
+<td>Provides the nine-parameter vectors (local, long-range, SO, NL, strain) consumed by <code>init_ZungerPP</code> and <code>pot_func</code>.</td>
+</tr>
+<tr>
+<td><code>init_Zunger_num_epochs</code></td>
+<td>int</td>
+<td>Initialization</td>
+<td>Optional</td>
+<td>When &gt;0, trains the NN to match the analytic potential before optimization.</td>
+</tr>
+<tr>
+<td><code>ZeroFunction</code></td>
+<td><code>PPmodel</code> choice</td>
+<td>Analytic-only fits</td>
+<td>Optional</td>
+<td>Choose <code>PPmodel = ZeroFunction</code> (or another noop architecture) if you want to optimize just the analytic coefficients.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="long-range-lr-spin-orbit-coupling-soc-nonlocal-nl-and-strain-terms">Long-range (LR), spin-orbit coupling (SOC), nonlocal (NL), and strain terms</h3>
+<p>Regardless of whether the local piece is NN-based or analytic-form-based, the remaining channels share the same parameter slots described in the README ("Order of Pseudopotential Parameters"). These channels can be toggled independently, letting you build hybrids in any combination with the local pseudopotential. </p>
+<table>
+<thead>
+<tr>
+<th>Key / Parameter</th>
+<th>Type</th>
+<th>Applies to</th>
+<th>Required?</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ppParams[4]</code> (long-range)</td>
+<td>float per species (N-1 independent)</td>
+<td>Polar materials</td>
+<td>Optional</td>
+<td>Enables the Gaussian-screened Fröhlich tail with attenuation <code>LRgamma</code>. Leave it as zero for non-polar systems.</td>
+</tr>
+<tr>
+<td><code>ppParams[5]</code> (spin–orbit)</td>
+<td>float per species</td>
+<td>When <code>SObool = 1</code></td>
+<td>Optional</td>
+<td>Set <code>SObool = 1</code> to include SO; you may still zero <code>ppParams[5]</code> to keep only nonlocal terms active.</td>
+</tr>
+<tr>
+<td><code>ppParams[6-7]</code> (nonlocal)</td>
+<td>float per species and non-local channel</td>
+<td>When <code>SObool = 1</code></td>
+<td>Optional</td>
+<td>Set the strength of the projectors used for the nonlocal part.</td>
+</tr>
+<tr>
+<td><code>ppParams[8]</code> (strain)</td>
+<td>float per species</td>
+<td>Strain workflows</td>
+<td>Optional</td>
+<td>Controls deformation-potential responses when fitting strain-dependent observables.</td>
+</tr>
+<tr>
+<td><code>SObool</code></td>
+<td>int (0/1)</td>
+<td>Any run</td>
+<td>Optional</td>
+<td>Turns SO projectors on/off. With <code>SObool = 1</code> and <code>ppParams[5] = 0</code>, you effectively reuse the NL blocks while keeping SO inactive.</td>
+</tr>
+<tr>
+<td><code>cacheSO</code></td>
+<td>int (0/1)</td>
+<td>Runs with heavy SO/NL reuse</td>
+<td>Optional</td>
+<td>Caches SO/NL matrices in shared memory. <strong>This is highly recommended when training pseudopotentials with SOC terms but it also increases RAM usage.</strong></td>
+</tr>
+</tbody>
+</table>
+<h2 id="2-workflow-selection">2. Workflow Selection</h2>
+<p>DeepPseudopot supports four core execution modes:</p>
+<h3 id="gradient-based-training">Gradient-based training</h3>
+<p>Highly recommended when using a neural network local potential. </p>
+<ul>
+<li>Set <code>max_num_epochs &gt; 0</code> and <code>mc_bool = 0</code> to use this. </li>
+<li>Provide an <code>optimizer</code> (<code>adam</code>, <code>sgd</code>, <code>adamw</code>, etc.), <code>optimizer_lr</code>, <code>scheduler_gamma</code>, and <code>schedulerStep</code>. </li>
+<li>Optional <code>perturbEvery</code> injects random kicks to escape shallow local minima. </li>
+<li>Expect periodic <code>epoch_&lt;N&gt;_*</code> checkpoints plus <code>plotBS</code>/<code>plotPP</code> plots.</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Required?</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>optimizer</code></td>
+<td>string</td>
+<td>Optional</td>
+<td>Supported: <code>adam</code>, <code>sgd</code>, <code>lbfgs</code>, <code>rmsprop</code>, <code>adamw</code>; see function <code>init_optimizer</code> in <code>utils/init_NN_train.py</code> for the complete list. Default is <code>adam</code>.</td>
+</tr>
+<tr>
+<td><code>optimizer_lr</code></td>
+<td>float</td>
+<td>Yes</td>
+<td>Base learning rate for the chosen optimizer.</td>
+</tr>
+<tr>
+<td><code>scheduler_gamma</code></td>
+<td>float</td>
+<td>Optional</td>
+<td>Multiplicative decay factor (e.g., 0.95).</td>
+</tr>
+<tr>
+<td><code>schedulerStep</code></td>
+<td>int</td>
+<td>Optional</td>
+<td>Number of epochs between scheduler updates.</td>
+</tr>
+<tr>
+<td><code>perturbEvery</code></td>
+<td>int</td>
+<td>Optional</td>
+<td>Apply random parameter perturbation every <code>N</code> epochs; <code>-1</code> disables.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="monte-carlo-fitting-parallel-tempering">Monte Carlo fitting (parallel tempering)</h3>
+<p>Preferred for traditional Zunger, as well as for NL/SO parameters where the loss landscape is highly rugged and non-convex. </p>
+<ul>
+<li>Set <code>mc_bool = 1</code> and <code>max_num_epochs = 0</code>. </li>
+<li>Tune <code>mc_iter</code>, <code>mc_percentage</code>, <code>mc_beta</code>, and helper files (<code>mcOpts*.par</code>, <code>&lt;atom&gt;ParamSteps.par</code>, <code>mc_beta_schedule</code>) to balance exploration and acceptance. </li>
+<li>Checkpoints are written in <code>mc_checkpoint.pth</code>/<code>best_pot.*</code> that can be used in future runs. </li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Required?</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mc_iter</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>Number of trial moves per MC block.</td>
+</tr>
+<tr>
+<td><code>mc_percentage</code></td>
+<td>float</td>
+<td>Yes</td>
+<td>Fraction of parameters perturbed each move (0–1).</td>
+</tr>
+<tr>
+<td><code>mc_beta</code></td>
+<td>float</td>
+<td>Yes</td>
+<td>Inverse temperature controlling acceptance; higher values favor downhill moves.</td>
+</tr>
+<tr>
+<td><code>mcOpts*.par</code></td>
+<td>files</td>
+<td>Optional</td>
+<td>Provide the schedule, step sizes, and temperature settings for parallel tempering.</td>
+</tr>
+<tr>
+<td><code>&lt;atom&gt;ParamSteps.par</code></td>
+<td>files</td>
+<td>Optional</td>
+<td>Provide per-atom per-parameter step size modifications.</td>
+</tr>
+<tr>
+<td><code>mc_beta_schedule</code></td>
+<td>file</td>
+<td>Optional</td>
+<td>Enables simulated annealing/tempering across betas.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="initialization-only-validation-sweeps">Initialization-only / validation sweeps</h3>
+<ul>
+<li>Leave <code>max_num_epochs = 0</code> and <code>mc_bool = 0</code>. </li>
+<li>The driver loads <code>init_PPmodel.pth</code> (or analytic parameters in <code>init_&lt;atom&gt;Params.par</code>), evaluates band structures/deformation potentials, and exits. </li>
+<li>Use this mode to sanity-check bundles or export analytic potentials without training.</li>
+</ul>
+<h3 id="band-structure-evaluation">Band-structure evaluation</h3>
+<ul>
+<li>Run <code>python eval_fullBand.py /path/to/inputs/ /path/to/results/</code> with any initialized pseudopotential to score new systems or dense <span class="arithmatex">\(\mathbf{k}\)</span>-paths. </li>
+<li>The script <code>eval_fullBand.py</code> is optimized for low memory use and parallel efficiency.</li>
+</ul>
+<h3 id="hybrid-workflows">Hybrid workflows</h3>
+<ul>
+<li>Users can connect a chain of Zunger initialization, Monte Carlo fitting, and gradient-based training of NN local potentials by reusing the <code>final_pot*</code>, <code>epoch_&lt;N&gt;_*</code>, or <code>mc_checkpoint.pth</code> files as the initialization files for the next stage.</li>
+</ul>
+<p>After picking a workflow, consult the <a href="../outputs/">Output Data Description</a> for expected outputs and use <a href="../troubleshooting/">Troubleshooting Guide</a> for restart procedures.</p>
+<h2 id="3-initialization-strategies">3. Initialization Strategies</h2>
+<p>Choosing the initial parameters to the neural network pseudopotential is very important and can save a lot of effort in training them. By default, the DeepPseudopot code goes throught the following options in order to provide a good initialization. The users can also pick whichever option that matches your need on hand</p>
+<ol>
+<li><strong>Checkpoint reuse</strong> — If <code>init_PPmodel.pth</code> (and optionally <code>init_AdamState.pth</code>) exists, the weights of the model (and optionally optimizer state) will be loaded directly. This is the fastest restart path and preserves optimizer momentum when desired.</li>
+<li>
+<p><strong>Fit to Zunger potentials</strong> — When <code>init_Zunger_num_epochs &gt; 0</code>, the NN initializes by training against <code>init_&lt;atom&gt;Params.par</code> targets before training against band structures and deformation potentials. This initialization training is controlled by <code>init_Zunger_optimizer</code>, <code>init_Zunger_optimizer_lr</code>, <code>init_Zunger_scheduler_gamma</code>, and <code>init_Zunger_plotEvery</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Required?</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>init_Zunger_optimizer</code></td>
+<td>string</td>
+<td>Optional</td>
+<td>Supported: <code>adam</code> (default) or <code>sgd</code>.</td>
+</tr>
+<tr>
+<td><code>init_Zunger_optimizer_lr</code></td>
+<td>float</td>
+<td>Required when init training enabled</td>
+<td>Learning rate for the initialization phase.</td>
+</tr>
+<tr>
+<td><code>init_Zunger_scheduler_gamma</code></td>
+<td>float</td>
+<td>Optional</td>
+<td>Multiplicative LR decay during initialization.</td>
+</tr>
+<tr>
+<td><code>init_Zunger_plotEvery</code></td>
+<td>int</td>
+<td>Optional</td>
+<td>Interval (epochs) for saving <code>initZunger_plotPP.*</code> diagnostics.</td>
+</tr>
+</tbody>
+</table>
+</li>
+<li>
+<p><strong>Fit to tabulated <span class="arithmatex">\(v(G)\)</span></strong> — Supplying <code>init_qSpace_pot.par</code> bypasses the analytic form; the NN will learn the provided reciprocal-space table during initialization. This option is well suited for initializing the semi-empirical pseudopotential from ab initio pseudopotential references or a known function. </p>
+</li>
+<li><strong>He/Kaiming or Xavier initialization</strong> — If <code>PPmodel</code> is one of the <code>Net_*HeInit*</code> or <code>Net_*xavier*</code> classes and <code>init_Zunger_num_epochs = 0</code>, the network relies solely on the underlying torch initializer. This is useful for cases when no analytic prior exists. </li>
+<li><strong>Randomized CELU variants</strong> — Setting <code>PPmodel = Net_celu_RandInit*</code> samples weights from a custom normal distribution, allowing truly random weights for uncertainty estimation.</li>
+</ol>
+<p>The selected initialization strategy is printed in the log files for traceability.</p>
+<h2 id="overall-execution-flow-of-mainpy">Overall Execution Flow of <code>main.py</code></h2>
+<p>DeepPseudopot's main driver (<code>main.py</code>) advances through the following stages. Please use them as checkpoints when customizing runs or debugging new observables:</p>
+<ol>
+<li><strong>Configuration Ingest</strong> – Parse <code>NN_config.par</code>, validate mutually exclusive toggles (Monte Carlo vs. gradient, SO flags, etc.), and record global settings. Load the structural and spectral inputs for each system (<code>system_X.par</code>, <code>input_X.par</code>, <code>kpoints_X.par</code>, <code>expBandStruct_X.par</code>, optional weights) and construct <code>BulkSystem</code> objects while preserving atom ordering. Refer to <a href="../inputs/">Input Data Description</a> for the companion files expected alongside the config.</li>
+<li><strong>Model Instantiation and Initialization</strong> – Build the neural network architecture specified by <code>PPmodel</code>/<code>hiddenLayers</code> and prepare it for either analytic or NN-based optimization. Initialize the model from <code>init_PPmodel.pth</code>, <code>init_qSpace_pot.par</code>, or by fitting analytic Zunger parameters (<code>init_&lt;atom&gt;Params.par</code>). Output artefacts such as <code>initZunger_plotPP.*</code> are generated here.</li>
+<li><strong>Baseline Evaluation</strong> – Compute the band structure of the initialized potential and write <code>oldFunc_plotBS.pdf</code> / <code>initZunger_plotBS.pdf</code> for reference.</li>
+<li><strong>Optimization Loop</strong> – Depending on <code>NN_config.par</code>, run gradient-based training mode (<code>bandStruct_train_GPU</code>, <code>max_num_epochs &gt; 0</code>, <code>mc_bool = 0</code>) or Monte Carlo mode (<code>runMC_NN</code>, <code>mc_bool = 1</code>), producing <code>epoch_&lt;N&gt;_*</code>, <code>training_cost.dat</code>, or <code>mc_checkpoint.pth</code> outputs.</li>
+<li><strong>Fourier Transform &amp; Export</strong> – Outputs real- and reciprocal-space potentials via <code>FT_converge_and_write_pp</code> and <code>write_PP_qSpace</code> (<code>*_pot.dat</code>, <code>*_qSpace_pot.dat</code>).</li>
+<li><strong>Post-processing &amp; cleanup</strong> – Generate optional animations with <code>genMovie</code>, remove temporary MC plots, and release shared-memory caches before exit.</li>
+</ol>
+<h2 id="extended-toolkit">Extended Toolkit</h2>
+<table>
+<thead>
+<tr>
+<th>Script</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>charge_density_from_wfns.py</code></td>
+<td>Builds real-space charge densities from plane-wave eigenvectors calculated from DeepPseudopot.</td>
+</tr>
+<tr>
+<td><code>convert_bgwBS.py</code></td>
+<td>Translates BerkeleyGW or Quantum ESPRESSO outputs into the DeepPseudopot input bundle format.</td>
+</tr>
+<tr>
+<td><code>convert_convCell_to_primCell.py</code></td>
+<td>Converts conventional cells into primitive cells during input preparation.</td>
+</tr>
+<tr>
+<td><code>utils/cluster_pp.py</code></td>
+<td>Performs PCA/K-means analyses to cluster neural network pseudopotentials and assess coverage.</td>
+</tr>
+<tr>
+<td><code>plot_BS_from_file.py</code></td>
+<td>Plotting scripts for band structures.</td>
+</tr>
+<tr>
+<td><code>plot_SOC_NL_T_Vloc.py</code></td>
+<td>Plotting scripts for decomposed Hamiltonian components.</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "..", "features": [], "search": "../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.f55a23d4.min.js"></script>
+      
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>

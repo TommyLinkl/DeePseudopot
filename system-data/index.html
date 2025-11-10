@@ -1,0 +1,1122 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reference manual and usage guides for DeepPseudopot.">
+      
+      
+      
+      
+        <link rel="prev" href="../configuration/">
+      
+      
+        <link rel="next" href="../outputs/">
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.6.23">
+    
+    
+      
+        <title>System-specific Data Files - DeepPseudopot Documentation</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.84d31ad4.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../css/custom.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#system-and-data-files" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="DeepPseudopot Documentation" class="md-header__button md-logo" aria-label="DeepPseudopot Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DeepPseudopot Documentation
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              System-specific Data Files
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="DeepPseudopot Documentation" class="md-nav__button md-logo" aria-label="DeepPseudopot Documentation" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    DeepPseudopot Documentation
+  </label>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Introduction
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../install/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Installation & Quick Start
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Workflow Modes
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    Input Data Description
+    
+  </span>
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            Input Data Description
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Summary
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Global Calculations Settings
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    System-specific Data Files
+    
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    System-specific Data Files
+    
+  </span>
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-geometry-and-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Geometry and Metadata
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Geometry and Metadata">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#system_xpar" class="md-nav__link">
+    <span class="md-ellipsis">
+      system_X.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#input_xpar" class="md-nav__link">
+    <span class="md-ellipsis">
+      input_X.par
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-spectral-and-weighting-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Spectral and Weighting Data
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Spectral and Weighting Data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#kpoints_xpar" class="md-nav__link">
+    <span class="md-ellipsis">
+      kpoints_X.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bandweights_xpar" class="md-nav__link">
+    <span class="md-ellipsis">
+      bandWeights_X.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#expbandstruct_xpar" class="md-nav__link">
+    <span class="md-ellipsis">
+      expBandStruct_X.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qpoints_xpar" class="md-nav__link">
+    <span class="md-ellipsis">
+      qpoints_X.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#expcoupling_dat" class="md-nav__link">
+    <span class="md-ellipsis">
+      expCoupling_*.dat
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#expdefpot_xpar" class="md-nav__link">
+    <span class="md-ellipsis">
+      expDefPot_X.par
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-initialization-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. Initialization Files
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Initialization Files">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#init_atomparamspar" class="md-nav__link">
+    <span class="md-ellipsis">
+      init_&lt;atom&gt;Params.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#init_qspace_potpar" class="md-nav__link">
+    <span class="md-ellipsis">
+      init_qSpace_pot.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#init_ppmodelpth-and-init_adamstatepth" class="md-nav__link">
+    <span class="md-ellipsis">
+      init_PPmodel.pth and init_AdamState.pth
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-monte-carlo-and-specialized-controls" class="md-nav__link">
+    <span class="md-ellipsis">
+      4. Monte Carlo and Specialized Controls
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Monte Carlo and Specialized Controls">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mcoptspar" class="md-nav__link">
+    <span class="md-ellipsis">
+      mcOpts*.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#atomparamstepspar" class="md-nav__link">
+    <span class="md-ellipsis">
+      &lt;atom&gt;ParamSteps.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mc_beta_schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      mc_beta_schedule
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../outputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Output Data Description
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../troubleshooting/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    Troubleshooting Guide
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-geometry-and-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      1. Geometry and Metadata
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Geometry and Metadata">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#system_xpar" class="md-nav__link">
+    <span class="md-ellipsis">
+      system_X.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#input_xpar" class="md-nav__link">
+    <span class="md-ellipsis">
+      input_X.par
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-spectral-and-weighting-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      2. Spectral and Weighting Data
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Spectral and Weighting Data">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#kpoints_xpar" class="md-nav__link">
+    <span class="md-ellipsis">
+      kpoints_X.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bandweights_xpar" class="md-nav__link">
+    <span class="md-ellipsis">
+      bandWeights_X.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#expbandstruct_xpar" class="md-nav__link">
+    <span class="md-ellipsis">
+      expBandStruct_X.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#qpoints_xpar" class="md-nav__link">
+    <span class="md-ellipsis">
+      qpoints_X.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#expcoupling_dat" class="md-nav__link">
+    <span class="md-ellipsis">
+      expCoupling_*.dat
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#expdefpot_xpar" class="md-nav__link">
+    <span class="md-ellipsis">
+      expDefPot_X.par
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-initialization-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      3. Initialization Files
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Initialization Files">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#init_atomparamspar" class="md-nav__link">
+    <span class="md-ellipsis">
+      init_&lt;atom&gt;Params.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#init_qspace_potpar" class="md-nav__link">
+    <span class="md-ellipsis">
+      init_qSpace_pot.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#init_ppmodelpth-and-init_adamstatepth" class="md-nav__link">
+    <span class="md-ellipsis">
+      init_PPmodel.pth and init_AdamState.pth
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-monte-carlo-and-specialized-controls" class="md-nav__link">
+    <span class="md-ellipsis">
+      4. Monte Carlo and Specialized Controls
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Monte Carlo and Specialized Controls">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mcoptspar" class="md-nav__link">
+    <span class="md-ellipsis">
+      mcOpts*.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#atomparamstepspar" class="md-nav__link">
+    <span class="md-ellipsis">
+      &lt;atom&gt;ParamSteps.par
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mc_beta_schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      mc_beta_schedule
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="system-and-data-files">System and Data Files</h1>
+<p>This page documents all input files within the bundle for one or more systems (other than <code>NN_config.par</code>, which is detailed in <a href="../configuration/">Global Calculations Settings</a>). </p>
+<p>Throughout, <code>X</code> denotes the system index (<code>0, 1, ...</code>) and <code>&lt;atom&gt;</code> refers to the chemical symbol in the order it appears inside <code>system_X.par</code>.</p>
+<p>Conventions &amp; Units: </p>
+<ul>
+<li>Plain-text files accept comments after <code>#</code> unless otherwise noted.</li>
+<li>Keep atom ordering consistent across all files; the loader maps <code>&lt;atom&gt;</code>-specific inputs by position, not by name alone.</li>
+<li>All energies are in electron volts (eV) unless specified; lattice vectors <code>scale</code> is in Bohr. </li>
+</ul>
+<h2 id="1-geometry-and-metadata">1. Geometry and Metadata</h2>
+<h3 id="system_xpar"><code>system_X.par</code></h3>
+<p>Defines the cell and fractional atom positions. Minimal skeleton:
+<div class="highlight"><pre><span></span><code>scale = 10.68309422
+
+cell
+0.0 0.5 0.5
+0.5 0.0 0.5
+0.5 0.5 0.0
+
+atoms
+Ga 0.125 0.125 0.125
+As -0.125 -0.125 -0.125
+</code></pre></div></p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>scale</code></td>
+<td>Scalar that multiplies the 3×3 cell matrix to yield <strong>Bohr</strong>-unit lattice vectors.</td>
+</tr>
+<tr>
+<td><code>cell</code> block</td>
+<td>Three rows defining the primitive cell vectors in fractional coordinates before scaling.</td>
+</tr>
+<tr>
+<td><code>atoms</code> block</td>
+<td>Block listing species followed by fractional coordinates. The order determines <code>&lt;atom&gt;</code> indices for every other file.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="input_xpar"><code>input_X.par</code></h3>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Type</th>
+<th>Required?</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>nBands</code></td>
+<td>int</td>
+<td>Yes</td>
+<td>Number of bands included in the reference band structure; must match <code>bandWeights_X.par</code> length.</td>
+</tr>
+<tr>
+<td><code>maxKE</code></td>
+<td>float</td>
+<td>Yes</td>
+<td>Plane-wave kinetic-energy cutoff in units of <strong>Hartree</strong> that determines the basis size.</td>
+</tr>
+<tr>
+<td><code>idxVB</code>, <br><code>idxCB</code>, <br><code>idxGap</code></td>
+<td>int</td>
+<td>Optional</td>
+<td>Zero-based band indices for valence/conduction edges and the band-gap definition used in plots.</td>
+</tr>
+<tr>
+<td><code>BS_plot_center</code>, <br><code>BS_plot_CBVB_range</code>, <br><code>BS_plot_CBVB_range_zoom</code></td>
+<td>float</td>
+<td>Optional</td>
+<td>Controls PDF y-limits for full and zoomed plots in separate panels.</td>
+</tr>
+<tr>
+<td><code>systemName</code></td>
+<td>string</td>
+<td>Optional</td>
+<td>Used in <code>*.POSCAR</code> headers and plot titles.</td>
+</tr>
+<tr>
+<td><code>fit_defPot</code></td>
+<td>bool</td>
+<td>Optional</td>
+<td>Enables deformation potential fitting and triggers <code>expDefPot_X.par</code> ingestion.</td>
+</tr>
+<tr>
+<td><code>relE_bIdx</code></td>
+<td>int</td>
+<td>Optional</td>
+<td>Supplies a relative band index across systems when the loss is defined with respect to relative energy differences.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="2-spectral-and-weighting-data">2. Spectral and Weighting Data</h2>
+<h3 id="kpoints_xpar"><code>kpoints_X.par</code></h3>
+<p>Lists reciprocal-space sampling for each system. </p>
+<p>Format: <code>k_x k_y k_z weight</code> per line, with <strong>fractional coordinates</strong> relative to the reciprocal lattice. Weights need not be normalized; the loader normalizes internally.</p>
+<p><strong>Optional companion</strong>: <code>kpoints_X_orderMatrix.par</code> (same base name) provides a fixed band-order matrix with shape <code>(nKpts × nBands)</code>. When present, DeepPseudopot uses it to track band connectivity, bypassing the automatic sorting heuristics.</p>
+<h3 id="bandweights_xpar"><code>bandWeights_X.par</code></h3>
+<p>Single-column file with <code>nBands</code> entries. Values scale the per-band MSE contribution inside the training loss. Any mismatch between length and <code>nBands</code> results in an input error.</p>
+<h3 id="expbandstruct_xpar"><code>expBandStruct_X.par</code></h3>
+<p>Reference band structures. Column 0 stores cumulative k-point distance (the plotting x-axis); remaining columns store band energies (one column per band). Header comments are allowed. <strong>Units: eV</strong>.</p>
+<h3 id="qpoints_xpar"><code>qpoints_X.par</code></h3>
+<p>Structured identically to <code>kpoints_X.par</code> but applied to workflows that require explicit q-space sampling (e.g., coupling matrices on a dedicated grid). The loader looks for this file only when the active workflow calls <code>setQPointsAndWeights</code>.</p>
+<h3 id="expcoupling_dat"><code>expCoupling_*.dat</code></h3>
+<p>Provides the electron-phonon coupling elements keyed by atom index. Files contain repeated blocks of the form:
+<div class="highlight"><pre><span></span><code>Atom idx = &lt;i&gt;   atom = &lt;symbol&gt;   position = ...
+vb-vb coupling elements. polarization of derivative = x
+&lt;values&gt;
+...
+cb-cb coupling elements. polarization of derivative = z
+&lt;values&gt;
+</code></pre></div>
+<code>BulkSystem.setExpCouplings</code> parses each block and stores couplings as <code>(atom_idx, polarization, q_index, band_id)</code> tuples. Supply one file per system or polarization scenario and ensure that the band ordering matches <code>expBandStruct_X.par</code>.</p>
+<h3 id="expdefpot_xpar"><code>expDefPot_X.par</code></h3>
+<p>Sets the deformation potential target values. A table with seven columns — <code>kidx_VB  bidx_VB  kidx_CB  bidx_CB  latConst_ratio  defPot_gap(eV)  weight</code> (first four columns must be integers). </p>
+<h2 id="3-initialization-files">3. Initialization Files</h2>
+<h3 id="init_atomparamspar"><code>init_&lt;atom&gt;Params.par</code></h3>
+<p>Per-species coefficient vectors for the analytic Zunger form. The default ordering is nine parameters:</p>
+<ul>
+<li><code>ppParams[0]</code> – <code>ppParams[3]</code>: Zunger-form local coefficients</li>
+<li><code>ppParams[4]</code>: long-range parameter (only defined for <span class="arithmatex">\(N-1\)</span> species to enforce charge neutrality)</li>
+<li><code>ppParams[5]</code>: spin–orbit coupling parameter</li>
+<li><code>ppParams[6]</code>, <code>ppParams[7]</code>: nonlocal parameters</li>
+<li><code>ppParams[8]</code>: strain-tensor parameter</li>
+</ul>
+<p>Older datasets may only include the first 5 entries; remaining slots implicitly default to zero. Provide one file <strong>per atom type</strong> listed in <code>system_X.par</code>.</p>
+<h3 id="init_qspace_potpar"><code>init_qSpace_pot.par</code></h3>
+<p>Optional override for the initialization stage. The file contains one row per <span class="arithmatex">\(q\)</span> value, where <span class="arithmatex">\(q\)</span> is the magnitude of the reciprocal space vector <span class="arithmatex">\(|\mathbf{G}|\)</span>:
+<div class="highlight"><pre><span></span><code>q  V_atom0(q)  V_atom1(q)  ...
+</code></pre></div>
+Each column after <code>q</code> follows the atom order defined in <code>system_X.par</code>. When present, this file replaces the analytic Zunger initialization curve.</p>
+<h3 id="init_ppmodelpth-and-init_adamstatepth"><code>init_PPmodel.pth</code> and <code>init_AdamState.pth</code></h3>
+<p>PyTorch checkpoint files. Drop them into the inputs folder to restart from a previous NN (<code>init_PPmodel.pth</code>) and, optionally, resume the Adam optimizer state (<code>init_AdamState.pth</code>). When omitted, the code initializes weights using the constructor specified by <code>PPmodel</code>.</p>
+<h2 id="4-monte-carlo-and-specialized-controls">4. Monte Carlo and Specialized Controls</h2>
+<h3 id="mcoptspar"><code>mcOpts*.par</code></h3>
+<p>Text files to configure standalone Monte Carlo drivers (e.g., <code>main_mc_Zunger_*.py</code>). Supported keywords:</p>
+<table>
+<thead>
+<tr>
+<th>Keyword</th>
+<th>Example</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>betas = &lt;start&gt; &lt;stop&gt;</code></td>
+<td><code>betas = 100 1</code></td>
+<td>Defines the beta (inverse temperature) sweep.</td>
+</tr>
+<tr>
+<td><code>stepsAtTemp = &lt;cooling&gt; &lt;heating&gt;</code></td>
+<td><code>stepsAtTemp = 5 5</code></td>
+<td>Number of MC steps spent at each beta on the down/up ramp.</td>
+</tr>
+<tr>
+<td><code>tempStepSizeMod = &lt;down&gt; &lt;up&gt;</code></td>
+<td><code>tempStepSizeMod = 1.0 1.0</code></td>
+<td>Multiplier applied to the beta increments.</td>
+</tr>
+<tr>
+<td><code>totalIter = N</code></td>
+<td><code>totalIter = 20</code></td>
+<td>Total number of MC iterations.</td>
+</tr>
+<tr>
+<td><code>fitDefPot</code>, <br><code>fitCoupling</code>, <br><code>fitEffMass</code>, <br><code>optGaps</code></td>
+<td><code>fitCoupling = True</code></td>
+<td>Boolean flags that enable auxiliary observables in the MC cost.</td>
+</tr>
+<tr>
+<td><code>defPotWeight</code>, <br><code>writePerIter</code></td>
+<td><code>defPotWeight = 0.5</code></td>
+<td>Optional floats that reweight defect potentials or control logging cadence.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="atomparamstepspar"><code>&lt;atom&gt;ParamSteps.par</code></h3>
+<p>When present, these files specify per-parameter perturbation magnitudes for Monte Carlo proposals. The expected layout is one float per NN/Zunger parameter (typically nine entries) matching the <code>&lt;atom&gt;</code> order defined in <code>system_X.par</code>. Omit these files to let the MC code infer default step sizes from <code>mc_percentage</code>.</p>
+<h3 id="mc_beta_schedule"><code>mc_beta_schedule</code></h3>
+<p>Optional annealing script. Provide two columns per line — <code>iteration_index  beta</code> — to override the constant <code>mc_beta</code> value. The runtime reads entries sequentially and wraps/holds the last value once the file is exhausted.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      <script id="__config" type="application/json">{"base": "..", "features": [], "search": "../assets/javascripts/workers/search.973d3a69.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.f55a23d4.min.js"></script>
+      
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
