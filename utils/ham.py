@@ -1428,7 +1428,7 @@ class Hamiltonian:
         This return a dictionary with keys that are tuples: 
         (atomidx, gamma, qidx, 'vb'/'cb')
         and values are just floats (the coupling value). The couplings are in
-        units of eV.
+        units of eV/Bohr.
 
         qlist is a list of qidx integers corresponding to the phonon q-points
         for which we want to evaluate the coupling. The default behavior
