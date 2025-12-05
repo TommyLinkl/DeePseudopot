@@ -1,6 +1,8 @@
-#!/usr/bin/env python3
 """
 Generate smooth random functions on an interval [xmin, xmax].
+
+Run like: 
+$ python generate_random_qSpace_pot.py ./output_files -e H P Al --seed 12345
 
 Methods:
   - 'fourier': Random low-frequency Fourier series (fast, no SciPy required).
@@ -176,14 +178,31 @@ if __name__ == "__main__":
         default="./output_files",
         help="Directory where the output files will be saved (default: ./output_files)",
     )
+    parser.add_argument(
+        "-e",
+        "--elements",
+        nargs="+",
+        default=["H"],
+        help="List of element symbols (one random function per element).",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=12345,
+        help="Random seed for reproducibility (default: 12345).",
+    )
     args = parser.parse_args()
 
     # ---------------------------
     # Setup
     # ---------------------------
+    elements = sorted(args.elements)
+    if not elements:
+        raise ValueError("At least one element symbol must be provided.")
+
     xs = np.linspace(0, 30, 4096)
     sigma = 2.0
-    seed = 12345  # Fixed seed for reproducibility
+    seed = args.seed  # Seed for reproducibility
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -191,24 +210,38 @@ if __name__ == "__main__":
     # Generate functions
     # ---------------------------
     f_fourier = generate_random_smooth_functions(
-        n_funcs=3, xmin=0, xmax=10, method="fourier",
-        fourier_max_freq=4, fourier_decay=1.6, amplitude=40.0, seed=seed
+        n_funcs=len(elements),
+        xmin=0,
+        xmax=10,
+        method="fourier",
+        fourier_max_freq=4,
+        fourier_decay=1.6,
+        amplitude=40.0,
+        seed=seed,
     )
     f_gp = generate_random_smooth_functions(
-        n_funcs=3, xmin=0, xmax=10, method="gp",
-        gp_lengthscale=1.2, gp_variance=1.0, amplitude=40.0, seed=seed
+        n_funcs=len(elements),
+        xmin=0,
+        xmax=10,
+        method="gp",
+        gp_lengthscale=1.2,
+        gp_variance=1.0,
+        amplitude=40.0,
+        seed=seed,
     )
 
-    all_funcs = f_fourier + f_gp
+    # Pairwise sum of Fourier and GP components for each element
+    funcs = [lambda x, f1=f1, f2=f2: f1(x) + f2(x) for f1, f2 in zip(f_fourier, f_gp)]
 
     # ---------------------------
     # Save output
     # ---------------------------
-    for idx, f in enumerate(all_funcs, start=1):
-        values = f(xs) * np.exp(-xs**2 / (2 * sigma**2))
-        data = np.column_stack((xs, values))
+    envelope = np.exp(-xs**2 / (2 * sigma**2))
+    values = [f(xs) * envelope for f in funcs]
+    data = np.column_stack([xs] + values)
 
-        filename = output_dir / f"rand_gen_qSpace_pot_{idx}.dat"
-        header = "# q          v(q)_H"
-        np.savetxt(filename, data, header=header, comments='', fmt="%.8f       %.8f")
-        print(f"Saved {filename}")
+    filename = output_dir / "rand_gen_qSpace_pot.dat"
+    header_cols = ["# q"] + [f"v(q)_{el}" for el in elements]
+    header = "        ".join(header_cols)
+    np.savetxt(filename, data, header=header, comments="", fmt="%.8f")
+    print(f"Saved {filename}")
