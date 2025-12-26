@@ -7,8 +7,10 @@ It excels at capturing the electronic structure, photophysics, and charge-carrie
 ## How to Cite
 Please cite the following paper when referencing DeepPseudopot:
 
-- Preprint: [arXiv:2505.09846](https://arxiv.org/abs/2505.09846).
-- npj Computational Materials article (soon in press).
+- Lin, K., Coley-O’Rourke, M.J. & Rabani, E. Deep-learning atomistic semi-empirical pseudopotential model for nanomaterials. npj Comput Mater 11, 381 (2025). [https://doi.org/10.1038/s41524-025-01862-5](https://doi.org/10.1038/s41524-025-01862-5)
+
+## Detailed Manual for usage
+Please consult [the User's Guide](https://tommylinkl.github.io/DeePseudopot/) for details on input/output file formats, workflow recipes, restart procedures, and troubleshooting tips.  
 
 ## Installation & Quick Start
 1. **Install dependencies**
@@ -54,6 +56,3 @@ The local pseudopotential files `init_<atom>Params.par` and their derivatives ex
 | `utils/cluster_pp.py` | Performs PCA/K-means analyses to cluster neural network pseudopotentials and assess coverage.
 | `inflate_kpoints.py` | Densifies k-point paths for higher-resolution band structure calculations.
 | `plot_BS_from_file.py`, `plot_SOC_NL_T_Vloc.py` | Plotting scripts for band structures and decomposed potential components.
-
-## Detailed Manual for usage
-Consult `docs/manual.md` for complete file formats, workflow recipes, restart procedures, and troubleshooting tips. 
