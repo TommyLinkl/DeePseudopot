@@ -9,8 +9,8 @@ It excels at capturing the electronic structure, photophysics, and charge-carrie
 ## How to Cite
 Please cite the following paper when referencing DeepPseudopot:
 
-- Preprint: [arXiv:2505.09846](https://arxiv.org/abs/2505.09846).
-- npj Computational Materials article (soon in press).
+- Lin, K., Coley-O’Rourke, M.J. & Rabani, E. Deep-learning atomistic semi-empirical pseudopotential model for nanomaterials. npj Comput Mater 11, 381 (2025). [https://doi.org/10.1038/s41524-025-01862-5](https://doi.org/10.1038/s41524-025-01862-5)
+
 
 ## Table of Contents
 - [Environment & Installation](install.md)
