@@ -1,0 +1,34 @@
+Atom idx = 0   atom = H   position = tensor([6.6140, 6.6140, 5.9135])
+vb-vb coupling elements. polarization of derivative = x
+1.727222e-16   
+polarization of derivative = y
+1.771001e-16   
+polarization of derivative = z
+1.041245e-01   
+
+cb-cb coupling elements. polarization of derivative = x
+4.051758e-14   
+polarization of derivative = y
+4.519444e-14   
+polarization of derivative = z
+2.316540e-01   
+
+
+
+Atom idx = 1   atom = H   position = tensor([6.6140, 6.6140, 7.3146])
+vb-vb coupling elements. polarization of derivative = x
+1.883560e-16   
+polarization of derivative = y
+1.624004e-16   
+polarization of derivative = z
+1.041245e-01   
+
+cb-cb coupling elements. polarization of derivative = x
+4.061953e-14   
+polarization of derivative = y
+4.512110e-14   
+polarization of derivative = z
+2.316540e-01   
+
+
+

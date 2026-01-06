@@ -1,0 +1,11 @@
+nBands = 10
+maxKE = 8.0
+BS_plot_center = -6.0
+BS_plot_CBVB_range = 60.0
+BS_plot_CBVB_range_zoom = 30.0
+systemName = H2_0.741
+
+fit_eph = 1
+idxVB = 1
+idxCB = 2
+idxGap = 0

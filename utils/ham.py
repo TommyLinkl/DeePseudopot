@@ -1593,7 +1593,105 @@ class Hamiltonian:
 
         return ret_dict
 
-    
+
+    def calcCouplings_diag_fd(self, delta=0.001): 
+        """
+        Compute diagonal e-ph couplings using finite differences at Gamma.
+
+        Evaluates band-edge energy derivatives with respect to atomic 
+        displacements by constructing two displaced systems per atom
+        and direction: one with +delta and one with -delta in Cartesian
+        coordinates (x, y, z). For each displaced system, it computes the
+        eigenvalues at the Gamma k-point and forms the central difference:
+            dE/dR = (E_plus - E_minus) / (2 * delta).
+
+        The couplings are returned for the band indices specified in the input
+        files (idxVB/idxCB) at the Gamma q-point. The original system is not
+        modified; each displacement is applied to a deep-copied BulkSystem
+        and evaluated with a temporary Hamiltonian.
+        """
+        if not isinstance(self.system.idxVB, int):
+            raise ValueError("need to specify vb index for diagonal coupling")
+        if not isinstance(self.system.idxCB, int):
+            raise ValueError("need to specify cb index for diagonal coupling")
+
+        def eigvals_no_order(ham, kidx):
+            H = ham.buildHtot(kidx, requires_grad=False)
+            vals = torch.linalg.eigvalsh(H)
+            vals_ev = vals * AUTOEV
+            if not ham.SObool:
+                # keep convention consistent with calcEigValsAtK
+                vals_ev = vals_ev.repeat_interleave(2)
+            return vals_ev[:ham.system.nBands]
+
+        kidx_gamma = None
+        zero_vec = torch.zeros(3, dtype=self.system.kpts.dtype)
+        for kid in range(self.system.getNKpts()):
+            if torch.allclose(self.system.kpts[kid], zero_vec, atol=1e-12):
+                kidx_gamma = kid
+                break
+        if kidx_gamma is None:
+            raise ValueError("Gamma k-point not found in k-point list")
+
+        qidx_gamma = None
+        for qid in range(self.system.getNQpts()):
+            if torch.allclose(self.system.qpts[qid], zero_vec, atol=1e-12):
+                qidx_gamma = qid
+                break
+        if qidx_gamma is None:
+            raise ValueError("Gamma q-point not found in q-point list")
+
+        ret_dict = {}
+        natom = self.system.getNAtoms()
+        for atomidx in range(natom):
+            for gamma in range(3):
+                system_plus = copy.deepcopy(self.system)
+                system_minus = copy.deepcopy(self.system)
+                system_plus.atomPos[atomidx, gamma] += delta
+                system_minus.atomPos[atomidx, gamma] -= delta
+
+                ham_plus = Hamiltonian(
+                    system_plus,
+                    self.PPparams,
+                    self.atomPPorder,
+                    self.device,
+                    NNConfig=self.NNConfig,
+                    iSystem=self.iSystem,
+                    SObool=self.SObool,
+                    cacheSO=self.cacheSO,
+                    NN_locbool=self.NN_locbool,
+                    model=self.model,
+                    coupling=False,
+                )
+                ham_minus = Hamiltonian(
+                    system_minus,
+                    self.PPparams,
+                    self.atomPPorder,
+                    self.device,
+                    NNConfig=self.NNConfig,
+                    iSystem=self.iSystem,
+                    SObool=self.SObool,
+                    cacheSO=self.cacheSO,
+                    NN_locbool=self.NN_locbool,
+                    model=self.model,
+                    coupling=False,
+                )
+
+                with torch.no_grad():
+                    vals_plus = eigvals_no_order(ham_plus, kidx_gamma)
+                    vals_minus = eigvals_no_order(ham_minus, kidx_gamma)
+
+                vb_fd = (vals_plus[self.system.idxVB] - vals_minus[self.system.idxVB]) / (2.0 * delta)
+                cb_fd = (vals_plus[self.system.idxCB] - vals_minus[self.system.idxCB]) / (2.0 * delta)
+                vb_cpl = torch.abs(vb_fd).item()
+                cb_cpl = torch.abs(cb_fd).item()
+
+                ret_dict[(atomidx, gamma, qidx_gamma, 'vb')] = vb_cpl
+                ret_dict[(atomidx, gamma, qidx_gamma, 'cb')] = cb_cpl
+
+        return ret_dict
+
+
     def _bessel1(self, x, x1):
         # sin(x)/(x^2) - cos(x)/x = sin(x) * x1^2 - cos(x) * x1
         return np.sin(x) * x1**2 - np.cos(x) * x1

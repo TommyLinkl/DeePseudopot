@@ -1,0 +1,30 @@
+SHOWPLOTS = 0
+nSystem = 1
+memory_flag = 0
+runtime_flag = 0
+num_cores = 0
+
+PPmodel = Net_celu_RandInit_decayGaussian
+PPmodel_decay_rate = 1.5
+PPmodel_decay_center = 5.0
+PPmodel_gaussian_std = 2.0
+hiddenLayers = 20
+separateKptGrad = 1
+checkpoint = 0
+SObool = 0
+
+init_Zunger_optimizer_lr = 0.1
+init_Zunger_scheduler_gamma = 0.80
+init_Zunger_num_epochs = 0
+init_Zunger_plotEvery = 500
+init_Zunger_printGrad = 0
+
+optimizer_lr = 0.02
+scheduler_gamma = 0.80
+max_num_epochs = 0
+plotEvery = 500
+schedulerStep = 400
+patience = 2000   
+
+penalize_starting = 6.0
+penalize_lambda = 50.0

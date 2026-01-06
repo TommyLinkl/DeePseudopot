@@ -246,7 +246,7 @@ class BulkSystem:
 
     def setQPointsAndWeights(self, qPointsFilename):
         with open(qPointsFilename, 'r') as file:
-            data = np.loadtxt(file)
+            data = np.atleast_2d(np.loadtxt(file))
             qpts = data[:, :3]
             qptWeights = data[:, 3]
             gVectors = self.getGVectors()
@@ -480,4 +480,3 @@ def setNN(config, nPseudopot):
     else:
         raise ValueError(f"Function {config['PPmodel']} does not exist.")
     return PPmodel
-
