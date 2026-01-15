@@ -128,6 +128,8 @@ class Hamiltonian:
                 self.idx_vb = self.system.idxVB
                 self.idx_cb = self.system.idxCB
                 self.idx_gap = self.system.idxGap
+                if not SObool:
+                    print("NOTE: SOC is off. idxVB and idxCB are zero-indexed band indices without 2x interleaving for spin. Please double check to ensure your inputs of idxVB and idxCB correspond to your intended bands. ")
 
             if SObool:
                 self.SOmats_couple, self.NLmats_couple = self.initCouplingMats()
@@ -1594,21 +1596,40 @@ class Hamiltonian:
         return ret_dict
 
 
-    def calcCouplings_diag_fd(self, delta=0.001): 
+    def calcCouplings_diag_fd(
+        self,
+        delta=0.001,
+        degen_tol_ev=1e-5,
+        debug=False,
+        one_sided=False,
+        select_atomidx=None,
+        select_gamma=None,
+        base_vals=None,
+    ): 
         """
         Compute diagonal e-ph couplings using finite differences at Gamma.
 
         Evaluates band-edge energy derivatives with respect to atomic 
         displacements by constructing two displaced systems per atom
         and direction: one with +delta and one with -delta in Cartesian
-        coordinates (x, y, z). For each displaced system, it computes the
-        eigenvalues at the Gamma k-point and forms the central difference:
-            dE/dR = (E_plus - E_minus) / (2 * delta).
+        coordinates (x, y, z). The displacement is applied to the scaled
+        atomic positions in system.atomPos (Bohr). For each displaced system,
+        it computes the
+        eigenvalues at the Gamma k-point and forms the finite difference:
+            central: dE/dR = (E_plus - E_minus) / (2 * delta)
+            one-sided: dE/dR = (E_plus - E_base) / delta
 
         The couplings are returned for the band indices specified in the input
-        files (idxVB/idxCB) at the Gamma q-point. The original system is not
-        modified; each displacement is applied to a deep-copied BulkSystem
-        and evaluated with a temporary Hamiltonian.
+        files (idxVB/idxCB) at the Gamma q-point. Energies are converted to eV,
+        so the couplings are reported in eV/Bohr. 
+        
+        The original system is not modified; each displacement is applied to a
+        deep-copied BulkSystem and evaluated with a temporary Hamiltonian.
+
+        Optional controls:
+          - select_atomidx: iterable of atom indices (or a single int) to include.
+          - select_gamma: iterable of Cartesian directions (0,1,2) (or a single int).
+          - base_vals: precomputed eigenvalues at Gamma (Hartree) to reuse.
         """
         if not isinstance(self.system.idxVB, int):
             raise ValueError("need to specify vb index for diagonal coupling")
@@ -1618,11 +1639,19 @@ class Hamiltonian:
         def eigvals_no_order(ham, kidx):
             H = ham.buildHtot(kidx, requires_grad=False)
             vals = torch.linalg.eigvalsh(H)
-            vals_ev = vals * AUTOEV
-            if not ham.SObool:
-                # keep convention consistent with calcEigValsAtK
-                vals_ev = vals_ev.repeat_interleave(2)
-            return vals_ev[:ham.system.nBands]
+            return vals[:ham.system.nBands]
+
+        def collect_degen_indices(vals, start_idx, direction, tol_ev):
+            ref = vals[start_idx]
+            idxs = [start_idx]
+            idx = start_idx + direction
+            while 0 <= idx < len(vals):
+                if torch.abs(vals[idx] - ref) <= tol_ev:
+                    idxs.append(idx)
+                    idx += direction
+                else:
+                    break
+            return sorted(idxs)
 
         kidx_gamma = None
         zero_vec = torch.zeros(3, dtype=self.system.kpts.dtype)
@@ -1641,14 +1670,60 @@ class Hamiltonian:
         if qidx_gamma is None:
             raise ValueError("Gamma q-point not found in q-point list")
 
+        if base_vals is None:
+            with torch.no_grad():
+                base_vals = eigvals_no_order(self, kidx_gamma)
+        else:
+            base_vals = torch.as_tensor(base_vals, dtype=self.system.kpts.dtype)
+        degen_tol_ha = degen_tol_ev / AUTOEV
+        
+        # Note, user's inputs of idxVB/idxCB shouldn't include the artificial 
+        # 2x interleaving of eigenenergies when SOC is off. 
+        vb_degen = collect_degen_indices(base_vals, self.system.idxVB, -1, degen_tol_ha)
+        cb_degen = collect_degen_indices(base_vals, self.system.idxCB, 1, degen_tol_ha)
+        unit_scale = AUTOEV  # report energies/couplings in eV and eV/Bohr
+        unit_label = "eV"
+        base_vals_out = base_vals * unit_scale
+
+        if debug:
+            print("\n[calcCouplings_diag_fd] Debug info")
+            print("Coupling units: eV/Bohr")
+            print(f"delta (Bohr): {delta}, one_sided: {one_sided}, Gamma kidx: {kidx_gamma}, Gamma qidx: {qidx_gamma}")
+            print(f"Inputs of idxVB: {self.system.idxVB}, idxCB: {self.system.idxCB}")
+            if not self.SObool: 
+                print(f"True idxVB (without 2x interleaving): {int((self.system.idxVB-1)/2)}, idxCB: {int(self.system.idxCB/2)}")
+            print(f"VB degenerate indices: {vb_degen}. Energies ({unit_label}): " + ", ".join([f"{base_vals_out[i].item():.5e}" for i in vb_degen]))
+            print(f"CB degenerate indices: {cb_degen}. Energies ({unit_label}): " + ", ".join([f"{base_vals_out[i].item():.5e}" for i in cb_degen]))
+            print("Atom positions (scaled, Bohr):")
+            print(self.system.atomPos)
+
+        if select_atomidx is None:
+            atom_indices = list(range(self.system.getNAtoms()))
+        elif isinstance(select_atomidx, int):
+            atom_indices = [select_atomidx]
+        else:
+            atom_indices = list(select_atomidx)
+
+        if select_gamma is None:
+            gamma_indices = [0, 1, 2]
+        elif isinstance(select_gamma, int):
+            gamma_indices = [select_gamma]
+        else:
+            gamma_indices = list(select_gamma)
+
         ret_dict = {}
-        natom = self.system.getNAtoms()
-        for atomidx in range(natom):
-            for gamma in range(3):
+        for atomidx in atom_indices:
+            for gamma in gamma_indices:
+                if debug:
+                    print(f"\natomidx={atomidx}, gamma={gamma}")
                 system_plus = copy.deepcopy(self.system)
-                system_minus = copy.deepcopy(self.system)
+                system_minus = copy.deepcopy(self.system) if not one_sided else None
                 system_plus.atomPos[atomidx, gamma] += delta
-                system_minus.atomPos[atomidx, gamma] -= delta
+                if not one_sided:
+                    system_minus.atomPos[atomidx, gamma] -= delta
+                if debug:
+                    print("Displaced atom position +delta (Bohr): " + f"{system_plus.atomPos[atomidx]}")
+                    print("Displaced atom position -delta (Bohr): " + f"{system_minus.atomPos[atomidx]}")
 
                 ham_plus = Hamiltonian(
                     system_plus,
@@ -1663,28 +1738,57 @@ class Hamiltonian:
                     model=self.model,
                     coupling=False,
                 )
-                ham_minus = Hamiltonian(
-                    system_minus,
-                    self.PPparams,
-                    self.atomPPorder,
-                    self.device,
-                    NNConfig=self.NNConfig,
-                    iSystem=self.iSystem,
-                    SObool=self.SObool,
-                    cacheSO=self.cacheSO,
-                    NN_locbool=self.NN_locbool,
-                    model=self.model,
-                    coupling=False,
-                )
+                ham_minus = None
+                if not one_sided:
+                    ham_minus = Hamiltonian(
+                        system_minus,
+                        self.PPparams,
+                        self.atomPPorder,
+                        self.device,
+                        NNConfig=self.NNConfig,
+                        iSystem=self.iSystem,
+                        SObool=self.SObool,
+                        cacheSO=self.cacheSO,
+                        NN_locbool=self.NN_locbool,
+                        model=self.model,
+                        coupling=False,
+                    )
 
                 with torch.no_grad():
-                    vals_plus = eigvals_no_order(ham_plus, kidx_gamma)
-                    vals_minus = eigvals_no_order(ham_minus, kidx_gamma)
+                    vals_plus = eigvals_no_order(ham_plus, kidx_gamma) * unit_scale
+                    vals_minus = None
+                    if not one_sided:
+                        vals_minus = eigvals_no_order(ham_minus, kidx_gamma) * unit_scale
 
-                vb_fd = (vals_plus[self.system.idxVB] - vals_minus[self.system.idxVB]) / (2.0 * delta)
-                cb_fd = (vals_plus[self.system.idxCB] - vals_minus[self.system.idxCB]) / (2.0 * delta)
-                vb_cpl = torch.abs(vb_fd).item()
-                cb_cpl = torch.abs(cb_fd).item()
+                vb_plus = torch.mean(vals_plus[vb_degen])
+                cb_plus = torch.mean(vals_plus[cb_degen])
+                vb_base = torch.mean(base_vals_out[vb_degen])
+                cb_base = torch.mean(base_vals_out[cb_degen])
+                vb_minus = torch.mean(vals_minus[vb_degen]) if not one_sided else None
+                cb_minus = torch.mean(vals_minus[cb_degen]) if not one_sided else None
+                if debug:
+                    print(f"VB energies +delta ({unit_label}): " + ", ".join([f"{vals_plus[i].item():.5e}" for i in vb_degen]))
+                    if one_sided:
+                        print(f"VB energies base ({unit_label}): " + ", ".join([f"{base_vals_out[i].item():.5e}" for i in vb_degen]))
+                    else:
+                        print(f"VB energies -delta ({unit_label}): " + ", ".join([f"{vals_minus[i].item():.5e}" for i in vb_degen]))
+                    print(f"CB energies +delta ({unit_label}): " + ", ".join([f"{vals_plus[i].item():.5e}" for i in cb_degen]))
+                    if one_sided:
+                        print(f"CB energies base ({unit_label}): " + ", ".join([f"{base_vals_out[i].item():.5e}" for i in cb_degen]))
+                    else:
+                        print(f"CB energies -delta ({unit_label}): " + ", ".join([f"{vals_minus[i].item():.5e}" for i in cb_degen]))
+
+                if one_sided:
+                    vb_fd = (vb_plus - vb_base) / delta
+                    cb_fd = (cb_plus - cb_base) / delta
+                else:
+                    vb_fd = (vb_plus - vb_minus) / (2.0 * delta)
+                    cb_fd = (cb_plus - cb_minus) / (2.0 * delta)
+                vb_cpl = vb_fd.item()
+                cb_cpl = cb_fd.item()
+                if debug:
+                    print(f"VB fd ({unit_label}/Bohr): {vb_fd.item():.5e}")
+                    print(f"CB fd ({unit_label}/Bohr): {cb_fd.item():.5e}")
 
                 ret_dict[(atomidx, gamma, qidx_gamma, 'vb')] = vb_cpl
                 ret_dict[(atomidx, gamma, qidx_gamma, 'cb')] = cb_cpl

@@ -1,0 +1,141 @@
+initial atom positions:
+Cd: tensor([1.43106598, 1.43106598, 1.43106598])
+Se: tensor([-1.43106598, -1.43106598, -1.43106598])
+All settings: 
+	Using separateKptGrad. This can decrease the peak memory load during the fitting code.
+	Not doing multiprocessing.
+
+NOTE: SOC is off. idxVB and idxCB are zero-indexed band indices without 2x interleaving for spin. Please double check to ensure your inputs of idxVB and idxCB correspond to your intended bands. 
+
+
+Initial energies VBM: 0.048638, CBM: 0.164235 Hartree
+vb-1 degen? False, E_diff = 6.101e-06
+vb-2 degen? False, E_diff = 6.101e-06
+cb+1 degen? True, E_diff = 5.274e-15
+cb+2 degen? False, E_diff = 8.018e-02
+
+
+analytic derivs (averaged over degenerate cb subspace) calculated within this test script: 
+Cd, d/dR_x, vb-vb: -6.253e-03 (Re; |Im|<1e-12)
+Cd, d/dR_x, cb-cb: 1.068e-06 (Re; |Im|<1e-12)
+Cd, d/dR_y, vb-vb: -6.253e-03 (Re; |Im|<1e-12)
+Cd, d/dR_y, cb-cb: 1.068e-06 (Re; |Im|<1e-12)
+Cd, d/dR_z, vb-vb: -6.253e-03 (Re; |Im|<1e-12)
+Cd, d/dR_z, cb-cb: 1.068e-06 (Re; |Im|<1e-12)
+Se, d/dR_x, vb-vb: 6.253e-03 (Re; |Im|<1e-12)
+Se, d/dR_x, cb-cb: -1.068e-06 (Re; |Im|<1e-12)
+Se, d/dR_y, vb-vb: 6.253e-03 (Re; |Im|<1e-12)
+Se, d/dR_y, cb-cb: -1.068e-06 (Re; |Im|<1e-12)
+Se, d/dR_z, vb-vb: 6.253e-03 (Re; |Im|<1e-12)
+Se, d/dR_z, cb-cb: -1.068e-06 (Re; |Im|<1e-12)
+
+analytic derivs summary (Cd, d/dy, eV/Bohr):
+            dy          fd_vb          fd_cb          an_vb          an_cb ham_fd_auto_vb ham_fd_auto_cb
+             /              /              /   -1.70142e-01    2.90486e-05              /              /
+
+
+Finite diff, using manually set system.par, calculated within this test scipt. d/dy, for Cd...
+0-th system.par for fd. 
+Cd: tensor([1.43106598, 1.43221083, 1.43106598])
+Se: tensor([-1.43106598, -1.43106598, -1.43106598])
+Cd dy = 1.14485278e-03 Bohr
+dE/dCd_y by finite diff for vbm: 1.103e-01 eV/Bohr,  cbm: 7.480e-04 eV/Bohr
+1-th system.par for fd. 
+Cd: tensor([1.43106598, 1.43163840, 1.43106598])
+Se: tensor([-1.43106598, -1.43106598, -1.43106598])
+Cd dy = 5.72426390e-04 Bohr
+dE/dCd_y by finite diff for vbm: -3.488e-02 eV/Bohr,  cbm: 3.885e-04 eV/Bohr
+2-th system.par for fd. 
+Cd: tensor([1.43106598, 1.43118046, 1.43106598])
+Se: tensor([-1.43106598, -1.43106598, -1.43106598])
+Cd dy = 1.14485278e-04 Bohr
+dE/dCd_y by finite diff for vbm: -1.597e-01 eV/Bohr,  cbm: 1.009e-04 eV/Bohr
+3-th system.par for fd. 
+Cd: tensor([1.43106598, 1.43112322, 1.43106598])
+Se: tensor([-1.43106598, -1.43106598, -1.43106598])
+Cd dy = 5.72426390e-05 Bohr
+dE/dCd_y by finite diff for vbm: -1.650e-01 eV/Bohr,  cbm: 6.500e-05 eV/Bohr
+4-th system.par for fd. 
+Cd: tensor([1.43106598, 1.43107742, 1.43106598])
+Se: tensor([-1.43106598, -1.43106598, -1.43106598])
+Cd dy = 1.14485278e-05 Bohr
+dE/dCd_y by finite diff for vbm: -1.691e-01 eV/Bohr,  cbm: 3.623e-05 eV/Bohr
+5-th system.par for fd. 
+Cd: tensor([1.43106598, 1.43106712, 1.43106598])
+Se: tensor([-1.43106598, -1.43106598, -1.43106598])
+Cd dy = 1.14485278e-06 Bohr
+dE/dCd_y by finite diff for vbm: -1.700e-01 eV/Bohr,  cbm: 2.985e-05 eV/Bohr
+6-th system.par for fd. 
+Cd: tensor([1.43106598, 1.43106609, 1.43106598])
+Se: tensor([-1.43106598, -1.43106598, -1.43106598])
+Cd dy = 1.14485278e-07 Bohr
+dE/dCd_y by finite diff for vbm: -1.701e-01 eV/Bohr,  cbm: 2.913e-05 eV/Bohr
+
+Finite-difference convergence (via system.par) summary (Cd, d/dy, eV/Bohr):
+            dy          fd_vb          fd_cb          an_vb          an_cb ham_fd_auto_vb ham_fd_auto_cb
+   1.14485e-03    1.10329e-01    7.47985e-04   -1.70142e-01    2.90486e-05              /              /
+   5.72426e-04   -3.48813e-02    3.88517e-04   -1.70142e-01    2.90486e-05              /              /
+   1.14485e-04   -1.59652e-01    1.00943e-04   -1.70142e-01    2.90486e-05              /              /
+   5.72426e-05   -1.65023e-01    6.49958e-05   -1.70142e-01    2.90486e-05              /              /
+   1.14485e-05   -1.69140e-01    3.62347e-05   -1.70142e-01    2.90486e-05              /              /
+   1.14485e-06   -1.70042e-01    2.98531e-05   -1.70142e-01    2.90486e-05              /              /
+   1.14485e-07   -1.70132e-01    2.91261e-05   -1.70142e-01    2.90486e-05              /              /
+
+
+ham-coded finite difference for debugging (calcCouplings_diag_fd, eV/Bohr)
+            dy          fd_vb          fd_cb ham_fd_auto_vb ham_fd_auto_cb ham_fd_auto_vb_cen ham_fd_auto_cb_cen
+   1.14485e-03    1.10329e-01    7.47985e-04    1.10329e-01    7.47985e-04   -5.57448e-02    2.90485e-05
+   5.72426e-04   -3.48813e-02    3.88517e-04   -3.48813e-02    3.88517e-04   -1.20183e-01    2.90486e-05
+   1.14485e-04   -1.59652e-01    1.00943e-04   -1.59652e-01    1.00943e-04   -1.69577e-01    2.90489e-05
+   5.72426e-05   -1.65023e-01    6.49958e-05   -1.65023e-01    6.49961e-05   -1.69999e-01    2.90494e-05
+   1.14485e-05   -1.69140e-01    3.62347e-05   -1.69140e-01    3.62372e-05   -1.70136e-01    2.90488e-05
+   1.14485e-06   -1.70042e-01    2.98531e-05   -1.70042e-01    2.97884e-05   -1.70142e-01    2.90332e-05
+   1.14485e-07   -1.70132e-01    2.91261e-05   -1.70132e-01    2.92322e-05   -1.70142e-01    2.91430e-05
+
+
+Summary (Cd, d/dy, eV/Bohr):
+            dy          fd_vb          fd_cb          an_vb          an_cb ham_fd_auto_vb_cen ham_fd_auto_cb_cen
+   1.14485e-03    1.10329e-01    7.47985e-04   -1.70142e-01    2.90486e-05   -5.57448e-02    2.90485e-05
+   5.72426e-04   -3.48813e-02    3.88517e-04   -1.70142e-01    2.90486e-05   -1.20183e-01    2.90486e-05
+   1.14485e-04   -1.59652e-01    1.00943e-04   -1.70142e-01    2.90486e-05   -1.69577e-01    2.90489e-05
+   5.72426e-05   -1.65023e-01    6.49958e-05   -1.70142e-01    2.90486e-05   -1.69999e-01    2.90494e-05
+   1.14485e-05   -1.69140e-01    3.62347e-05   -1.70142e-01    2.90486e-05   -1.70136e-01    2.90488e-05
+   1.14485e-06   -1.70042e-01    2.98531e-05   -1.70142e-01    2.90486e-05   -1.70142e-01    2.90332e-05
+   1.14485e-07   -1.70132e-01    2.91261e-05   -1.70142e-01    2.90486e-05   -1.70142e-01    2.91430e-05
+
+
+calcCouplings_diag_fd at smallest dy (eV/Bohr):
+delta = 1.145e-07 Bohr, qidx_gamma = 1
+atomidx   atom  gamma   qidx             vb             cb
+      0     Cd      x      1   -1.70142e-01    2.92555e-05
+      0     Cd      y      1   -1.70142e-01    2.91430e-05
+      0     Cd      z      1   -1.70142e-01    2.89374e-05
+      1     Se      x      1    1.70142e-01   -2.92749e-05
+      1     Se      y      1    1.70141e-01   -2.91973e-05
+      1     Se      z      1    1.70141e-01   -2.91391e-05
+
+
+
+
+---------------------------------------------
+now redoing the same analysis using calcCouplings() function
+(this prints the magnitude of the coupling)
+
+
+WARNING: This feature is no longer necessary for atomic derivs.
+Degeneracy of electronic bands is now handled automatically.
+This feature should only be necessary for explicit phonons.
+
+(atomidx, gamma, qidx, vb/cb).    |cpl| eV/Bohr
+(0, 0, 1, 'cb').   |cpl|: 1.85525e-06
+(0, 0, 1, 'vb').   |cpl|: 3.92790e-03
+(0, 1, 1, 'cb').   |cpl|: 1.85525e-06
+(0, 1, 1, 'vb').   |cpl|: 3.92790e-03
+(0, 2, 1, 'cb').   |cpl|: 1.85525e-06
+(0, 2, 1, 'vb').   |cpl|: 3.92790e-03
+(1, 0, 1, 'cb').   |cpl|: 1.85525e-06
+(1, 0, 1, 'vb').   |cpl|: 3.92790e-03
+(1, 1, 1, 'cb').   |cpl|: 1.85525e-06
+(1, 1, 1, 'vb').   |cpl|: 3.92790e-03
+(1, 2, 1, 'cb').   |cpl|: 1.85525e-06
+(1, 2, 1, 'vb').   |cpl|: 3.92790e-03

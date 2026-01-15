@@ -6,6 +6,6 @@ BS_plot_CBVB_range_zoom = 30.0
 systemName = H2_0.741
 
 fit_eph = 1
-idxVB = 1
-idxCB = 2
+idxVB = 0
+idxCB = 1
 idxGap = 0

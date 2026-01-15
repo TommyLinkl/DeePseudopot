@@ -1,0 +1,86 @@
+initial atom positions:
+H: tensor([6.61404144, 6.61404144, 5.91348217])
+H: tensor([6.61404144, 6.61404144, 7.31460071])
+All settings: 
+	Using separateKptGrad. This can decrease the peak memory load during the fitting code.
+	Not doing multiprocessing.
+
+
+########################################
+Initializing the NN with file /Users/tommylin/Desktop/DeePseudopot_eph/test_ham/eph_diag_fd_test_inputs/init_PPmodel.pth.
+Done with NN initialization to the file /Users/tommylin/Desktop/DeePseudopot_eph/test_ham/eph_diag_fd_test_inputs/init_PPmodel.pth.
+NOTE: SOC is off. idxVB and idxCB are zero-indexed band indices without 2x interleaving for spin. Please double check to ensure your inputs of idxVB and idxCB correspond to your intended bands. 
+
+
+Initial energies VBM: -16.261992 eV, CBM: 4.549248 eV
+Test script assumes no degeneracy
+
+
+analytic derivs (averaged over degenerate cb subspace) calculated within this test script (eV/Bohr):
+H, d/dR_x, vb-vb: 0.000e+00 (|Re|,|Im|<1e-12)
+H, d/dR_x, cb-cb: 0.000e+00 (|Re|,|Im|<1e-12)
+H, d/dR_y, vb-vb: 0.000e+00 (|Re|,|Im|<1e-12)
+H, d/dR_y, cb-cb: 0.000e+00 (|Re|,|Im|<1e-12)
+H, d/dR_z, vb-vb: -7.881e+00 (Re; |Im|<1e-12)
+H, d/dR_z, cb-cb: -1.041e-01 (Re; |Im|<1e-12)
+H, d/dR_x, vb-vb: 0.000e+00 (|Re|,|Im|<1e-12)
+H, d/dR_x, cb-cb: 0.000e+00 (|Re|,|Im|<1e-12)
+H, d/dR_y, vb-vb: 0.000e+00 (|Re|,|Im|<1e-12)
+H, d/dR_y, cb-cb: 0.000e+00 (|Re|,|Im|<1e-12)
+H, d/dR_z, vb-vb: 7.881e+00 (Re; |Im|<1e-12)
+H, d/dR_z, cb-cb: 1.041e-01 (Re; |Im|<1e-12)
+
+analytic derivs summary (H, d/dz, eV/Bohr):
+            dy          fd_vb          fd_cb          an_vb          an_cb
+             /              /              /   -7.88134e+00   -1.04125e-01
+
+
+Finite diff, using manually set system.par, calculated within this test script. d/dz, for H...
+H dz = 1.000e-03 Bohr
+dE/dH_z by finite diff for vbm: -7.878e+00 eV/Bohr,  cbm: -1.041e-01 eV/Bohr
+H dz = 1.000e-04 Bohr
+dE/dH_z by finite diff for vbm: -7.881e+00 eV/Bohr,  cbm: -1.041e-01 eV/Bohr
+H dz = 1.000e-05 Bohr
+dE/dH_z by finite diff for vbm: -7.881e+00 eV/Bohr,  cbm: -1.041e-01 eV/Bohr
+H dz = 1.000e-06 Bohr
+dE/dH_z by finite diff for vbm: -7.881e+00 eV/Bohr,  cbm: -1.041e-01 eV/Bohr
+H dz = 1.000e-07 Bohr
+dE/dH_z by finite diff for vbm: -7.881e+00 eV/Bohr,  cbm: -1.041e-01 eV/Bohr
+
+Finite-difference convergence (via system.par) summary (H0, d/dz, eV/Bohr):
+            dy          fd_vb          fd_cb          an_vb          an_cb
+   1.00000e-03   -7.87828e+00   -1.04091e-01   -7.88134e+00   -1.04125e-01
+   1.00000e-04   -7.88103e+00   -1.04121e-01   -7.88134e+00   -1.04125e-01
+   1.00000e-05   -7.88131e+00   -1.04124e-01   -7.88134e+00   -1.04125e-01
+   1.00000e-06   -7.88133e+00   -1.04125e-01   -7.88134e+00   -1.04125e-01
+   1.00000e-07   -7.88133e+00   -1.04123e-01   -7.88134e+00   -1.04125e-01
+
+
+ham-coded finite difference for debugging (calcCouplings_diag_fd, H0, d/dz, eV/Bohr)
+            dz          fd_vb          fd_cb ham_fd_auto_vb_cen ham_fd_auto_cb_cen
+   1.00000e-03   -7.87828e+00   -1.04091e-01   -7.88134e+00   -1.04125e-01
+   1.00000e-04   -7.88103e+00   -1.04121e-01   -7.88134e+00   -1.04125e-01
+   1.00000e-05   -7.88131e+00   -1.04124e-01   -7.88134e+00   -1.04125e-01
+   1.00000e-06   -7.88133e+00   -1.04125e-01   -7.88134e+00   -1.04125e-01
+   1.00000e-07   -7.88133e+00   -1.04123e-01   -7.88133e+00   -1.04124e-01
+
+
+
+
+---------------------------------------------
+now redoing the same analysis using calcCouplings() function
+(this prints the magnitude of the coupling)
+
+(atomidx, gamma, qidx, vb/cb).    |cpl|  eV/Bohr
+(0, 0, 0, 'cb').   |cpl|: 0.00000e+00 (|val|<1e-12)
+(0, 0, 0, 'vb').   |cpl|: 0.00000e+00 (|val|<1e-12)
+(0, 1, 0, 'cb').   |cpl|: 0.00000e+00 (|val|<1e-12)
+(0, 1, 0, 'vb').   |cpl|: 0.00000e+00 (|val|<1e-12)
+(0, 2, 0, 'cb').   |cpl|: 1.04125e-01
+(0, 2, 0, 'vb').   |cpl|: 7.88134e+00
+(1, 0, 0, 'cb').   |cpl|: 0.00000e+00 (|val|<1e-12)
+(1, 0, 0, 'vb').   |cpl|: 0.00000e+00 (|val|<1e-12)
+(1, 1, 0, 'cb').   |cpl|: 0.00000e+00 (|val|<1e-12)
+(1, 1, 0, 'vb').   |cpl|: 0.00000e+00 (|val|<1e-12)
+(1, 2, 0, 'cb').   |cpl|: 1.04125e-01
+(1, 2, 0, 'vb').   |cpl|: 7.88134e+00
