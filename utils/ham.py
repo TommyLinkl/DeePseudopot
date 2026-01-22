@@ -1061,7 +1061,7 @@ class Hamiltonian:
             # which is wrong (results will depend on arbitrary phase in degenerate subspace).
             ctr = 1
             for idx in range(self.idx_vb-1, 0, -1):
-                if abs(ens[self.idx_vb] - ens[idx]) < 1e-5:
+                if abs(ens[self.idx_vb] - ens[idx]) < 1e-5 / AUTOEV:
                     # this describes a degenerate state as begin within .01 meV (adopted from EPW source)
                     self.vb_vecs[kidx].append(vecs[:, idx])
                     ctr += 1
@@ -1069,13 +1069,13 @@ class Hamiltonian:
                     break
 
             if ctr == 1 and self.SObool and verbosity >= 2:
-                print(f"\nWARNING: spin-orbit calc but vb spin states are not degenerate to 1e-10, kidx={kidx}\n")
+                print(f"\nWARNING: spin-orbit calc but vb spin states are not degenerate to 1e-5 eV, kidx={kidx}\n")
             if verbosity >= 3:
                 print(f"kidx={kidx}, vb_vec[0:5]= {self.vb_vecs[kidx, :5]}")
 
             ctr = 1
             for idx in range(self.idx_cb+1, self.system.nBands):
-                if abs(ens[self.idx_cb] - ens[idx]) < 1e-5:
+                if abs(ens[self.idx_cb] - ens[idx]) < 1e-5 / AUTOEV:
                     # this describes a degenerate state as begin within .01 meV (adopted from EPW source)
                     self.cb_vecs[kidx].append(vecs[:, idx])
                     ctr += 1
@@ -1083,7 +1083,7 @@ class Hamiltonian:
                     break
 
             if ctr == 1 and self.SObool and verbosity >= 2:
-                print(f"\nWARNING: spin-orbit calc but cb spin states are not degenerate to 1e-10, kidx={kidx}\n")
+                print(f"\nWARNING: spin-orbit calc but cb spin states are not degenerate to 1e-5 eV, kidx={kidx}\n")
             if verbosity >= 3:
                 print(f"kidx={kidx}, cb_vec[0:5]= {self.cb_vecs[kidx, :5]}")
 
@@ -1523,6 +1523,7 @@ class Hamiltonian:
                         if key[1] in symm_equiv_compat[key[0]]:
                             n_right = len(self.cb_vecs[needKidx])
                             n_left = len(self.cb_vecs[self.idx_gap])
+                            print(f"cb degeneracy info: {n_right} right, {n_left} left")
                             if n_right > 1:
                                 right_vecs = torch.stack(self.cb_vecs[needKidx], dim=-1)
                             else:
@@ -1538,6 +1539,7 @@ class Hamiltonian:
 
                             n_right = len(self.vb_vecs[needKidx])
                             n_left = len(self.vb_vecs[self.idx_gap])
+                            print(f"vb degeneracy info: {n_right} right, {n_left} left")
                             if n_right > 1:
                                 right_vecs = torch.stack(self.vb_vecs[needKidx], dim=-1)
                             else:
@@ -1559,8 +1561,8 @@ class Hamiltonian:
                         #avg_vb = avg_couple[(key[0], 'vb')]
                         #ret_dict[key+(qid,'cb')] = torch.sqrt(avg_cb.conj() * avg_cb).real * AUTOEV
                         #ret_dict[key+(qid,'vb')] = torch.sqrt(avg_vb.conj() * avg_vb).real * AUTOEV
-                        ret_dict[key + (qid,'cb')] = avg_couple[(key[0], 'cb')]
-                        ret_dict[key + (qid,'vb')] = avg_couple[(key[0], 'vb')]
+                        ret_dict[key + (qid,'cb')] = avg_couple[(key[0], 'cb')] * AUTOEV
+                        ret_dict[key + (qid,'vb')] = avg_couple[(key[0], 'vb')] * AUTOEV
 
                 else:
                     n_right = len(self.cb_vecs[needKidx])
