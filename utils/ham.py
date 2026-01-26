@@ -1523,7 +1523,7 @@ class Hamiltonian:
                         if key[1] in symm_equiv_compat[key[0]]:
                             n_right = len(self.cb_vecs[needKidx])
                             n_left = len(self.cb_vecs[self.idx_gap])
-                            print(f"cb degeneracy info: {n_right} right, {n_left} left")
+                            # print(f"cb degeneracy info: {n_right} right, {n_left} left")
                             if n_right > 1:
                                 right_vecs = torch.stack(self.cb_vecs[needKidx], dim=-1)
                             else:
@@ -1534,12 +1534,12 @@ class Hamiltonian:
                                 left_vecs = self.cb_vecs[self.idx_gap][0].view(1,-1)
                             tmp = torch.matmul(dV_dict[key], right_vecs)   # batched multiplication of all degenerate bands
                             tmp = torch.matmul(torch.conj(left_vecs), tmp) # n_right * n_left dot products in the elements of a matrix
-                            mag = torch.sum(torch.sqrt(tmp.conj() * tmp)).real
-                            avg_couple[(key[0], 'cb')] += mag / (len(symm_equiv[key[0]]) * n_right * n_left)
+                            mag = torch.sum(tmp.conj() * tmp).real
+                            avg_couple[(key[0], 'cb')] += torch.sqrt(mag / (n_right * n_left)) / len(symm_equiv[key[0]])
 
                             n_right = len(self.vb_vecs[needKidx])
                             n_left = len(self.vb_vecs[self.idx_gap])
-                            print(f"vb degeneracy info: {n_right} right, {n_left} left")
+                            # print(f"vb degeneracy info: {n_right} right, {n_left} left")
                             if n_right > 1:
                                 right_vecs = torch.stack(self.vb_vecs[needKidx], dim=-1)
                             else:
@@ -1550,8 +1550,8 @@ class Hamiltonian:
                                 left_vecs = self.vb_vecs[self.idx_gap][0].view(1,-1)
                             tmp2 = torch.matmul(dV_dict[key], right_vecs) # batched multiplication of all degenerate bands
                             tmp2 = torch.matmul(torch.conj(left_vecs), tmp2) # n_right * n_left dot products in the elements of a matrix
-                            mag2 = torch.sum(torch.sqrt(tmp2.conj() * tmp2)).real
-                            avg_couple[(key[0], 'vb')] += mag2 / (len(symm_equiv[key[0]]) * n_right * n_left)
+                            mag2 = torch.sum(tmp2.conj() * tmp2).real
+                            avg_couple[(key[0], 'vb')] += torch.sqrt(mag2 / (n_right * n_left)) / len(symm_equiv[key[0]])
 
             # build ret_dict 
             for key in dV_dict:
@@ -1577,8 +1577,8 @@ class Hamiltonian:
                         left_vecs = self.cb_vecs[self.idx_gap][0].view(1,-1)
                     cpl = torch.matmul(dV_dict[key], right_vecs) # batched multiplication of all degenerate bands
                     cpl = torch.matmul(torch.conj(left_vecs), cpl) # n_right * n_left dot products in the elements of a matrix
-                    cpl_mag = torch.sum(torch.sqrt(cpl.conj() * cpl)).real
-                    ret_dict[key + (qid,'cb')] = (cpl_mag / (n_right * n_left)) * AUTOEV # average coupling from degenerate subspace
+                    cpl_mag = torch.sum(cpl.conj() * cpl).real
+                    ret_dict[key + (qid,'cb')] = torch.sqrt((cpl_mag / (n_right * n_left))) * AUTOEV # average coupling from degenerate subspace
 
                     n_right = len(self.vb_vecs[needKidx])
                     n_left = len(self.vb_vecs[self.idx_gap])
@@ -1592,38 +1592,37 @@ class Hamiltonian:
                         left_vecs = self.vb_vecs[self.idx_gap][0].view(1,-1)
                     cpl = torch.matmul(dV_dict[key], right_vecs) # batched multiplication of all degenerate bands
                     cpl = torch.matmul(torch.conj(left_vecs), cpl) # n_right * n_left dot products in the elements of a matrix
-                    cpl_mag = torch.sum(torch.sqrt(cpl.conj() * cpl)).real
-                    ret_dict[key + (qid,'vb')] = (cpl_mag / (n_right * n_left)) * AUTOEV
+                    cpl_mag = torch.sum(cpl.conj() * cpl).real
+                    ret_dict[key + (qid,'vb')] = torch.sqrt((cpl_mag / (n_right * n_left))) * AUTOEV
 
         return ret_dict
 
 
     def calcCouplings_diag_fd(
         self,
-        delta=0.001,
+        delta=1e-6,
         degen_tol_ev=1e-5,
         debug=False,
-        one_sided=False,
         select_atomidx=None,
         select_gamma=None,
         base_vals=None,
     ): 
         """
-        Compute diagonal e-ph couplings using finite differences at Gamma.
+        Compute diagonal e-ph couplings using one-sided finite differences at Gamma.
 
         Evaluates band-edge energy derivatives with respect to atomic 
-        displacements by constructing two displaced systems per atom
-        and direction: one with +delta and one with -delta in Cartesian
-        coordinates (x, y, z). The displacement is applied to the scaled
-        atomic positions in system.atomPos (Bohr). For each displaced system,
-        it computes the
+        displacements by constructing one displaced system per atom
+        and direction: +delta in Cartesian coordinates (x, y, z). The
+        displacement is applied to the scaled atomic positions in
+        system.atomPos (Bohr). For each displaced system, it computes the
         eigenvalues at the Gamma k-point and forms the finite difference:
-            central: dE/dR = (E_plus - E_minus) / (2 * delta)
-            one-sided: dE/dR = (E_plus - E_base) / delta
+            dE/dR = (E_plus - E_base) / delta
+            coupling = sqrt( sum((dE/dR)^2) / (d * d) )  over a dim-d degenerate
+              subspace
 
         The couplings are returned for the band indices specified in the input
-        files (idxVB/idxCB) at the Gamma q-point. Energies are converted to eV,
-        so the couplings are reported in eV/Bohr. 
+        files (idxVB/idxCB) at the Gamma q-point. Energies are converted to eV.
+        This routine returns coupling magnitudes in eV/Bohr.
         
         The original system is not modified; each displacement is applied to a
         deep-copied BulkSystem and evaluated with a temporary Hamiltonian.
@@ -1643,34 +1642,26 @@ class Hamiltonian:
             vals = torch.linalg.eigvalsh(H)
             return vals[:ham.system.nBands]
 
-        def collect_degen_indices(vals, start_idx, direction, tol_ev):
+        def collect_degen_indices(vals, start_idx, direction, tol_ha):
             ref = vals[start_idx]
             idxs = [start_idx]
             idx = start_idx + direction
             while 0 <= idx < len(vals):
-                if torch.abs(vals[idx] - ref) <= tol_ev:
+                if torch.abs(vals[idx] - ref) <= tol_ha:
                     idxs.append(idx)
                     idx += direction
                 else:
                     break
             return sorted(idxs)
 
-        kidx_gamma = None
         zero_vec = torch.zeros(3, dtype=self.system.kpts.dtype)
-        for kid in range(self.system.getNKpts()):
-            if torch.allclose(self.system.kpts[kid], zero_vec, atol=1e-12):
-                kidx_gamma = kid
-                break
-        if kidx_gamma is None:
-            raise ValueError("Gamma k-point not found in k-point list")
+        if self.system.getNKpts() != 1 or not torch.allclose(self.system.kpts[0], zero_vec, atol=1e-12):
+            raise ValueError("calcCouplings_diag_fd requires k-point list to be only Gamma")
+        if self.system.getNQpts() != 1 or not torch.allclose(self.system.qpts[0], zero_vec, atol=1e-12):
+            raise ValueError("calcCouplings_diag_fd requires q-point list to be only Gamma")
 
-        qidx_gamma = None
-        for qid in range(self.system.getNQpts()):
-            if torch.allclose(self.system.qpts[qid], zero_vec, atol=1e-12):
-                qidx_gamma = qid
-                break
-        if qidx_gamma is None:
-            raise ValueError("Gamma q-point not found in q-point list")
+        kidx_gamma = 0
+        qidx_gamma = 0
 
         if base_vals is None:
             with torch.no_grad():
@@ -1678,19 +1669,19 @@ class Hamiltonian:
         else:
             base_vals = torch.as_tensor(base_vals, dtype=self.system.kpts.dtype)
         degen_tol_ha = degen_tol_ev / AUTOEV
-        
+
         # Note, user's inputs of idxVB/idxCB shouldn't include the artificial 
         # 2x interleaving of eigenenergies when SOC is off. 
         vb_degen = collect_degen_indices(base_vals, self.system.idxVB, -1, degen_tol_ha)
         cb_degen = collect_degen_indices(base_vals, self.system.idxCB, 1, degen_tol_ha)
-        unit_scale = AUTOEV  # report energies/couplings in eV and eV/Bohr
+        unit_scale = AUTOEV  # report energies/couplings in eV and (eV/Bohr)^2
         unit_label = "eV"
         base_vals_out = base_vals * unit_scale
 
         if debug:
             print("\n[calcCouplings_diag_fd] Debug info")
             print("Coupling units: eV/Bohr")
-            print(f"delta (Bohr): {delta}, one_sided: {one_sided}, Gamma kidx: {kidx_gamma}, Gamma qidx: {qidx_gamma}")
+            print(f"delta (Bohr): {delta}, Gamma kidx: {kidx_gamma}, Gamma qidx: {qidx_gamma}")
             print(f"Inputs of idxVB: {self.system.idxVB}, idxCB: {self.system.idxCB}")
             if not self.SObool: 
                 print(f"True idxVB (without 2x interleaving): {int((self.system.idxVB-1)/2)}, idxCB: {int(self.system.idxCB/2)}")
@@ -1719,13 +1710,9 @@ class Hamiltonian:
                 if debug:
                     print(f"\natomidx={atomidx}, gamma={gamma}")
                 system_plus = copy.deepcopy(self.system)
-                system_minus = copy.deepcopy(self.system) if not one_sided else None
                 system_plus.atomPos[atomidx, gamma] += delta
-                if not one_sided:
-                    system_minus.atomPos[atomidx, gamma] -= delta
                 if debug:
                     print("Displaced atom position +delta (Bohr): " + f"{system_plus.atomPos[atomidx]}")
-                    print("Displaced atom position -delta (Bohr): " + f"{system_minus.atomPos[atomidx]}")
 
                 ham_plus = Hamiltonian(
                     system_plus,
@@ -1740,57 +1727,21 @@ class Hamiltonian:
                     model=self.model,
                     coupling=False,
                 )
-                ham_minus = None
-                if not one_sided:
-                    ham_minus = Hamiltonian(
-                        system_minus,
-                        self.PPparams,
-                        self.atomPPorder,
-                        self.device,
-                        NNConfig=self.NNConfig,
-                        iSystem=self.iSystem,
-                        SObool=self.SObool,
-                        cacheSO=self.cacheSO,
-                        NN_locbool=self.NN_locbool,
-                        model=self.model,
-                        coupling=False,
-                    )
 
                 with torch.no_grad():
                     vals_plus = eigvals_no_order(ham_plus, kidx_gamma) * unit_scale
-                    vals_minus = None
-                    if not one_sided:
-                        vals_minus = eigvals_no_order(ham_minus, kidx_gamma) * unit_scale
 
-                vb_plus = torch.mean(vals_plus[vb_degen])
-                cb_plus = torch.mean(vals_plus[cb_degen])
-                vb_base = torch.mean(base_vals_out[vb_degen])
-                cb_base = torch.mean(base_vals_out[cb_degen])
-                vb_minus = torch.mean(vals_minus[vb_degen]) if not one_sided else None
-                cb_minus = torch.mean(vals_minus[cb_degen]) if not one_sided else None
+                vb_diff = (vals_plus[vb_degen] - base_vals_out[vb_degen]) / delta
+                cb_diff = (vals_plus[cb_degen] - base_vals_out[cb_degen]) / delta
+                vb_cpl = torch.sqrt(torch.sum(vb_diff * vb_diff) / (len(vb_degen) * len(vb_degen))).item()
+                cb_cpl = torch.sqrt(torch.sum(cb_diff * cb_diff) / (len(cb_degen) * len(cb_degen))).item()
                 if debug:
                     print(f"VB energies +delta ({unit_label}): " + ", ".join([f"{vals_plus[i].item():.5e}" for i in vb_degen]))
-                    if one_sided:
-                        print(f"VB energies base ({unit_label}): " + ", ".join([f"{base_vals_out[i].item():.5e}" for i in vb_degen]))
-                    else:
-                        print(f"VB energies -delta ({unit_label}): " + ", ".join([f"{vals_minus[i].item():.5e}" for i in vb_degen]))
+                    print(f"VB energies base ({unit_label}): " + ", ".join([f"{base_vals_out[i].item():.5e}" for i in vb_degen]))
                     print(f"CB energies +delta ({unit_label}): " + ", ".join([f"{vals_plus[i].item():.5e}" for i in cb_degen]))
-                    if one_sided:
-                        print(f"CB energies base ({unit_label}): " + ", ".join([f"{base_vals_out[i].item():.5e}" for i in cb_degen]))
-                    else:
-                        print(f"CB energies -delta ({unit_label}): " + ", ".join([f"{vals_minus[i].item():.5e}" for i in cb_degen]))
-
-                if one_sided:
-                    vb_fd = (vb_plus - vb_base) / delta
-                    cb_fd = (cb_plus - cb_base) / delta
-                else:
-                    vb_fd = (vb_plus - vb_minus) / (2.0 * delta)
-                    cb_fd = (cb_plus - cb_minus) / (2.0 * delta)
-                vb_cpl = vb_fd.item()
-                cb_cpl = cb_fd.item()
-                if debug:
-                    print(f"VB fd ({unit_label}/Bohr): {vb_fd.item():.5e}")
-                    print(f"CB fd ({unit_label}/Bohr): {cb_fd.item():.5e}")
+                    print(f"CB energies base ({unit_label}): " + ", ".join([f"{base_vals_out[i].item():.5e}" for i in cb_degen]))
+                    print(f"VB fd ({unit_label}/Bohr): {vb_cpl:.5e}")
+                    print(f"CB fd ({unit_label}/Bohr): {cb_cpl:.5e}")
 
                 ret_dict[(atomidx, gamma, qidx_gamma, 'vb')] = vb_cpl
                 ret_dict[(atomidx, gamma, qidx_gamma, 'cb')] = cb_cpl
