@@ -105,7 +105,7 @@ def norm_retrain_func(inputsFolder = 'inputs/', resultsFolder = 'results/'):
 
     # Evaluate the band structures and pseudopotentials for the initialized NN
     print("\nEvaluating band structures using the initialized pseudopotentials. ")
-    init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}initZunger_plotBS.png', 'Init NN BS', NNConfig, hams, systems, cachedMats_info, writeBS=True)
+    init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}initZunger_plotBS.png', 'Init NN BS', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder)
 
     print("Converge the pseudopotentials in the real and reciprocal space for the initialized NN. ")
     qmax = np.array([10.0, 20.0, 30.0])

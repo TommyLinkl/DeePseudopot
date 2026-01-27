@@ -151,6 +151,7 @@ class BulkSystem:
         self.systemName = systemName
         self.fit_defPot = False
         self.relE_bIdx = -1
+        self.fit_eph = False
         
         
     def setInputs(self, inputFilename):
@@ -165,17 +166,23 @@ class BulkSystem:
                         attributes[key] = float(value)
                     elif key in ['nBands', 'idxVB', 'idxCB', 'idxGap', 'relE_bIdx']:            # nBands can be redundant
                         attributes[key] = int(float(value))
-                    elif key in ['fit_defPot']: 
+                    elif key in ['fit_defPot', 'fit_eph']: 
                         attributes[key] = bool(int(value))
                     elif key in ['systemName']: 
                         attributes[key] = value
         vars(self).update(attributes)
         if "idxVB" in attributes:
             self.idx_vb = attributes["idxVB"]
+            if self.fit_eph == False: 
+                raise ValueError("Input error: 'fit_eph' must be turned on if 'idxVB' is specified.")
         if "idxCB" in attributes:
             self.idx_cb = attributes["idxCB"]
+            if self.fit_eph == False: 
+                raise ValueError("Input error: 'fit_eph' must be turned on if 'idxCB' is specified.")
         if "idxGap" in attributes:
             self.idx_gap = attributes["idxGap"]
+            if self.fit_eph == False: 
+                raise ValueError("Input error: 'fit_eph' must be turned on if 'idxCB' is specified.")
 
         
     def setSystem(self, systemFilename):
@@ -275,6 +282,8 @@ class BulkSystem:
             print(f"An error occurred while processing the file: {e}")
 
     def setExpCouplings(self, expCplFilename):
+        # Assume the units of the values are eV! See ham.calcCouplings comment for unit details. 
+        print(f"Reading reference e-ph coupling data from file. Please make sure that your inputs are in the units of eV/Bohr. ")
         #with open(expCplFilename, 'r') as fread:
         #    self.expCouplingBands = torch.tensor(np.loadtxt(fread)[:, 1:], dtype=torch.float64)
 
@@ -313,27 +322,28 @@ class BulkSystem:
                         self.expCouplingBands[(atomidx, gamma, qidx, bandid)] = float(sp[qidx])
 
 
-    def setExpDefPot(self, expDefPotFilename):
-        with open(expDefPotFilename, 'r') as fread:
-            lines = fread.readlines()
-            assert len(lines) == 2
-            self.expDefPots = np.array([0.0, 0.0])
-            self.expDefPots[0] = float(lines[0]) # VBM
-            self.expDefPots[1] = float(lines[1]) # CBM
+    def setExpDefPot(self, expDefPotFilename, version='v2'):
+        if version == 'v1':
+            with open(expDefPotFilename, 'r') as fread:
+                lines = fread.readlines()
+                assert len(lines) == 2
+                self.expDefPots = np.array([0.0, 0.0])
+                self.expDefPots[0] = float(lines[0]) # VBM
+                self.expDefPots[1] = float(lines[1]) # CBM
 
-    def setExpDefPot_NEW(self, expDefPotFilename):
-        data = np.loadtxt(expDefPotFilename)
-        if data.ndim == 1:
-            data = data.reshape(1, -1)
-        
-        assert data.shape[1] == 7, "Each row must have exactly 7 columns, corresponding to: kidx_VB(all 0-based index)    bidx_VB    kidx_CB    bidx_CB     latConst_ratio      defPot_gap(eV)    weight"
-        assert np.all(data[:, :4] == data[:, :4].astype(int)), "First 4 columns must be integers: kidx_VB(all 0-based index)    bidx_VB    kidx_CB    bidx_CB     latConst_ratio      defPot_gap(eV)    weight"
-        
-        # Convert the first 4 columns to int to safely use them as indices later.
-        data[:, :4] = data[:, :4].astype(int)
-        
-        self.defPotInfo = data
-        print(self.defPotInfo)
+        elif version == 'v2':
+            data = np.loadtxt(expDefPotFilename)
+            if data.ndim == 1:
+                data = data.reshape(1, -1)
+            
+            assert data.shape[1] == 7, "Each row must have exactly 7 columns, corresponding to: kidx_VB(all 0-based index)    bidx_VB    kidx_CB    bidx_CB     latConst_ratio      defPot_gap(eV)    weight"
+            assert np.all(data[:, :4] == data[:, :4].astype(int)), "First 4 columns must be integers: kidx_VB(all 0-based index)    bidx_VB    kidx_CB    bidx_CB     latConst_ratio      defPot_gap(eV)    weight"
+            
+            # Convert the first 4 columns to int to safely use them as indices later.
+            data[:, :4] = data[:, :4].astype(int)
+            
+            self.defPotInfo = data
+            # print(self.defPotInfo)
 
 
     def getCellVolume(self): 
@@ -414,8 +424,11 @@ def setAllBulkSystems(nSystem, inputsFolder, resultsFolder):
         sys.setSystem(inputsFolder + "system_%d.par" % iSys)
         sys.setInputs(inputsFolder + "input_%d.par" % iSys)
         if sys.fit_defPot: 
-            sys.setExpDefPot_NEW(inputsFolder + "expDefPot_%d.par" % iSys)
+            sys.setExpDefPot(inputsFolder + "expDefPot_%d.par" % iSys)
         sys.setKPointsAndWeights(inputsFolder + "kpoints_%d.par" % iSys)
+        if sys.fit_eph:
+            sys.setQPointsAndWeights(inputsFolder + "qpoints_%d.par" % iSys)
+            sys.setExpCouplings(inputsFolder + "expCoupling_%d.par" % iSys)
         sys.setExpBS(inputsFolder + "expBandStruct_%d.par" % iSys)
         sys.setBandWeights(inputsFolder + "bandWeights_%d.par" % iSys)
         sys.print_basisStates(resultsFolder + "basisStates_%d.dat" % iSys)

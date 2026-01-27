@@ -35,14 +35,14 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
 
     # Calculate bandStructure with the old function form with parameters given in PPparams
     print("Evaluating band structures using the old Zunger form pseudopotentials in the init_xxx files. ")
-    oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.pdf', 'Old Zunger BS', NNConfig, hams, systems, cachedMats_info, writeBS=True)
+    oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.pdf', 'Old Zunger BS', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder)
 
     # Initialize the NN to the local pot function form
     PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder)
 
     # Evaluate the band structures and pseudopotentials for the initialized NN
     print("\nEvaluating band structures using the initialized pseudopotentials. ")
-    init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}initZunger_plotBS.pdf', 'Init NN BS', NNConfig, hams, systems, cachedMats_info, writeBS=True)
+    init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}initZunger_plotBS.pdf', 'Init NN BS', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder)
 
     print("Converge the pseudopotentials in the real and reciprocal space for the initialized NN. ")
     qmax = np.array([30.0, 40.0, 50.0])

@@ -1570,6 +1570,12 @@ class Hamiltonian:
                     if n_right > 1:
                         right_vecs = torch.stack(self.cb_vecs[needKidx], dim=-1)
                     else:
+                        ###############
+                        # There are issues with self.cb_vecs when multiprocessing is turned on. 
+                        # The root cause should be somewhere in calcEigValsAtK() function, 
+                        # in the case of multiprocessing. self.cb_vecs and self.vb_vecs are not 
+                        # properly gathered back to the main process.
+                        ###############
                         right_vecs = self.cb_vecs[needKidx][0].view(-1,1)
                     if n_left > 1:
                         left_vecs = torch.stack(self.cb_vecs[self.idx_gap], dim=0)
@@ -1956,23 +1962,23 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device):
         # 2. SObool = True, no parallel --> Initialize ham with cache. No storage / moving is needed.
         # 3. SObool = True, yes parallel --> Do the complicated storage / moving. 
         if not NNConfig['SObool']: 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], coupling=sys.fit_eph)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
         elif (NNConfig['SObool']) and (NNConfig['num_cores']==0): 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], coupling=sys.fit_eph)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
         elif (NNConfig['SObool']) and (NNConfig['cacheSO']==0): 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], coupling=sys.fit_eph)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
         else: 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=True, cacheSO=False)
-            dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=True, cacheSO=False, coupling=sys.fit_eph)
+            dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], coupling=sys.fit_eph)
 
             if dummy_ham.SOmats is not None: 
                 # reshape dummy_ham.SOmats has shape (nkpt)*(nAtoms)*(2*nbasis) x (2*nbasis)

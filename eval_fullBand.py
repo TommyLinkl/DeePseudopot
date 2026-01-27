@@ -52,12 +52,11 @@ def eval_fullBand(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'result
     PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder)
 
     # Calculate bandStructure with the old function form with parameters given in PPparams
-    oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.pdf', 'Old Zunger BS', NNConfig, hams, systems, writeBS=True)
+    oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.pdf', 'Old Zunger BS', NNConfig, hams, systems, writeBS=True, resultsFolder=resultsFolder)
 
     # Evaluate the band structures and pseudopotentials for the initialized NN
     print("\nEvaluating band structures using the input NN pseudopotentials. ")
-    init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}eval_plotBS.pdf', 'Eval NN BS', NNConfig, hams, systems, writeBS=True)
-
+    init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}eval_plotBS.pdf', 'Eval NN BS', NNConfig, hams, systems, writeBS=True, resultsFolder=resultsFolder)
     print("Converge the pseudopotentials in the real and reciprocal space. ")
     qmax = np.array([10.0, 20.0, 30.0])
     nQGrid = np.array([2048, 4096])

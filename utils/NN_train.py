@@ -247,7 +247,7 @@ def penalty_loss(f_x, x, penalize_start=4.5, lambda_penalty=1.0, penalize=True):
     return penalty
 
 
-def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None, writeBS=False): 
+def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None, writeBS=False, resultsFolder=""): 
     if (model is not None): 
         print(f"\t{runName}: Evaluating band structures using the NN-pp model. ")
         model.eval()
@@ -259,6 +259,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
     true_BS_MSE = 0
     totalPenalty = 0
     defPot_MSE = 0
+    coupling_MSE = 0
     for iSys, sys in enumerate(systems):
         if (model is not None): 
             hams[iSys].NN_locbool = True
@@ -311,10 +312,53 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
                 print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {defPotLoss:.4f}")
                 defPot_MSE += defPotLoss
 
-        print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... Total_BS_MSE = {total_BS_MSE:.4f}. Penalty = {totalPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}.")
+        # add coupling loss
+        if sys.fit_eph:
+            with torch.no_grad():
+                calcCouplings_dict = hams[iSys].calcCouplings_diag_fd(debug=True)   # .calcCouplings()
+                print(calcCouplings_dict)
+
+                for atomidx in range(sys.getNAtoms()):
+                    for gamma in range(3):
+                        for qidx in range(sys.qpts.shape[0]):
+                            for band in ["vb", "cb"]:
+                                if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in sys.expCouplingBands):
+                                    coupling_MSE += ((abs(calcCouplings_dict[(atomidx, gamma, qidx, band)]) - abs(sys.expCouplingBands[(atomidx, gamma, qidx, band)])) ** 2 * sys.qptWeights[qidx]) * sys.getNKpts()
+                                else: 
+                                    print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
+
+                output = os.path.join(resultsFolder, f"{runName}_couplingBands_{iSys}.dat")
+                with open(output, 'w') as fwrite:
+                    for atomidx in range(sys.getNAtoms()):
+                        print(f"Atom idx = {atomidx}   atom = {sys.atomTypes[atomidx]}   position = {sys.atomPos[atomidx]}", file=fwrite)
+
+                        for band in ["vb", "cb"]:
+                            print(f"{band}-{band} coupling elements. ", file=fwrite, end="")
+                            for gamma in range(3):
+                                if gamma == 0:
+                                    print("\npolarization of derivative = x", file=fwrite)
+                                elif gamma == 1:
+                                    print("polarization of derivative = y", file=fwrite)
+                                else:
+                                    print("polarization of derivative = z", file=fwrite)
+
+                                for qidx in range(sys.qpts.shape[0]):
+                                    if (atomidx, gamma, qidx, band) in calcCouplings_dict:
+                                        val = calcCouplings_dict[(atomidx, gamma, qidx, band)]
+                                        if abs(val) < 1e-9:
+                                            print("0   ", file=fwrite, end="")
+                                        else:
+                                            print(f"{val:.5e}   ", file=fwrite, end="")
+                                    else:
+                                        print("Not-fit   ", file=fwrite, end="")
+                                print("\n", file=fwrite, end="")
+                            print("\n", file=fwrite, end="")
+                        print("\n\n", file=fwrite, end="")
+
+        print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... ")
 
     fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
-    print(f"\t{runName}: Finished evaluating all band structures with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. Total_BS_MSE = {total_BS_MSE:.4f}. Penalty = {totalPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}.")
+    print(f"\t{runName}: Finished evaluating all band structures with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. Total_BS_MSE = {total_BS_MSE:.4f}. Penalty = {totalPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}. Coupling_MSE = {coupling_MSE:.4f}. ")
     fig.suptitle(f"{runName}: total_BS_MSE = {total_BS_MSE:.4f}. Penalty = {totalPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}.")
     fig.savefig(BSplotFilename)
     fig.savefig(BSplotFilename.replace('.pdf', '.png'))
@@ -360,6 +404,24 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
         defPotLoss = (((calcDefPots - refDefPots) ** 2 * defPotWeights).sum()) # Similarly, we don't divide by nkpts here. In the evaluation mode and serial versions, the penalty is multiplied with nkpts
         print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {defPotLoss:.4f}")
         systemKptLoss += defPotLoss
+
+    # add coupling loss
+    if bulkSystem.fit_eph:
+        raise NotImplementedError("FATAL ERROR! EPC fitting is not yet implemented (and potentially cannot be implemented in the parallel training mode. ")
+        '''
+        couplingLoss = torch.tensor(0.0)
+        calcCouplings_dict = ham.calcCouplings()
+
+        for atomidx in range(bulkSystem.getNAtoms()):
+            for gamma in range(3):
+                for qidx in range(bulkSystem.qpts.shape[0]):
+                    for band in ["vb", "cb"]:
+                        if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in bulkSystem.expCouplingBands):
+                            couplingLoss += ((calcCouplings_dict[(atomidx, gamma, qidx, band)] - bulkSystem.expCouplingBands[(atomidx, gamma, qidx, band)]) ** 2 * bulkSystem.qptWeights[qidx])  # Similarly, we don't divide by nkpts here. In the evaluation mode and serial versions, the penalty is multiplied with nkpts
+                        else: 
+                            print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
+        systemKptLoss += couplingLoss
+        '''
 
     start_time = time.time() if ham.NNConfig['runtime_flag'] else None
     optimizer.zero_grad()
@@ -429,7 +491,21 @@ def trainIter_naive(model, systems, hams, optimizer, cachedMats_info=None, runti
             defPotLoss = ((calcDefPots - refDefPots) ** 2 * defPotWeights).sum() * sys.getNKpts()
             print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {defPotLoss:.4f}")
             trainLoss += defPotLoss
-        
+
+        # Add in coupling loss
+        if sys.fit_eph:
+            calcCouplings_dict = hams[iSys].calcCouplings_diag_fd(debug=True)   # .calcCouplings()
+            # print(calcCouplings_dict)
+
+            for atomidx in range(sys.getNAtoms()):
+                for gamma in range(3):
+                    for qidx in range(sys.qpts.shape[0]):
+                        for band in ["vb", "cb"]:
+                            if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in sys.expCouplingBands):
+                                trainLoss += ((abs(calcCouplings_dict[(atomidx, gamma, qidx, band)]) - abs(sys.expCouplingBands[(atomidx, gamma, qidx, band)])) ** 2 * sys.qptWeights[qidx]) * sys.getNKpts()
+                            else: 
+                                print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
+
 
     start_time = time.time() if runtime_flag else None
     optimizer.zero_grad()
@@ -483,11 +559,34 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                     q = torch.linspace(hams[iSys].NNConfig["penalize_starting"], 12.0, 50).view(-1,1)
                     v_q = model(q)
 
-                    penalty = penalty_loss(v_q, q, hams[iSys].NNConfig["penalize_starting"], hams[iSys].NNConfig["penalize_lambda"])
+                    penalty = penalty_loss(v_q, q, hams[iSys].NNConfig["penalize_starting"], hams[iSys].NNConfig["penalize_lambda"]*sys.getNKpts())     # Multiplied by nkpts here for consistency with the evaluation mode and the parallel version
                     systemKptLoss += penalty
                     # print(f"Done penalizing the non-decaying pp by {penalty}")
 
-                # Add in defPot loss
+                # add in defPot loss
+                if sys.fit_defPot: 
+                    calcDefPots = hams[iSys].calcDefPots(cachedMats_info=cachedMats_info,requires_grad=True)
+                    print(calcCouplings_dict)
+
+                    refDefPots = torch.tensor(sys.defPotInfo[:,5])
+                    defPotWeights = torch.tensor(sys.defPotInfo[:,6])
+                    defPotLoss = ((calcDefPots - refDefPots) ** 2 * defPotWeights).sum() * sys.getNKpts()   # Multiplied by nkpts here for consistency with the evaluation mode and the parallel version
+                    print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {defPotLoss:.4f}")
+                    systemKptLoss += defPotLoss
+
+                # add in coupling loss
+                if sys.fit_eph:
+                    calcCouplings_dict = hams[iSys].calcCouplings_diag_fd(debug=True)   # .calcCouplings()
+
+                    for atomidx in range(sys.getNAtoms()):
+                        for gamma in range(3):
+                            for qidx in range(sys.qpts.shape[0]):
+                                for band in ["vb", "cb"]:
+                                    if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in sys.expCouplingBands):
+                                        systemKptLoss += ((abs(calcCouplings_dict[(atomidx, gamma, qidx, band)]) - abs(sys.expCouplingBands[(atomidx, gamma, qidx, band)])) ** 2 * sys.qptWeights[qidx]) * sys.getNKpts()
+                                        # Multiplied by nkpts here for consistency with the evaluation mode and the parallel version
+                                    else: 
+                                        print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
 
                 start_time = time.time() if NNConfig['runtime_flag'] else None
                 optimizer.zero_grad()
@@ -599,7 +698,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
             # print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_params.dat', show=True)
 
             model.eval()
-            val_MSE = evalBS_noGrad(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_plotBS.pdf', f'preEpoch_{pre_epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True)
+            val_MSE = evalBS_noGrad(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_plotBS.pdf', f'preEpoch_{pre_epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder)
 
             torch.save(model.state_dict(), f'{resultsFolder}preEpoch_{pre_epoch+1}_PPmodel.pth')
             torch.cuda.empty_cache()
@@ -652,7 +751,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
         # evaluation
         if (epoch + 1) % NNConfig['plotEvery'] == 0:
             model.eval()
-            val_MSE = evalBS_noGrad(model, f'{resultsFolder}epoch_{epoch+1}_plotBS.pdf', f'epoch_{epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True)
+            val_MSE = evalBS_noGrad(model, f'{resultsFolder}epoch_{epoch+1}_plotBS.pdf', f'epoch_{epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder)
             validationCOST_x.append(epoch+1)
             validation_COST.append(val_MSE)
             print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], validation cost (including penalty): {val_MSE:.4f}")
@@ -843,7 +942,7 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
     file_trainCost.write("# iter      newLoss      accept?      bestLoss      currLoss\n")
     
     bestModel = model
-    bestLoss = evalBS_noGrad(bestModel, f'{resultsFolder}mc_iter_0_plotBS.pdf', f'mc_iter_0', NNConfig, hams, systems, cachedMats_info)
+    bestLoss = evalBS_noGrad(bestModel, f'{resultsFolder}mc_iter_0_plotBS.pdf', f'mc_iter_0', NNConfig, hams, systems, cachedMats_info, resultsFolder=resultsFolder)
     print_and_inspect_NNParams(bestModel, f'{resultsFolder}best_params.dat', show=True)
     shutil.copy(f'{resultsFolder}mc_iter_0_plotBS.pdf', f'{resultsFolder}best_plotBS.pdf')
     currModel = model
@@ -854,7 +953,7 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
     for iter in range(NNConfig['mc_iter']):
         print(f"\nIteration [{iter+1}/{NNConfig['mc_iter']}]: ")
         newModel, old_PPparams = perturb_model(currModel, hams, percentage=NNConfig['mc_percentage'], mode=NNConfig['mc_perturb_mode'] if 'mc_perturb_mode' in NNConfig else 1)
-        newLoss = evalBS_noGrad(newModel, f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf', f'mc_iter_{iter+1}', NNConfig, hams, systems, cachedMats_info)
+        newLoss = evalBS_noGrad(newModel, f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf', f'mc_iter_{iter+1}', NNConfig, hams, systems, cachedMats_info, resultsFolder=resultsFolder)
         print(f"newLoss={newLoss.item():.4f}. ")
 
         mc_rand = np.exp(-1 * NNConfig['mc_beta'] * (np.sqrt(newLoss) - np.sqrt(currLoss)))
