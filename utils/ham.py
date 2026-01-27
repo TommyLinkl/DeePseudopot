@@ -1612,7 +1612,7 @@ class Hamiltonian:
         select_atomidx=None,
         select_gamma=None,
         base_vals=None,
-    ): 
+    ):
         """
         Compute diagonal e-ph couplings using one-sided finite differences at Gamma.
 
@@ -1643,8 +1643,8 @@ class Hamiltonian:
         if not isinstance(self.system.idxCB, int):
             raise ValueError("need to specify cb index for diagonal coupling")
 
-        def eigvals_no_order(ham, kidx):
-            H = ham.buildHtot(kidx, requires_grad=False)
+        def eigvals_no_order(ham, kidx, requires_grad=True):
+            H = ham.buildHtot(kidx, requires_grad=requires_grad)
             vals = torch.linalg.eigvalsh(H)
             return vals[:ham.system.nBands]
 
@@ -1670,10 +1670,13 @@ class Hamiltonian:
         qidx_gamma = 0
 
         if base_vals is None:
-            with torch.no_grad():
-                base_vals = eigvals_no_order(self, kidx_gamma)
+            base_vals = eigvals_no_order(self, kidx_gamma, requires_grad=True)
         else:
-            base_vals = torch.as_tensor(base_vals, dtype=self.system.kpts.dtype)
+            base_vals = torch.as_tensor(
+                base_vals,
+                dtype=self.system.kpts.dtype,
+                device=self.system.kpts.device,
+            )
         degen_tol_ha = degen_tol_ev / AUTOEV
 
         # Note, user's inputs of idxVB/idxCB shouldn't include the artificial 
@@ -1715,8 +1718,9 @@ class Hamiltonian:
             for gamma in gamma_indices:
                 if debug:
                     print(f"\natomidx={atomidx}, gamma={gamma}")
-                system_plus = copy.deepcopy(self.system)
-                system_plus.atomPos[atomidx, gamma] += delta
+                system_plus = copy.copy(self.system)
+                system_plus.atomPos = self.system.atomPos.clone()
+                system_plus.atomPos[atomidx, gamma] = system_plus.atomPos[atomidx, gamma] + delta
                 if debug:
                     print("Displaced atom position +delta (Bohr): " + f"{system_plus.atomPos[atomidx]}")
 
@@ -1734,20 +1738,19 @@ class Hamiltonian:
                     coupling=False,
                 )
 
-                with torch.no_grad():
-                    vals_plus = eigvals_no_order(ham_plus, kidx_gamma) * unit_scale
+                vals_plus = eigvals_no_order(ham_plus, kidx_gamma, requires_grad=True) * unit_scale
 
                 vb_diff = (vals_plus[vb_degen] - base_vals_out[vb_degen]) / delta
                 cb_diff = (vals_plus[cb_degen] - base_vals_out[cb_degen]) / delta
-                vb_cpl = torch.sqrt(torch.sum(vb_diff * vb_diff) / (len(vb_degen) * len(vb_degen))).item()
-                cb_cpl = torch.sqrt(torch.sum(cb_diff * cb_diff) / (len(cb_degen) * len(cb_degen))).item()
+                vb_cpl = torch.sqrt(torch.sum(vb_diff * vb_diff) / (len(vb_degen) * len(vb_degen)))
+                cb_cpl = torch.sqrt(torch.sum(cb_diff * cb_diff) / (len(cb_degen) * len(cb_degen)))
                 if debug:
                     print(f"VB energies +delta ({unit_label}): " + ", ".join([f"{vals_plus[i].item():.5e}" for i in vb_degen]))
                     print(f"VB energies base ({unit_label}): " + ", ".join([f"{base_vals_out[i].item():.5e}" for i in vb_degen]))
                     print(f"CB energies +delta ({unit_label}): " + ", ".join([f"{vals_plus[i].item():.5e}" for i in cb_degen]))
                     print(f"CB energies base ({unit_label}): " + ", ".join([f"{base_vals_out[i].item():.5e}" for i in cb_degen]))
-                    print(f"VB fd ({unit_label}/Bohr): {vb_cpl:.5e}")
-                    print(f"CB fd ({unit_label}/Bohr): {cb_cpl:.5e}")
+                    print(f"VB fd ({unit_label}/Bohr): {vb_cpl.item():.5e}")
+                    print(f"CB fd ({unit_label}/Bohr): {cb_cpl.item():.5e}")
 
                 ret_dict[(atomidx, gamma, qidx_gamma, 'vb')] = vb_cpl
                 ret_dict[(atomidx, gamma, qidx_gamma, 'cb')] = cb_cpl

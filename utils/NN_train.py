@@ -315,7 +315,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
         # add coupling loss
         if sys.fit_eph:
             with torch.no_grad():
-                calcCouplings_dict = hams[iSys].calcCouplings_diag_fd(debug=True)   # .calcCouplings()
+                calcCouplings_dict = hams[iSys].calcCouplings_diag_fd(debug=False)   # .calcCouplings()
                 print(calcCouplings_dict)
 
                 for atomidx in range(sys.getNAtoms()):
@@ -345,10 +345,11 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
                                 for qidx in range(sys.qpts.shape[0]):
                                     if (atomidx, gamma, qidx, band) in calcCouplings_dict:
                                         val = calcCouplings_dict[(atomidx, gamma, qidx, band)]
-                                        if abs(val) < 1e-9:
+                                        val_item = val.item() if torch.is_tensor(val) else val
+                                        if abs(val_item) < 1e-9:
                                             print("0   ", file=fwrite, end="")
                                         else:
-                                            print(f"{val:.5e}   ", file=fwrite, end="")
+                                            print(f"{val_item:.5e}   ", file=fwrite, end="")
                                     else:
                                         print("Not-fit   ", file=fwrite, end="")
                                 print("\n", file=fwrite, end="")
@@ -494,7 +495,7 @@ def trainIter_naive(model, systems, hams, optimizer, cachedMats_info=None, runti
 
         # Add in coupling loss
         if sys.fit_eph:
-            calcCouplings_dict = hams[iSys].calcCouplings_diag_fd(debug=True)   # .calcCouplings()
+            calcCouplings_dict = hams[iSys].calcCouplings_diag_fd(debug=False)   # .calcCouplings()
             # print(calcCouplings_dict)
 
             for atomidx in range(sys.getNAtoms()):
@@ -576,7 +577,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
 
                 # add in coupling loss
                 if sys.fit_eph:
-                    calcCouplings_dict = hams[iSys].calcCouplings_diag_fd(debug=True)   # .calcCouplings()
+                    calcCouplings_dict = hams[iSys].calcCouplings_diag_fd(debug=False)   # .calcCouplings()
 
                     for atomidx in range(sys.getNAtoms()):
                         for gamma in range(3):
