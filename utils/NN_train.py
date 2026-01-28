@@ -323,7 +323,9 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
                         for qidx in range(sys.qpts.shape[0]):
                             for band in ["vb", "cb"]:
                                 if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in sys.expCouplingBands):
-                                    coupling_MSE += ((abs(calcCouplings_dict[(atomidx, gamma, qidx, band)]) - abs(sys.expCouplingBands[(atomidx, gamma, qidx, band)])) ** 2 * sys.qptWeights[qidx]) * sys.getNKpts()
+                                    cpl_key = (atomidx, gamma, qidx, band)
+                                    cpl_weight = sys.expCouplingWeights.get(cpl_key, 1.0) if sys.expCouplingWeights is not None else 1.0
+                                    coupling_MSE += ((abs(calcCouplings_dict[cpl_key]) - abs(sys.expCouplingBands[cpl_key])) ** 2 * sys.qptWeights[qidx] * cpl_weight) * sys.getNKpts()
                                 else: 
                                     print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
 
@@ -418,7 +420,9 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
                 for qidx in range(bulkSystem.qpts.shape[0]):
                     for band in ["vb", "cb"]:
                         if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in bulkSystem.expCouplingBands):
-                            couplingLoss += ((calcCouplings_dict[(atomidx, gamma, qidx, band)] - bulkSystem.expCouplingBands[(atomidx, gamma, qidx, band)]) ** 2 * bulkSystem.qptWeights[qidx])  # Similarly, we don't divide by nkpts here. In the evaluation mode and serial versions, the penalty is multiplied with nkpts
+                            cpl_key = (atomidx, gamma, qidx, band)
+                            cpl_weight = bulkSystem.expCouplingWeights.get(cpl_key, 1.0) if bulkSystem.expCouplingWeights is not None else 1.0
+                            couplingLoss += ((calcCouplings_dict[cpl_key] - bulkSystem.expCouplingBands[cpl_key]) ** 2 * bulkSystem.qptWeights[qidx] * cpl_weight)  # Similarly, we don't divide by nkpts here. In the evaluation mode and serial versions, the penalty is multiplied with nkpts
                         else: 
                             print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
         systemKptLoss += couplingLoss
@@ -503,7 +507,9 @@ def trainIter_naive(model, systems, hams, optimizer, cachedMats_info=None, runti
                     for qidx in range(sys.qpts.shape[0]):
                         for band in ["vb", "cb"]:
                             if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in sys.expCouplingBands):
-                                trainLoss += ((abs(calcCouplings_dict[(atomidx, gamma, qidx, band)]) - abs(sys.expCouplingBands[(atomidx, gamma, qidx, band)])) ** 2 * sys.qptWeights[qidx]) * sys.getNKpts()
+                                cpl_key = (atomidx, gamma, qidx, band)
+                                cpl_weight = sys.expCouplingWeights.get(cpl_key, 1.0) if sys.expCouplingWeights is not None else 1.0
+                                trainLoss += ((abs(calcCouplings_dict[cpl_key]) - abs(sys.expCouplingBands[cpl_key])) ** 2 * sys.qptWeights[qidx] * cpl_weight) * sys.getNKpts()
                             else: 
                                 print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
 
@@ -584,7 +590,9 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                             for qidx in range(sys.qpts.shape[0]):
                                 for band in ["vb", "cb"]:
                                     if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in sys.expCouplingBands):
-                                        systemKptLoss += ((abs(calcCouplings_dict[(atomidx, gamma, qidx, band)]) - abs(sys.expCouplingBands[(atomidx, gamma, qidx, band)])) ** 2 * sys.qptWeights[qidx]) * sys.getNKpts()
+                                        cpl_key = (atomidx, gamma, qidx, band)
+                                        cpl_weight = sys.expCouplingWeights.get(cpl_key, 1.0) if sys.expCouplingWeights is not None else 1.0
+                                        systemKptLoss += ((abs(calcCouplings_dict[cpl_key]) - abs(sys.expCouplingBands[cpl_key])) ** 2 * sys.qptWeights[qidx] * cpl_weight) * sys.getNKpts()
                                         # Multiplied by nkpts here for consistency with the evaluation mode and the parallel version
                                     else: 
                                         print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")

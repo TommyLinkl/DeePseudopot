@@ -144,6 +144,7 @@ class BulkSystem:
         self.nBands = nBands
         self.maxKE = maxKE
         self.expCouplingBands = None
+        self.expCouplingWeights = None
         self.bandWeights = None
         self.BS_plot_center = BS_plot_center
         self.BS_plot_CBVB_range = BS_plot_CBVB_range
@@ -288,6 +289,8 @@ class BulkSystem:
         #    self.expCouplingBands = torch.tensor(np.loadtxt(fread)[:, 1:], dtype=torch.float64)
 
         self.expCouplingBands = {}
+        self.expCouplingWeights = {}
+        n_qpts = self.qpts.shape[0] if hasattr(self, "qpts") and self.qpts is not None else None
         with open(expCplFilename, 'r') as fread:
             lines = fread.readlines()
             for lidx, line in enumerate(lines):
@@ -318,8 +321,30 @@ class BulkSystem:
                         raise ValueError("unexpected value of gamma")
                     
                     sp = line.split()
-                    for qidx in range(len(sp)):
-                        self.expCouplingBands[(atomidx, gamma, qidx, bandid)] = float(sp[qidx])
+                    if len(sp) == 0:
+                        continue
+
+                    values = []
+                    weights = []
+                    if len(sp) == 1:
+                        values = [float(sp[0])]
+                        weights = [1.0]
+                    elif len(sp) == 2 and (n_qpts is None or n_qpts == 1):
+                        values = [float(sp[0])]
+                        weights = [float(sp[1])]
+                    elif n_qpts is not None and len(sp) == n_qpts:
+                        values = [float(v) for v in sp]
+                        weights = [1.0] * n_qpts
+                    elif n_qpts is not None and len(sp) == 2 * n_qpts:
+                        values = [float(sp[i]) for i in range(0, len(sp), 2)]
+                        weights = [float(sp[i]) for i in range(1, len(sp), 2)]
+                    else:
+                        values = [float(v) for v in sp]
+                        weights = [1.0] * len(values)
+
+                    for qidx, (val, wgt) in enumerate(zip(values, weights)):
+                        self.expCouplingBands[(atomidx, gamma, qidx, bandid)] = val
+                        self.expCouplingWeights[(atomidx, gamma, qidx, bandid)] = wgt
 
 
     def setExpDefPot(self, expDefPotFilename, version='v2'):
