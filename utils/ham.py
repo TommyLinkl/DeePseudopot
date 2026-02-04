@@ -1614,20 +1614,21 @@ class Hamiltonian:
         base_vals=None,
     ):
         """
-        Compute diagonal e-ph couplings using one-sided finite differences at Gamma.
+        Compute diagonal e-ph couplings using one-sided finite differences at Gamma (q=0).
 
         Evaluates band-edge energy derivatives with respect to atomic 
         displacements by constructing one displaced system per atom
         and direction: +delta in Cartesian coordinates (x, y, z). The
         displacement is applied to the scaled atomic positions in
         system.atomPos (Bohr). For each displaced system, it computes the
-        eigenvalues at the Gamma k-point and forms the finite difference:
+        eigenvalues at the bandgap k-point (idxGap) and forms the finite difference:
             dE/dR = (E_plus - E_base) / delta
             coupling = sqrt( sum((dE/dR)^2) / (d * d) )  over a dim-d degenerate
               subspace
 
         The couplings are returned for the band indices specified in the input
-        files (idxVB/idxCB) at the Gamma q-point. Energies are converted to eV.
+        files (idxVB/idxCB) at the Gamma q-point and the bandgap k-point
+        (idxGap). Energies are converted to eV.
         This routine returns coupling magnitudes in eV/Bohr.
         
         The original system is not modified; each displacement is applied to a
@@ -1661,16 +1662,21 @@ class Hamiltonian:
             return sorted(idxs)
 
         zero_vec = torch.zeros(3, dtype=self.system.kpts.dtype)
-        if self.system.getNKpts() != 1 or not torch.allclose(self.system.kpts[0], zero_vec, atol=1e-12):
-            raise ValueError("calcCouplings_diag_fd requires k-point list to be only Gamma")
         if self.system.getNQpts() != 1 or not torch.allclose(self.system.qpts[0], zero_vec, atol=1e-12):
             raise ValueError("calcCouplings_diag_fd requires q-point list to be only Gamma")
 
-        kidx_gamma = 0
+        kidx_gap = getattr(self, "idx_gap", None)
+        if kidx_gap is None:
+            kidx_gap = getattr(self.system, "idxGap", None)
+        if not isinstance(kidx_gap, int):
+            raise ValueError("calcCouplings_diag_fd requires a valid idxGap for the bandgap k-point")
+        if not (0 <= kidx_gap < self.system.getNKpts()):
+            raise ValueError("calcCouplings_diag_fd requires idxGap to be within the k-point list")
+
         qidx_gamma = 0
 
         if base_vals is None:
-            base_vals = eigvals_no_order(self, kidx_gamma, requires_grad=True)
+            base_vals = eigvals_no_order(self, kidx_gap, requires_grad=True)
         else:
             base_vals = torch.as_tensor(
                 base_vals,
@@ -1690,12 +1696,13 @@ class Hamiltonian:
         if debug:
             print("\n[calcCouplings_diag_fd] Debug info")
             print("Coupling units: eV/Bohr")
-            print(f"delta (Bohr): {delta}, Gamma kidx: {kidx_gamma}, Gamma qidx: {qidx_gamma}")
+            print(f"delta (Bohr): {delta}, gap kidx: {kidx_gap}, Gamma qidx: {qidx_gamma}")
             print(f"Inputs of idxVB: {self.system.idxVB}, idxCB: {self.system.idxCB}")
             if not self.SObool: 
                 print(f"True idxVB (without 2x interleaving): {int((self.system.idxVB-1)/2)}, idxCB: {int(self.system.idxCB/2)}")
             print(f"VB degenerate indices: {vb_degen}. Energies ({unit_label}): " + ", ".join([f"{base_vals_out[i].item():.5e}" for i in vb_degen]))
             print(f"CB degenerate indices: {cb_degen}. Energies ({unit_label}): " + ", ".join([f"{base_vals_out[i].item():.5e}" for i in cb_degen]))
+            print(f"Gap k-point (Bohr^-1): {self.system.kpts[kidx_gap]}")
             print("Atom positions (scaled, Bohr):")
             print(self.system.atomPos)
 
@@ -1738,7 +1745,7 @@ class Hamiltonian:
                     coupling=False,
                 )
 
-                vals_plus = eigvals_no_order(ham_plus, kidx_gamma, requires_grad=True) * unit_scale
+                vals_plus = eigvals_no_order(ham_plus, kidx_gap, requires_grad=True) * unit_scale
 
                 vb_diff = (vals_plus[vb_degen] - base_vals_out[vb_degen]) / delta
                 cb_diff = (vals_plus[cb_degen] - base_vals_out[cb_degen]) / delta
