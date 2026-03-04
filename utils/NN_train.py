@@ -10,6 +10,7 @@ mpl.rcParams['lines.markersize'] = 3
 import copy
 import random
 import shutil
+import os
 
 torch.set_default_dtype(torch.float64)
 torch.set_num_threads(1)
@@ -367,7 +368,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
     fig.savefig(BSplotFilename.replace('.pdf', '.png'))
     plt.close('all')
     torch.cuda.empty_cache()
-    return total_BS_MSE + totalPenalty + defPot_MSE
+    return total_BS_MSE + totalPenalty + defPot_MSE + coupling_MSE
 
 
 def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cachedMats_info=None, prevBS=None, verbosity=0):
@@ -398,7 +399,7 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
         # print(f"Done penalizing the non-decaying pp by {penalty}")
 
     # Add in deformation potential
-    if bulkSystem.fit_defPot: 
+    if bulkSystem.fit_defPot and (kidx == int(bulkSystem.defPotInfo[0][0]) or (kidx == int(bulkSystem.defPotInfo[0][2]))): 
         calcDefPots = ham.calcDefPots(cachedMats_info=cachedMats_info, requires_grad=True, verbosity=0)
 
         refDefPots = torch.tensor(bulkSystem.defPotInfo[:,5])
@@ -992,6 +993,11 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth', f'{resultsFolder}best_PPmodel.pth')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf', f'{resultsFolder}best_plotPP.pdf')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf', f'{resultsFolder}best_plotBS.pdf')
+
+            # remove iteration files to save storage
+            os.remove(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf')
+            os.remove(f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf')
+            os.remove(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth')
 
             for ham in hams: 
                 for atomType in ham.PPparams:
