@@ -33,7 +33,7 @@ def read_NNConfigFile(filename):
                     config[key] = bool(int(value))
                 elif key in ['nSystem', 'num_cores', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter', 'pre_adjust_moves', 'mc_perturb_mode']:
                     config[key] = int(value)
-                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2', 'mc_percentage', 'mc_beta', 'pre_adjust_stepSize', 'penalize_starting', 'penalize_lambda']:
+                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2', 'mc_percentage', 'mc_beta', 'pre_adjust_stepSize', 'penalize_starting', 'penalize_lambda', 'penalize_mag_threshold', 'penalize_mag_lambda']:
                     config[key] = float(value)
                 elif key in ['hiddenLayers']: 
                     config[key] = [int(x) for x in value.split()]
@@ -63,6 +63,9 @@ def read_NNConfigFile(filename):
     if config['memory_flag']: 
         print("\nWARNING: MEMORY_FLAG is ON. Please check to make sure that the script is run with:\n\tmprof run --output <mem_output_file> main.py <inputsFolder> <resultsFolder>\n\tmprof plot -o <mem_plot_file> <mem_output_file>\n")
     print("\nRUNTIME_FLAG is ON") if config['runtime_flag'] else None
+
+    if ('penalize_mag_threshold' in config) and (config['penalize_mag_threshold'] > 100.0):
+        print("\tWARNING: 'penalize_mag_threshold' is above 100. Extremely large values can cause numerical instability in the current mag_penalty implementation.\n")
 
     if config['init_Zunger_num_epochs']>0:
         if ('init_Zunger_plotEvery' not in config) or ('init_Zunger_optimizer_lr' not in config) or ('init_Zunger_scheduler_gamma' not in config): 

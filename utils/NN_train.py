@@ -248,6 +248,18 @@ def penalty_loss(f_x, x, penalize_start=4.5, lambda_penalty=1.0, penalize=True):
     return penalty
 
 
+def mag_penalty_loss(f_x, f_x_max, lambda_penalty=1.0, penalize=True):
+    if (not penalize) or (lambda_penalty <= 0):
+        return torch.tensor(0.0)
+
+    k = 10.0   # Sharpness of ramp (higher = steeper transition)
+    abs_f_x = torch.abs(f_x)
+    S_x = 1 / (1 + torch.exp(-k * (abs_f_x - f_x_max)))
+    excess = torch.relu(abs_f_x - f_x_max)
+    mag_penalty = lambda_penalty * torch.mean(S_x * excess)
+    return mag_penalty
+
+
 def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None, writeBS=False, resultsFolder=""): 
     if (model is not None): 
         print(f"\t{runName}: Evaluating band structures using the NN-pp model. ")
@@ -259,6 +271,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
     total_BS_MSE = 0
     true_BS_MSE = 0
     totalPenalty = 0
+    totalMagPenalty = 0
     defPot_MSE = 0
     coupling_MSE = 0
     for iSys, sys in enumerate(systems):
@@ -301,6 +314,11 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
             v_q = model(q)
             penalty = penalty_loss(v_q, q, hams[iSys].NNConfig["penalize_starting"], hams[iSys].NNConfig["penalize_lambda"]*sys.getNKpts()).detach()
             totalPenalty += penalty
+        if ("penalize_mag_threshold" in hams[iSys].NNConfig) and ("penalize_mag_lambda" in hams[iSys].NNConfig) and (hams[iSys].NNConfig["penalize_mag_lambda"] > 0) and (model is not None):
+            q = torch.linspace(0.0, 12.0, 240).view(-1,1)
+            v_q = model(q)
+            mag_penalty = mag_penalty_loss(v_q, hams[iSys].NNConfig["penalize_mag_threshold"], hams[iSys].NNConfig["penalize_mag_lambda"]*sys.getNKpts()).detach()
+            totalMagPenalty += mag_penalty
 
         # Add in deformation potential
         if sys.fit_defPot: 
@@ -362,13 +380,14 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
         print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... ")
 
     fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
-    print(f"\t{runName}: Finished evaluating all band structures with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. Total_BS_MSE = {total_BS_MSE:.4f}. Penalty = {totalPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}. Coupling_MSE = {coupling_MSE:.4f}. ")
-    fig.suptitle(f"{runName}: total_BS_MSE = {total_BS_MSE:.4f}. Penalty = {totalPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}.")
+    totalPenaltyAll = totalPenalty + totalMagPenalty
+    print(f"\t{runName}: Finished evaluating all band structures with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. Total_BS_MSE = {total_BS_MSE:.4f}. DecayPenalty = {totalPenalty:.4f}. MagPenalty = {totalMagPenalty:.4f}. TotalPenalty = {totalPenaltyAll:.4f}. defPot_MSE = {defPot_MSE:.4f}. Coupling_MSE = {coupling_MSE:.4f}. ")
+    fig.suptitle(f"{runName}: total_BS_MSE = {total_BS_MSE:.4f}. DecayPenalty = {totalPenalty:.4f}. MagPenalty = {totalMagPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}.")
     fig.savefig(BSplotFilename)
     fig.savefig(BSplotFilename.replace('.pdf', '.png'))
     plt.close('all')
     torch.cuda.empty_cache()
-    return total_BS_MSE + totalPenalty + defPot_MSE + coupling_MSE
+    return total_BS_MSE + totalPenaltyAll + defPot_MSE + coupling_MSE
 
 
 def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cachedMats_info=None, prevBS=None, verbosity=0):
@@ -397,6 +416,12 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
         penalty = penalty_loss(v_q, q, ham.NNConfig["penalize_starting"], ham.NNConfig["penalize_lambda"])
         systemKptLoss += penalty   # We don't divide by nkpts here. In the evaluation mode and serial versions, the penalty is multiplied with nkpts
         # print(f"Done penalizing the non-decaying pp by {penalty}")
+    if ("penalize_mag_threshold" in ham.NNConfig) and ("penalize_mag_lambda" in ham.NNConfig) and (ham.NNConfig["penalize_mag_lambda"] > 0):
+        q = torch.linspace(0.0, 12.0, 240).view(-1,1)
+        v_q = model(q)
+
+        mag_penalty = mag_penalty_loss(v_q, ham.NNConfig["penalize_mag_threshold"], ham.NNConfig["penalize_mag_lambda"])
+        systemKptLoss += mag_penalty
 
     # Add in deformation potential
     if bulkSystem.fit_defPot and (kidx == int(bulkSystem.defPotInfo[0][0]) or (kidx == int(bulkSystem.defPotInfo[0][2]))): 
@@ -487,6 +512,12 @@ def trainIter_naive(model, systems, hams, optimizer, cachedMats_info=None, runti
             penalty = penalty_loss(v_q, q, hams[iSys].NNConfig["penalize_starting"], hams[iSys].NNConfig["penalize_lambda"]*sys.getNKpts())
             trainLoss += penalty
             # print(f"Done penalizing the non-decaying pp by {penalty}")
+        if ("penalize_mag_threshold" in hams[iSys].NNConfig) and ("penalize_mag_lambda" in hams[iSys].NNConfig) and (hams[iSys].NNConfig["penalize_mag_lambda"] > 0):
+            q = torch.linspace(0.0, 12.0, 240).view(-1,1)
+            v_q = model(q)
+
+            mag_penalty = mag_penalty_loss(v_q, hams[iSys].NNConfig["penalize_mag_threshold"], hams[iSys].NNConfig["penalize_mag_lambda"]*sys.getNKpts())
+            trainLoss += mag_penalty
 
         # Add in deformation potential
         if sys.fit_defPot: 
@@ -570,6 +601,12 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                     penalty = penalty_loss(v_q, q, hams[iSys].NNConfig["penalize_starting"], hams[iSys].NNConfig["penalize_lambda"]*sys.getNKpts())     # Multiplied by nkpts here for consistency with the evaluation mode and the parallel version
                     systemKptLoss += penalty
                     # print(f"Done penalizing the non-decaying pp by {penalty}")
+                if ("penalize_mag_threshold" in hams[iSys].NNConfig) and ("penalize_mag_lambda" in hams[iSys].NNConfig) and (hams[iSys].NNConfig["penalize_mag_lambda"] > 0):
+                    q = torch.linspace(0.0, 12.0, 240).view(-1,1)
+                    v_q = model(q)
+
+                    mag_penalty = mag_penalty_loss(v_q, hams[iSys].NNConfig["penalize_mag_threshold"], hams[iSys].NNConfig["penalize_mag_lambda"]*sys.getNKpts())   # Multiplied by nkpts here for consistency with the evaluation mode and the parallel version
+                    systemKptLoss += mag_penalty
 
                 # add in defPot loss
                 if sys.fit_defPot: 
