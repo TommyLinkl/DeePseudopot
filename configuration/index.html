@@ -811,10 +811,21 @@
 <td>float</td>
 <td>Strength of the penalty that discourages deviations from the initialization curve beyond <code>penalize_starting</code>. Increase to keep the NN closer to the analytic prior.</td>
 </tr>
+<tr>
+<td><code>penalize_mag_threshold</code></td>
+<td>float</td>
+<td>Global threshold applied independently to each atom-channel value of the reciprocal-space pseudopotential. The magnitude penalty acts on the excess <code>max(|v(G)| - penalize_mag_threshold, 0)</code> over the full sampled range <code>[0, 12]</code> Bohr<span class="arithmatex">\(^{-1}\)</span>.</td>
+</tr>
+<tr>
+<td><code>penalize_mag_lambda</code></td>
+<td>float</td>
+<td>Prefactor for the magnitude penalty. Set <code>&lt;= 0</code> to disable this term entirely.</td>
+</tr>
 </tbody>
 </table>
 <blockquote>
 <p>Tip: browse <code>utils/nn_models.py</code> to see the full catalog and the mathematical form of each <code>PPmodel</code>. The suffixes encode activation (<code>relu</code>, <code>celu</code>, <code>sigmoid</code>), initializer (<code>xavier</code>, <code>HeInit</code>, <code>RandInit</code>), and whether batch norm (<code>BN</code>), dropout, or decay gates are included.</p>
+<p>Numerical note: extremely large <code>penalize_mag_threshold</code> values are not useful in practice and can trigger numerical instability in the current implementation. The code emits a warning when <code>penalize_mag_threshold &gt; 100</code>.</p>
 </blockquote>
 <h2 id="initialization-calculation-settings">Initialization Calculation Settings</h2>
 <p>Additional guidance on these options appears in <a href="../workflows/#3-initialization-strategies">Initialization Strategies</a>.</p>

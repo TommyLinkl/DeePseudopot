@@ -945,6 +945,7 @@ V_{\text{Zunger}}(G) = \frac{a_0\,(G^2 - a_1)}{a_2\,\exp(a_3 G^2) - 1}.
 <li>Provide an <code>optimizer</code> (<code>adam</code>, <code>sgd</code>, <code>adamw</code>, etc.), <code>optimizer_lr</code>, <code>scheduler_gamma</code>, and <code>schedulerStep</code>. </li>
 <li>Optional <code>perturbEvery</code> injects random kicks to escape shallow local minima. </li>
 <li>Expect periodic <code>epoch_&lt;N&gt;_*</code> checkpoints plus <code>plotBS</code>/<code>plotPP</code> plots.</li>
+<li>The total training objective can combine the band-structure loss with optional reciprocal-space penalties (<code>penalize_lambda</code>, <code>penalize_mag_lambda</code>) and, when enabled, deformation-potential or coupling terms.</li>
 </ul>
 <table>
 <thead>
