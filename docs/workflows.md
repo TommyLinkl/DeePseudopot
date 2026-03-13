@@ -87,6 +87,7 @@ Highly recommended when using a neural network local potential.
 - Provide an `optimizer` (`adam`, `sgd`, `adamw`, etc.), `optimizer_lr`, `scheduler_gamma`, and `schedulerStep`. 
 - Optional `perturbEvery` injects random kicks to escape shallow local minima. 
 - Expect periodic `epoch_<N>_*` checkpoints plus `plotBS`/`plotPP` plots.
+- The total training objective can combine the band-structure loss with optional reciprocal-space penalties (`penalize_lambda`, `penalize_mag_lambda`) and, when enabled, deformation-potential or coupling terms.
 
 | Key | Type | Required? | Notes |
 | --- | --- | --- | --- |

@@ -45,8 +45,12 @@ For a broader discussion of the available NN architectures and analytic forms, s
 | `PPmodel_scale` | list of float | Exclusive to `Net_celu_HeInit_scale_decayGaussian`. Provide one scaling factor per atom species to bias certain channels (e.g., heavier atoms) during initialization. |
 | `penalize_starting` | float | Lower bound (in Bohr$^{-1}$) of the reciprocal-space range where the penalty is applied. |
 | `penalize_lambda` | float | Strength of the penalty that discourages deviations from the initialization curve beyond `penalize_starting`. Increase to keep the NN closer to the analytic prior. |
+| `penalize_mag_threshold` | float | Global threshold applied independently to each atom-channel value of the reciprocal-space pseudopotential. The magnitude penalty acts on the excess `max(|v(G)| - penalize_mag_threshold, 0)` over the full sampled range `[0, 12]` Bohr$^{-1}$. |
+| `penalize_mag_lambda` | float | Prefactor for the magnitude penalty. Set `<= 0` to disable this term entirely. |
 
 > Tip: browse `utils/nn_models.py` to see the full catalog and the mathematical form of each `PPmodel`. The suffixes encode activation (`relu`, `celu`, `sigmoid`), initializer (`xavier`, `HeInit`, `RandInit`), and whether batch norm (`BN`), dropout, or decay gates are included.
+
+> Numerical note: extremely large `penalize_mag_threshold` values are not useful in practice and can trigger numerical instability in the current implementation. The code emits a warning when `penalize_mag_threshold > 100`.
 
 ## Initialization Calculation Settings 
 

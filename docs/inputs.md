@@ -7,6 +7,7 @@ DeepPseudopot consumes a structured bundle of configuration files and reference 
 
 ## Quick Checklist
 - [ ] Select a [workflow mode](workflows.md). Populate `NN_config.par` using the categories documented in [Global Calculations Settings](configuration.md).
+- [ ] If you want reciprocal-space regularization, set the optional penalty keys in `NN_config.par` such as `penalize_starting`, `penalize_lambda`, `penalize_mag_threshold`, and `penalize_mag_lambda`.
 - [ ] Prepare each `system_X` family (`system_X.par`, `input_X.par`, `kpoints_X.par`, `bandWeights_X.par`, `expBandStruct_X.par`) following [System-specific Data Files](system-data.md).
 - [ ] Add initialization sources (`init_<atom>Params.par`, `init_qSpace_pot.par`, `init_PPmodel.pth`). 
 - [ ] Stage optional Monte Carlo, electron-phonon coupling, or reciprocal-space inputs, etc. only when the associated flags in `NN_config.par` or `input_X.par` are enabled.
