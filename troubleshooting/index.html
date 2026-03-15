@@ -581,7 +581,7 @@
 <tr>
 <td><code>separateKptGrad</code>, <br><code>checkpoint</code></td>
 <td>Memory relief</td>
-<td>Enable <code>separateKptGrad = 1</code> to process <span class="arithmatex">\(\mathbf{k}\)</span>-points sequentially; add <code>checkpoint = 1</code> if memory pressure persists (expect slower runtimes).</td>
+<td>Enable <code>separateKptGrad = 1</code> to process <span class="arithmatex">\(\mathbf{k}\)</span>-points sequentially; add <code>checkpoint = 1</code> if memory pressure persists (expect slower runtimes). This changes only how the band loss is accumulated; defPot and coupling targets remain system-level terms in gradient runs.</td>
 </tr>
 </tbody>
 </table>

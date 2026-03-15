@@ -728,7 +728,7 @@
 <tr>
 <td><code>separateKptGrad</code></td>
 <td>bool (0/1)</td>
-<td>When <code>1</code>, separates the loss function for each <span class="arithmatex">\(\mathbf{k}\)</span>-point and gradient accumulation for the parameters. Recommended for all calculations. Slightly increases cost in runtime but drastically shrinks peak memory usage.</td>
+<td>When <code>1</code>, separates the band-structure loss by each <span class="arithmatex">\(\mathbf{k}\)</span>-point and accumulates gradients manually. Recommended for memory-heavy gradient runs. Slightly increases runtime but drastically shrinks peak memory usage. Auxiliary observables such as deformation potentials and coupling targets are still evaluated as global system-level loss terms, so they remain consistent with the non-separated workflow.</td>
 </tr>
 <tr>
 <td><code>checkpoint</code></td>

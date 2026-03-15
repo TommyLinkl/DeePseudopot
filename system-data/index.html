@@ -963,7 +963,7 @@ As -0.125 -0.125 -0.125
 <td><code>fit_defPot</code></td>
 <td>bool</td>
 <td>Optional</td>
-<td>Enables deformation potential fitting and triggers <code>expDefPot_X.par</code> ingestion.</td>
+<td>Enables deformation potential fitting and triggers <code>expDefPot_X.par</code> ingestion in the gradient-based workflows.</td>
 </tr>
 <tr>
 <td><code>relE_bIdx</code></td>
@@ -976,7 +976,7 @@ As -0.125 -0.125 -0.125
 <h2 id="2-spectral-and-weighting-data">2. Spectral and Weighting Data</h2>
 <h3 id="kpoints_xpar"><code>kpoints_X.par</code></h3>
 <p>Lists reciprocal-space sampling for each system. </p>
-<p>Format: <code>k_x k_y k_z weight</code> per line, with <strong>fractional coordinates</strong> relative to the reciprocal lattice. Weights need not be normalized; the loader normalizes internally.</p>
+<p>Format: <code>k_x k_y k_z weight</code> per line, with <strong>fractional coordinates</strong> relative to the reciprocal lattice. Weights are used as supplied in the band-structure loss; the current loader does not renormalize them automatically. If you want averaging-style weights, normalize them manually yourself in the input file.</p>
 <p><strong>Optional companion</strong>: <code>kpoints_X_orderMatrix.par</code> (same base name) provides a fixed band-order matrix with shape <code>(nKpts × nBands)</code>. When present, DeepPseudopot uses it to track band connectivity, bypassing the automatic sorting heuristics.</p>
 <h3 id="bandweights_xpar"><code>bandWeights_X.par</code></h3>
 <p>Single-column file with <code>nBands</code> entries. Values scale the per-band MSE contribution inside the training loss. Any mismatch between length and <code>nBands</code> results in an input error.</p>
@@ -995,7 +995,10 @@ cb-cb coupling elements. polarization of derivative = z
 </code></pre></div>
 <code>BulkSystem.setExpCouplings</code> parses each block and stores couplings as <code>(atom_idx, polarization, q_index, band_id)</code> tuples. Supply one file per system or polarization scenario and ensure that the band ordering matches <code>expBandStruct_X.par</code>.</p>
 <h3 id="expdefpot_xpar"><code>expDefPot_X.par</code></h3>
-<p>Sets the deformation potential target values. A table with seven columns — <code>kidx_VB  bidx_VB  kidx_CB  bidx_CB  latConst_ratio  defPot_gap(eV)  weight</code> (first four columns must be integers). </p>
+<p>Sets deformation-potential targets as fixed-state transitions. The file is a table with seven columns:
+<code>kidx_VB  bidx_VB  kidx_CB  bidx_CB  latConst_ratio  defPot_gap(eV)  weight</code></p>
+<p>The first four columns must be integers. <code>kidx_VB</code>/<code>bidx_VB</code> and <code>kidx_CB</code>/<code>bidx_CB</code> identify the two endpoint states of the transition. The two states may be at the same k-point or at different k-points. The final <code>weight</code> column is the explicit weighting for that target row; these targets are not reweighted by <code>kpoints_X.par</code>.</p>
+<p>In the gradient-based workflows, these rows are handled consistently in serial, <code>separateKptGrad</code>, and multiprocessing runs. Each row is treated as a system-level observable rather than being attached to the current k-point loop index.</p>
 <h2 id="3-initialization-files">3. Initialization Files</h2>
 <h3 id="init_atomparamspar"><code>init_&lt;atom&gt;Params.par</code></h3>
 <p>Per-species coefficient vectors for the analytic Zunger form. The default ordering is nine parameters:</p>
@@ -1054,7 +1057,7 @@ Each column after <code>q</code> follows the atom order defined in <code>system_
 <tr>
 <td><code>defPotWeight</code>, <br><code>writePerIter</code></td>
 <td><code>defPotWeight = 0.5</code></td>
-<td>Optional floats that reweight defect potentials or control logging cadence.</td>
+<td>Optional floats that reweight deformation potentials or control logging cadence. The current Monte Carlo code still uses its older defPot interface rather than the row-based <code>expDefPot_X.par</code> transition table described above.</td>
 </tr>
 </tbody>
 </table>

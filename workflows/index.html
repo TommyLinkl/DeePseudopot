@@ -946,6 +946,7 @@ V_{\text{Zunger}}(G) = \frac{a_0\,(G^2 - a_1)}{a_2\,\exp(a_3 G^2) - 1}.
 <li>Optional <code>perturbEvery</code> injects random kicks to escape shallow local minima. </li>
 <li>Expect periodic <code>epoch_&lt;N&gt;_*</code> checkpoints plus <code>plotBS</code>/<code>plotPP</code> plots.</li>
 <li>The total training objective can combine the band-structure loss with optional reciprocal-space penalties (<code>penalize_lambda</code>, <code>penalize_mag_lambda</code>) and, when enabled, deformation-potential or coupling terms.</li>
+<li>In gradient runs, deformation potentials are treated as global transition observables. Same-k and different-k rows from <code>expDefPot_X.par</code> are therefore handled consistently in serial, <code>separateKptGrad</code>, and multiprocessing modes.</li>
 </ul>
 <table>
 <thead>
@@ -995,6 +996,7 @@ V_{\text{Zunger}}(G) = \frac{a_0\,(G^2 - a_1)}{a_2\,\exp(a_3 G^2) - 1}.
 <li>Set <code>mc_bool = 1</code> and <code>max_num_epochs = 0</code>. </li>
 <li>Tune <code>mc_iter</code>, <code>mc_percentage</code>, <code>mc_beta</code>, and helper files (<code>mcOpts*.par</code>, <code>&lt;atom&gt;ParamSteps.par</code>, <code>mc_beta_schedule</code>) to balance exploration and acceptance. </li>
 <li>Checkpoints are written in <code>mc_checkpoint.pth</code>/<code>best_pot.*</code> that can be used in future runs. </li>
+<li>The Monte Carlo code still uses its legacy defPot path. If you need row-based same-k / different-k transition targets from <code>expDefPot_X.par</code>, use the gradient workflow.</li>
 </ul>
 <table>
 <thead>
