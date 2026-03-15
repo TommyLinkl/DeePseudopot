@@ -17,7 +17,7 @@ The parser accepts `key = value` pairs, ignores blank lines, and strips anything
 | --- | --- | --- |
 | `num_cores` | int | `0` disables multiprocessing (default). A positive value spawns that many worker processes for Hamiltonian assembly and caches SO/NL matrices in shared memory. <br>The value is clipped to the available CPU count. |
 | `SHOWPLOTS` | bool (0/1) | `1` opens interactive Matplotlib windows for band/potential plots. Set `0` for cluster or batch runs to avoid GUI errors. |
-| `separateKptGrad` | bool (0/1) | When `1`, separates the loss function for each $\mathbf{k}$-point and gradient accumulation for the parameters. Recommended for all calculations. Slightly increases cost in runtime but drastically shrinks peak memory usage. |
+| `separateKptGrad` | bool (0/1) | When `1`, separates the band-structure loss by each $\mathbf{k}$-point and accumulates gradients manually. Recommended for memory-heavy gradient runs. Slightly increases runtime but drastically shrinks peak memory usage. Auxiliary observables such as deformation potentials and coupling targets are still evaluated as global system-level loss terms, so they remain consistent with the non-separated workflow. |
 | `checkpoint` | bool (0/1) | Enables PyTorch gradient checkpointing. Helpful in cases when memory limit is a major issue. Not generally recommended. Particularly, if both `checkpoint` and `separateKptGrad` are `1`, a warning is emitted because the run becomes slow. |
 | `memory_flag` | bool (0/1) | Toggle for generating memory usage reports for debugging (run with `mprof` to generate the report and plots). |
 | `runtime_flag` | bool (0/1) | Toggle for wall-clock timers and debugging print statements to stdout. |

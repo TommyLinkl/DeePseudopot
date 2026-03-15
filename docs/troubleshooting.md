@@ -9,7 +9,7 @@ Use this page to monitor in-flight runs, restart cleanly after interruptions, an
 | Stdout / stderr logs | All runs | Tail logs in real time or redirect to `run.log` to capture warnings and configuration echoes. |
 | `epoch_<N>_PPmodel.pth` | Gradient runs | Copy the desired epoch checkpoint to `<inputs>/init_PPmodel.pth` (and `init_AdamState.pth` if preserving optimizer state) to resume from that epoch. |
 | `best_pot.*`, <br>`best_plotPP.*` | Monte Carlo | Promote the chosen file to `init_PPmodel.pth` and change the parameters to rerun for the next stage. |
-| `separateKptGrad`, <br>`checkpoint` | Memory relief | Enable `separateKptGrad = 1` to process $\mathbf{k}$-points sequentially; add `checkpoint = 1` if memory pressure persists (expect slower runtimes). |
+| `separateKptGrad`, <br>`checkpoint` | Memory relief | Enable `separateKptGrad = 1` to process $\mathbf{k}$-points sequentially; add `checkpoint = 1` if memory pressure persists (expect slower runtimes). This changes only how the band loss is accumulated; defPot and coupling targets remain system-level terms in gradient runs. |
 
 ## Quick Fixes
 

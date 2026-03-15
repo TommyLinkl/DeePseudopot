@@ -260,6 +260,69 @@ def mag_penalty_loss(f_x, f_x_max, lambda_penalty=1.0, penalize=True):
     return mag_penalty
 
 
+def compute_global_system_losses(model, bulkSystem, ham, cachedMats_info=None, requires_grad=True, coupling_debug=False):
+    if model is not None:
+        device = next(model.parameters()).device
+    else:
+        device = bulkSystem.kpts.device
+
+    loss_terms = {
+        "penalty": torch.tensor(0.0, dtype=torch.float64, device=device),
+        "mag_penalty": torch.tensor(0.0, dtype=torch.float64, device=device),
+        "defpot": torch.tensor(0.0, dtype=torch.float64, device=device),
+        "coupling": torch.tensor(0.0, dtype=torch.float64, device=device),
+    }
+
+    if ("penalize_starting" in ham.NNConfig) and ("penalize_lambda" in ham.NNConfig) and (model is not None):
+        q = torch.linspace(ham.NNConfig["penalize_starting"], 12.0, 50, dtype=torch.float64, device=device).view(-1, 1)
+        v_q = model(q)
+        # Keep the historical regularization scale, but evaluate it once per system.
+        loss_terms["penalty"] = penalty_loss(
+            v_q,
+            q,
+            ham.NNConfig["penalize_starting"],
+            ham.NNConfig["penalize_lambda"] * bulkSystem.getNKpts(),
+        )
+
+    if ("penalize_mag_threshold" in ham.NNConfig) and ("penalize_mag_lambda" in ham.NNConfig) and (ham.NNConfig["penalize_mag_lambda"] > 0) and (model is not None):
+        q = torch.linspace(0.0, 12.0, 240, dtype=torch.float64, device=device).view(-1, 1)
+        v_q = model(q)
+        # Keep the historical regularization scale, but evaluate it once per system.
+        loss_terms["mag_penalty"] = mag_penalty_loss(
+            v_q,
+            ham.NNConfig["penalize_mag_threshold"],
+            ham.NNConfig["penalize_mag_lambda"] * bulkSystem.getNKpts(),
+        )
+
+    if bulkSystem.fit_defPot:
+        calcDefPots = ham.calcDefPots(cachedMats_info=cachedMats_info, requires_grad=requires_grad, verbosity=0)
+        refDefPots = torch.tensor(bulkSystem.defPotInfo[:, 5], dtype=torch.float64, device=calcDefPots.device)
+        defPotWeights = torch.tensor(bulkSystem.defPotInfo[:, 6], dtype=torch.float64, device=calcDefPots.device)
+        # DefPots are global transition observables; they should not depend on k-point weights or nkpt scaling.
+        loss_terms["defpot"] = ((calcDefPots - refDefPots) ** 2 * defPotWeights).sum()
+        print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {loss_terms['defpot']:.4f}")
+
+    if bulkSystem.fit_eph:
+        calcCouplings_dict = ham.calcCouplings_diag_fd(debug=coupling_debug)
+        if coupling_debug:
+            print(calcCouplings_dict)
+
+        for atomidx in range(bulkSystem.getNAtoms()):
+            for gamma in range(3):
+                for qidx in range(bulkSystem.qpts.shape[0]):
+                    for band in ["vb", "cb"]:
+                        if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in bulkSystem.expCouplingBands):
+                            cpl_key = (atomidx, gamma, qidx, band)
+                            cpl_weight = bulkSystem.expCouplingWeights.get(cpl_key, 1.0) if bulkSystem.expCouplingWeights is not None else 1.0
+                            loss_terms["coupling"] += ((abs(calcCouplings_dict[cpl_key]) - abs(bulkSystem.expCouplingBands[cpl_key])) ** 2 * bulkSystem.qptWeights[qidx] * cpl_weight) * bulkSystem.getNKpts()
+                        else:
+                            print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
+
+        return loss_terms, calcCouplings_dict
+
+    return loss_terms, None
+
+
 def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None, writeBS=False, resultsFolder=""): 
     if (model is not None): 
         print(f"\t{runName}: Evaluating band structures using the NN-pp model. ")
@@ -309,73 +372,42 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
             plot_bandStruct_list.append(evalBS)
             total_BS_MSE += weighted_mse_bandStruct(evalBS, sys).detach()
 
-        if ("penalize_starting" in hams[iSys].NNConfig) and ("penalize_lambda" in hams[iSys].NNConfig) and (model is not None): 
-            q = torch.linspace(hams[iSys].NNConfig["penalize_starting"], 12.0, 50).view(-1,1)
-            v_q = model(q)
-            penalty = penalty_loss(v_q, q, hams[iSys].NNConfig["penalize_starting"], hams[iSys].NNConfig["penalize_lambda"]*sys.getNKpts()).detach()
-            totalPenalty += penalty
-        if ("penalize_mag_threshold" in hams[iSys].NNConfig) and ("penalize_mag_lambda" in hams[iSys].NNConfig) and (hams[iSys].NNConfig["penalize_mag_lambda"] > 0) and (model is not None):
-            q = torch.linspace(0.0, 12.0, 240).view(-1,1)
-            v_q = model(q)
-            mag_penalty = mag_penalty_loss(v_q, hams[iSys].NNConfig["penalize_mag_threshold"], hams[iSys].NNConfig["penalize_mag_lambda"]*sys.getNKpts()).detach()
-            totalMagPenalty += mag_penalty
+        with torch.no_grad():
+            global_loss_terms, calcCouplings_dict = compute_global_system_losses(model, sys, hams[iSys], cachedMats_info=cachedMats_info, requires_grad=False, coupling_debug=True)
+            totalPenalty += global_loss_terms["penalty"].detach()
+            totalMagPenalty += global_loss_terms["mag_penalty"].detach()
+            defPot_MSE += global_loss_terms["defpot"].detach()
+            coupling_MSE += global_loss_terms["coupling"].detach()
 
-        # Add in deformation potential
-        if sys.fit_defPot: 
-            with torch.no_grad():
-                calcDefPots = hams[iSys].calcDefPots(cachedMats_info=cachedMats_info, requires_grad=False)
-
-                refDefPots = torch.tensor(sys.defPotInfo[:,5])
-                defPotWeights = torch.tensor(sys.defPotInfo[:,6])
-                defPotLoss = ((calcDefPots - refDefPots) ** 2 * defPotWeights).sum() * sys.getNKpts()
-                print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {defPotLoss:.4f}")
-                defPot_MSE += defPotLoss
-
-        # add coupling loss
         if sys.fit_eph:
-            with torch.no_grad():
-                calcCouplings_dict = hams[iSys].calcCouplings_diag_fd(debug=False)   # .calcCouplings()
-                print(calcCouplings_dict)
-
+            output = os.path.join(resultsFolder, f"{runName}_couplingBands_{iSys}.dat")
+            with open(output, 'w') as fwrite:
                 for atomidx in range(sys.getNAtoms()):
-                    for gamma in range(3):
-                        for qidx in range(sys.qpts.shape[0]):
-                            for band in ["vb", "cb"]:
-                                if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in sys.expCouplingBands):
-                                    cpl_key = (atomidx, gamma, qidx, band)
-                                    cpl_weight = sys.expCouplingWeights.get(cpl_key, 1.0) if sys.expCouplingWeights is not None else 1.0
-                                    coupling_MSE += ((abs(calcCouplings_dict[cpl_key]) - abs(sys.expCouplingBands[cpl_key])) ** 2 * sys.qptWeights[qidx] * cpl_weight) * sys.getNKpts()
-                                else: 
-                                    print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
+                    print(f"Atom idx = {atomidx}   atom = {sys.atomTypes[atomidx]}   position = {sys.atomPos[atomidx]}", file=fwrite)
 
-                output = os.path.join(resultsFolder, f"{runName}_couplingBands_{iSys}.dat")
-                with open(output, 'w') as fwrite:
-                    for atomidx in range(sys.getNAtoms()):
-                        print(f"Atom idx = {atomidx}   atom = {sys.atomTypes[atomidx]}   position = {sys.atomPos[atomidx]}", file=fwrite)
+                    for band in ["vb", "cb"]:
+                        print(f"{band}-{band} coupling elements. ", file=fwrite, end="")
+                        for gamma in range(3):
+                            if gamma == 0:
+                                print("\npolarization of derivative = x", file=fwrite)
+                            elif gamma == 1:
+                                print("polarization of derivative = y", file=fwrite)
+                            else:
+                                print("polarization of derivative = z", file=fwrite)
 
-                        for band in ["vb", "cb"]:
-                            print(f"{band}-{band} coupling elements. ", file=fwrite, end="")
-                            for gamma in range(3):
-                                if gamma == 0:
-                                    print("\npolarization of derivative = x", file=fwrite)
-                                elif gamma == 1:
-                                    print("polarization of derivative = y", file=fwrite)
-                                else:
-                                    print("polarization of derivative = z", file=fwrite)
-
-                                for qidx in range(sys.qpts.shape[0]):
-                                    if (atomidx, gamma, qidx, band) in calcCouplings_dict:
-                                        val = calcCouplings_dict[(atomidx, gamma, qidx, band)]
-                                        val_item = val.item() if torch.is_tensor(val) else val
-                                        if abs(val_item) < 1e-9:
-                                            print("0   ", file=fwrite, end="")
-                                        else:
-                                            print(f"{val_item:.5e}   ", file=fwrite, end="")
+                            for qidx in range(sys.qpts.shape[0]):
+                                if (atomidx, gamma, qidx, band) in calcCouplings_dict:
+                                    val = calcCouplings_dict[(atomidx, gamma, qidx, band)]
+                                    val_item = val.item() if torch.is_tensor(val) else val
+                                    if abs(val_item) < 1e-9:
+                                        print("0   ", file=fwrite, end="")
                                     else:
-                                        print("Not-fit   ", file=fwrite, end="")
-                                print("\n", file=fwrite, end="")
+                                        print(f"{val_item:.5e}   ", file=fwrite, end="")
+                                else:
+                                    print("Not-fit   ", file=fwrite, end="")
                             print("\n", file=fwrite, end="")
-                        print("\n\n", file=fwrite, end="")
+                        print("\n", file=fwrite, end="")
+                    print("\n\n", file=fwrite, end="")
 
         print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... ")
 
@@ -407,52 +439,6 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
         systemKptLoss = weighted_relative_mse_energiesAtKpt(calcEnergies, bulkSystem, kidx, bulkSystem.relE_bIdx)
     else:
         systemKptLoss = weighted_mse_energiesAtKpt(calcEnergies, bulkSystem, kidx)
-
-    # Add in penalization of non-decay
-    if ("penalize_starting" in ham.NNConfig) and ("penalize_lambda" in ham.NNConfig): 
-        q = torch.linspace(ham.NNConfig["penalize_starting"], 12.0, 50).view(-1,1)
-        v_q = model(q)
-
-        penalty = penalty_loss(v_q, q, ham.NNConfig["penalize_starting"], ham.NNConfig["penalize_lambda"])
-        systemKptLoss += penalty   # We don't divide by nkpts here. In the evaluation mode and serial versions, the penalty is multiplied with nkpts
-        # print(f"Done penalizing the non-decaying pp by {penalty}")
-    if ("penalize_mag_threshold" in ham.NNConfig) and ("penalize_mag_lambda" in ham.NNConfig) and (ham.NNConfig["penalize_mag_lambda"] > 0):
-        q = torch.linspace(0.0, 12.0, 240).view(-1,1)
-        v_q = model(q)
-
-        mag_penalty = mag_penalty_loss(v_q, ham.NNConfig["penalize_mag_threshold"], ham.NNConfig["penalize_mag_lambda"])
-        systemKptLoss += mag_penalty
-
-    # Add in deformation potential
-    if bulkSystem.fit_defPot and (kidx == int(bulkSystem.defPotInfo[0][0]) or (kidx == int(bulkSystem.defPotInfo[0][2]))): 
-        calcDefPots = ham.calcDefPots(cachedMats_info=cachedMats_info, requires_grad=True, verbosity=0)
-
-        refDefPots = torch.tensor(bulkSystem.defPotInfo[:,5])
-
-        defPotWeights = torch.tensor(bulkSystem.defPotInfo[:,6])
-        defPotLoss = (((calcDefPots - refDefPots) ** 2 * defPotWeights).sum()) # Similarly, we don't divide by nkpts here. In the evaluation mode and serial versions, the penalty is multiplied with nkpts
-        print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {defPotLoss:.4f}")
-        systemKptLoss += defPotLoss
-
-    # add coupling loss
-    if bulkSystem.fit_eph:
-        raise NotImplementedError("FATAL ERROR! EPC fitting is not yet implemented (and potentially cannot be implemented in the parallel training mode. ")
-        '''
-        couplingLoss = torch.tensor(0.0)
-        calcCouplings_dict = ham.calcCouplings()
-
-        for atomidx in range(bulkSystem.getNAtoms()):
-            for gamma in range(3):
-                for qidx in range(bulkSystem.qpts.shape[0]):
-                    for band in ["vb", "cb"]:
-                        if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in bulkSystem.expCouplingBands):
-                            cpl_key = (atomidx, gamma, qidx, band)
-                            cpl_weight = bulkSystem.expCouplingWeights.get(cpl_key, 1.0) if bulkSystem.expCouplingWeights is not None else 1.0
-                            couplingLoss += ((calcCouplings_dict[cpl_key] - bulkSystem.expCouplingBands[cpl_key]) ** 2 * bulkSystem.qptWeights[qidx] * cpl_weight)  # Similarly, we don't divide by nkpts here. In the evaluation mode and serial versions, the penalty is multiplied with nkpts
-                        else: 
-                            print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
-        systemKptLoss += couplingLoss
-        '''
 
     start_time = time.time() if ham.NNConfig['runtime_flag'] else None
     optimizer.zero_grad()
@@ -504,46 +490,8 @@ def trainIter_naive(model, systems, hams, optimizer, cachedMats_info=None, runti
             systemLoss = weighted_mse_bandStruct(NN_outputs, sys)
         trainLoss += systemLoss
 
-        # Add in penalization of non-decay
-        if ("penalize_starting" in hams[iSys].NNConfig) and ("penalize_lambda" in hams[iSys].NNConfig): 
-            q = torch.linspace(hams[iSys].NNConfig["penalize_starting"], 12.0, 50).view(-1,1)
-            v_q = model(q)
-
-            penalty = penalty_loss(v_q, q, hams[iSys].NNConfig["penalize_starting"], hams[iSys].NNConfig["penalize_lambda"]*sys.getNKpts())
-            trainLoss += penalty
-            # print(f"Done penalizing the non-decaying pp by {penalty}")
-        if ("penalize_mag_threshold" in hams[iSys].NNConfig) and ("penalize_mag_lambda" in hams[iSys].NNConfig) and (hams[iSys].NNConfig["penalize_mag_lambda"] > 0):
-            q = torch.linspace(0.0, 12.0, 240).view(-1,1)
-            v_q = model(q)
-
-            mag_penalty = mag_penalty_loss(v_q, hams[iSys].NNConfig["penalize_mag_threshold"], hams[iSys].NNConfig["penalize_mag_lambda"]*sys.getNKpts())
-            trainLoss += mag_penalty
-
-        # Add in deformation potential
-        if sys.fit_defPot: 
-            calcDefPots = hams[iSys].calcDefPots(cachedMats_info=cachedMats_info, requires_grad=True)
-
-            refDefPots = torch.tensor(sys.defPotInfo[:,5])
-            defPotWeights = torch.tensor(sys.defPotInfo[:,6])
-            defPotLoss = ((calcDefPots - refDefPots) ** 2 * defPotWeights).sum() * sys.getNKpts()
-            print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {defPotLoss:.4f}")
-            trainLoss += defPotLoss
-
-        # Add in coupling loss
-        if sys.fit_eph:
-            calcCouplings_dict = hams[iSys].calcCouplings_diag_fd(debug=False)   # .calcCouplings()
-            # print(calcCouplings_dict)
-
-            for atomidx in range(sys.getNAtoms()):
-                for gamma in range(3):
-                    for qidx in range(sys.qpts.shape[0]):
-                        for band in ["vb", "cb"]:
-                            if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in sys.expCouplingBands):
-                                cpl_key = (atomidx, gamma, qidx, band)
-                                cpl_weight = sys.expCouplingWeights.get(cpl_key, 1.0) if sys.expCouplingWeights is not None else 1.0
-                                trainLoss += ((abs(calcCouplings_dict[cpl_key]) - abs(sys.expCouplingBands[cpl_key])) ** 2 * sys.qptWeights[qidx] * cpl_weight) * sys.getNKpts()
-                            else: 
-                                print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
+        global_loss_terms, _ = compute_global_system_losses(model, sys, hams[iSys], cachedMats_info=cachedMats_info, requires_grad=True, coupling_debug=False)
+        trainLoss += global_loss_terms["penalty"] + global_loss_terms["mag_penalty"] + global_loss_terms["defpot"] + global_loss_terms["coupling"]
 
 
     start_time = time.time() if runtime_flag else None
@@ -593,48 +541,6 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                     systemKptLoss = weighted_mse_energiesAtKpt(calcEnergies, sys, kidx)
                 currBS[kidx,:] = calcEnergies.detach().clone()
 
-                # add in penalization of the non-decay
-                if ("penalize_starting" in hams[iSys].NNConfig) and ("penalize_lambda" in hams[iSys].NNConfig): 
-                    q = torch.linspace(hams[iSys].NNConfig["penalize_starting"], 12.0, 50).view(-1,1)
-                    v_q = model(q)
-
-                    penalty = penalty_loss(v_q, q, hams[iSys].NNConfig["penalize_starting"], hams[iSys].NNConfig["penalize_lambda"]*sys.getNKpts())     # Multiplied by nkpts here for consistency with the evaluation mode and the parallel version
-                    systemKptLoss += penalty
-                    # print(f"Done penalizing the non-decaying pp by {penalty}")
-                if ("penalize_mag_threshold" in hams[iSys].NNConfig) and ("penalize_mag_lambda" in hams[iSys].NNConfig) and (hams[iSys].NNConfig["penalize_mag_lambda"] > 0):
-                    q = torch.linspace(0.0, 12.0, 240).view(-1,1)
-                    v_q = model(q)
-
-                    mag_penalty = mag_penalty_loss(v_q, hams[iSys].NNConfig["penalize_mag_threshold"], hams[iSys].NNConfig["penalize_mag_lambda"]*sys.getNKpts())   # Multiplied by nkpts here for consistency with the evaluation mode and the parallel version
-                    systemKptLoss += mag_penalty
-
-                # add in defPot loss
-                if sys.fit_defPot: 
-                    calcDefPots = hams[iSys].calcDefPots(cachedMats_info=cachedMats_info,requires_grad=True)
-                    print(calcCouplings_dict)
-
-                    refDefPots = torch.tensor(sys.defPotInfo[:,5])
-                    defPotWeights = torch.tensor(sys.defPotInfo[:,6])
-                    defPotLoss = ((calcDefPots - refDefPots) ** 2 * defPotWeights).sum() * sys.getNKpts()   # Multiplied by nkpts here for consistency with the evaluation mode and the parallel version
-                    print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {defPotLoss:.4f}")
-                    systemKptLoss += defPotLoss
-
-                # add in coupling loss
-                if sys.fit_eph:
-                    calcCouplings_dict = hams[iSys].calcCouplings_diag_fd(debug=False)   # .calcCouplings()
-
-                    for atomidx in range(sys.getNAtoms()):
-                        for gamma in range(3):
-                            for qidx in range(sys.qpts.shape[0]):
-                                for band in ["vb", "cb"]:
-                                    if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in sys.expCouplingBands):
-                                        cpl_key = (atomidx, gamma, qidx, band)
-                                        cpl_weight = sys.expCouplingWeights.get(cpl_key, 1.0) if sys.expCouplingWeights is not None else 1.0
-                                        systemKptLoss += ((abs(calcCouplings_dict[cpl_key]) - abs(sys.expCouplingBands[cpl_key])) ** 2 * sys.qptWeights[qidx] * cpl_weight) * sys.getNKpts()
-                                        # Multiplied by nkpts here for consistency with the evaluation mode and the parallel version
-                                    else: 
-                                        print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
-
                 start_time = time.time() if NNConfig['runtime_flag'] else None
                 optimizer.zero_grad()
                 systemKptLoss.backward()
@@ -668,7 +574,24 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
             gc.collect()
             gradients_system = merge_dicts(gradients_systemKpt)
             trainLoss_system = torch.sum(torch.tensor(trainLoss_systemKpt))
-        
+
+        global_loss_terms, _ = compute_global_system_losses(model, sys, hams[iSys], cachedMats_info=cachedMats_info, requires_grad=True, coupling_debug=False)
+        global_system_loss = global_loss_terms["penalty"] + global_loss_terms["mag_penalty"] + global_loss_terms["defpot"] + global_loss_terms["coupling"]
+        if global_system_loss.detach().item() != 0.0:
+            start_time = time.time() if NNConfig['runtime_flag'] else None
+            optimizer.zero_grad()
+            global_system_loss.backward()
+            end_time = time.time() if NNConfig['runtime_flag'] else None
+            print(f"global_loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
+
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    if name not in gradients_system:
+                        gradients_system[name] = param.grad.detach().clone()
+                    else:
+                        gradients_system[name] += param.grad.detach().clone()
+        trainLoss_system += global_system_loss.detach().item()
+
         total_gradients = merge_dicts([total_gradients, gradients_system])
         trainLoss += trainLoss_system
 

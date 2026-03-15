@@ -41,14 +41,14 @@ As -0.125 -0.125 -0.125
 | `idxVB`, <br>`idxCB`, <br>`idxGap` | int | Optional | Zero-based band indices for valence/conduction edges and the band-gap definition used in plots. |
 | `BS_plot_center`, <br>`BS_plot_CBVB_range`, <br>`BS_plot_CBVB_range_zoom` | float | Optional | Controls PDF y-limits for full and zoomed plots in separate panels. |
 | `systemName` | string | Optional | Used in `*.POSCAR` headers and plot titles. |
-| `fit_defPot` | bool | Optional | Enables deformation potential fitting and triggers `expDefPot_X.par` ingestion. |
+| `fit_defPot` | bool | Optional | Enables deformation potential fitting and triggers `expDefPot_X.par` ingestion in the gradient-based workflows. |
 | `relE_bIdx` | int | Optional | Supplies a relative band index across systems when the loss is defined with respect to relative energy differences. |
 
 ## 2. Spectral and Weighting Data
 ### `kpoints_X.par`
 Lists reciprocal-space sampling for each system. 
 
-Format: `k_x k_y k_z weight` per line, with **fractional coordinates** relative to the reciprocal lattice. Weights need not be normalized; the loader normalizes internally.
+Format: `k_x k_y k_z weight` per line, with **fractional coordinates** relative to the reciprocal lattice. Weights are used as supplied in the band-structure loss; the current loader does not renormalize them automatically. If you want averaging-style weights, normalize them manually yourself in the input file.
 
 **Optional companion**: `kpoints_X_orderMatrix.par` (same base name) provides a fixed band-order matrix with shape `(nKpts × nBands)`. When present, DeepPseudopot uses it to track band connectivity, bypassing the automatic sorting heuristics.
 
@@ -74,7 +74,12 @@ cb-cb coupling elements. polarization of derivative = z
 `BulkSystem.setExpCouplings` parses each block and stores couplings as `(atom_idx, polarization, q_index, band_id)` tuples. Supply one file per system or polarization scenario and ensure that the band ordering matches `expBandStruct_X.par`.
 
 ### `expDefPot_X.par`
-Sets the deformation potential target values. A table with seven columns — `kidx_VB  bidx_VB  kidx_CB  bidx_CB  latConst_ratio  defPot_gap(eV)  weight` (first four columns must be integers). 
+Sets deformation-potential targets as fixed-state transitions. The file is a table with seven columns:
+`kidx_VB  bidx_VB  kidx_CB  bidx_CB  latConst_ratio  defPot_gap(eV)  weight`
+
+The first four columns must be integers. `kidx_VB`/`bidx_VB` and `kidx_CB`/`bidx_CB` identify the two endpoint states of the transition. The two states may be at the same k-point or at different k-points. The final `weight` column is the explicit weighting for that target row; these targets are not reweighted by `kpoints_X.par`.
+
+In the gradient-based workflows, these rows are handled consistently in serial, `separateKptGrad`, and multiprocessing runs. Each row is treated as a system-level observable rather than being attached to the current k-point loop index.
 
 ## 3. Initialization Files
 ### `init_<atom>Params.par`
@@ -110,7 +115,7 @@ Text files to configure standalone Monte Carlo drivers (e.g., `main_mc_Zunger_*.
 | `tempStepSizeMod = <down> <up>` | `tempStepSizeMod = 1.0 1.0` | Multiplier applied to the beta increments. |
 | `totalIter = N` | `totalIter = 20` | Total number of MC iterations. |
 | `fitDefPot`, <br>`fitCoupling`, <br>`fitEffMass`, <br>`optGaps` | `fitCoupling = True` | Boolean flags that enable auxiliary observables in the MC cost. |
-| `defPotWeight`, <br>`writePerIter` | `defPotWeight = 0.5` | Optional floats that reweight defect potentials or control logging cadence. |
+| `defPotWeight`, <br>`writePerIter` | `defPotWeight = 0.5` | Optional floats that reweight deformation potentials or control logging cadence. The current Monte Carlo code still uses its older defPot interface rather than the row-based `expDefPot_X.par` transition table described above. |
 
 ### `<atom>ParamSteps.par`
 When present, these files specify per-parameter perturbation magnitudes for Monte Carlo proposals. The expected layout is one float per NN/Zunger parameter (typically nine entries) matching the `<atom>` order defined in `system_X.par`. Omit these files to let the MC code infer default step sizes from `mc_percentage`.

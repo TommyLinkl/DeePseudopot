@@ -77,11 +77,11 @@ class Hamiltonian:
         # over the basis within the optimization inner loop.
         self.SOmats = None
         self.NLmats = None
-        self.SOmats_def = None
-        self.NLmats_def = None
+        self.SOmats_def = {}
+        self.NLmats_def = {}
         if SObool and cacheSO:
             self.SOmats = self.initSOmat_fast()
-            self.SOmats_def = None
+            self.SOmats_def = {}
             # check if nonlocal potentials are included, if so, cache them
             self.checknl = False
             for alpha in range(system.getNAtomTypes()):
@@ -93,7 +93,7 @@ class Hamiltonian:
                     break
             if self.checknl:
                 self.NLmats = self.initNLmat_fast()
-                self.NLmats_def = None
+                self.NLmats_def = {}
        
         elif (SObool) and (not cacheSO) and (NNConfig['num_cores']==0):
             print("WARNING: Calculation requires SObool, but we are not cache-ing the SOmats and NLmats. Without multiprocessing parallelization. This is not recommended. ")
@@ -139,6 +139,26 @@ class Hamiltonian:
         if model is not None:
             model.to(device)
         
+
+    def _deformed_cache_key(self, kidx, scale):
+        return (int(kidx), float(scale))
+
+
+    def _get_deformed_cached_mats(self, kidx, scale):
+        cache_key = self._deformed_cache_key(kidx, scale)
+
+        if cache_key not in self.SOmats_def:
+            self.SOmats_def[cache_key] = self.initSOmat_fast(defbool=True, idxGap=kidx)
+
+        so_mats = self.SOmats_def[cache_key]
+        nl_mats = None
+        if self.checknl:
+            if cache_key not in self.NLmats_def:
+                self.NLmats_def[cache_key] = self.initNLmat_fast(defbool=True, idxGap=kidx)
+            nl_mats = self.NLmats_def[cache_key]
+
+        return so_mats, nl_mats
+
 
     def buildHtot(self, kidx, preComp_SOmats_kidx=None, preComp_NLmats_kidx=None, requires_grad=True):
         """
@@ -244,18 +264,7 @@ class Hamiltonian:
             store_SOmats = self.SOmats
             if self.checknl:
                 store_NLmats = self.NLmats
-            # only compute the SO integrals for the kpt corresponding to the gap (assuming direct gap).
-            # check if we cached them from the first call...
-            if self.SOmats_def is not None:
-                self.SOmats = self.SOmats_def
-            else:
-                self.SOmats_def = self.initSOmat_fast(defbool=True, idxGap=kidx)
-                self.SOmats = self.SOmats_def
-            if self.NLmats_def is not None and self.checknl:
-                self.NLmats = self.NLmats_def
-            elif self.checknl:
-                self.NLmats_def = self.initNLmat_fast(defbool=True, idxGap=kidx)
-                self.NLmats = self.NLmats_def
+            self.SOmats, self.NLmats = self._get_deformed_cached_mats(kidx, scale)
 
             # the below calls are kidx=0 because they index into the SOmats and NLmats
             # arrays, for which there is only a single kpoint. There are no calls
@@ -322,18 +331,7 @@ class Hamiltonian:
             store_SOmats = self.SOmats
             if self.checknl:
                 store_NLmats = self.NLmats
-            # only compute the SO integrals for the kpt corresponding to the gap (assuming direct gap).
-            # check if we cached them from the first call...
-            if self.SOmats_def is not None:
-                self.SOmats = self.SOmats_def
-            else:
-                self.SOmats_def = self.initSOmat_fast(defbool=True, idxGap=kidx)
-                self.SOmats = self.SOmats_def
-            if self.NLmats_def is not None and self.checknl:
-                self.NLmats = self.NLmats_def
-            elif self.checknl:
-                self.NLmats_def = self.initNLmat_fast(defbool=True, idxGap=kidx)
-                self.NLmats = self.NLmats_def
+            self.SOmats, self.NLmats = self._get_deformed_cached_mats(kidx, scale)
 
             # the below calls are kidx=0 because they index into the SOmats and NLmats
             # arrays, for which there is only a single kpoint. There are no calls
