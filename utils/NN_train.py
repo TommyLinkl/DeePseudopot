@@ -21,6 +21,14 @@ from .constants import *
 from .pp_func import plotPP, plot_training_validation_cost, plotBandStruct, plot_mc_cost, plotBandStruct_reorder
 from .smooth_order import reorder_smoothness_deg2_tensors, reorder_kpt_smoothness_deg2_tensors
 
+
+def _get_autograd_mp_context():
+    """
+    PyTorch autograd is not compatible with fork-based multiprocessing.
+    Use an explicit spawn context for any worker that calls backward().
+    """
+    return mp.get_context("spawn")
+
 def print_and_inspect_gradients(model, filename=None, show=False): 
     """
     Prints and/or saves the gradients of the model parameters.
@@ -422,7 +430,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
     return total_BS_MSE + totalPenaltyAll + defPot_MSE + coupling_MSE
 
 
-def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cachedMats_info=None, prevBS=None, verbosity=0):
+def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, model, cachedMats_info=None, prevBS=None, verbosity=0):
     """
     loop over kidx
     The rest of the arguments are "constants" / "constant functions" for a single kidx
@@ -441,7 +449,7 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
         systemKptLoss = weighted_mse_energiesAtKpt(calcEnergies, bulkSystem, kidx)
 
     start_time = time.time() if ham.NNConfig['runtime_flag'] else None
-    optimizer.zero_grad()
+    model.zero_grad(set_to_none=True)
     systemKptLoss.backward()
     end_time = time.time() if ham.NNConfig['runtime_flag'] else None
     print(f"loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if ham.NNConfig['runtime_flag'] else None
@@ -563,9 +571,10 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
             if (NNConfig['smooth_reorder']) and (prevBS is not None): 
                 print("WARNING. We are reordering the band structure according to smoothness using the previous iteration BS. ")
             prevBS = prevBS.detach() if prevBS is not None else None
-            args_list = [(kidx, hams[iSys], sys, optimizer, model, cachedMats_info, prevBS) for kidx in range(sys.getNKpts())]
+            args_list = [(kidx, hams[iSys], sys, model, cachedMats_info, prevBS) for kidx in range(sys.getNKpts())]
 
-            with mp.Pool(NNConfig['num_cores']) as pool:
+            mp_ctx = _get_autograd_mp_context()
+            with mp_ctx.Pool(NNConfig['num_cores']) as pool:
                 results_systemKpt = pool.starmap(calcEigValsAtK_wGrad_parallel, args_list)
                 gradients_systemKpt, trainLoss_systemKpt, eigValsList, extrapolated_eigValList = zip(*results_systemKpt)
             currBS = torch.stack(eigValsList).detach()
