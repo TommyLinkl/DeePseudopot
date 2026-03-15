@@ -364,11 +364,11 @@ class BulkSystem:
             if data.ndim == 1:
                 data = data.reshape(1, -1)
             
-            assert data.shape[1] == 7, "Each row must have exactly 7 columns, corresponding to: kidx_VB(all 0-based index)    bidx_VB    kidx_CB    bidx_CB     latConst_ratio      defPot_gap(eV)    weight"
-            assert np.all(data[:, :4] == data[:, :4].astype(int)), "First 4 columns must be integers: kidx_VB(all 0-based index)    bidx_VB    kidx_CB    bidx_CB     latConst_ratio      defPot_gap(eV)    weight"
+            assert data.shape[1] == 5, "Each row must have exactly 5 columns, corresponding to: kidx(all 0-based index)    bidx    latConst_ratio    defPot_state(eV)    weight"
+            assert np.all(data[:, :2] == data[:, :2].astype(int)), "First 2 columns must be integers: kidx(all 0-based index)    bidx    latConst_ratio    defPot_state(eV)    weight"
             
-            # Convert the first 4 columns to int to safely use them as indices later.
-            data[:, :4] = data[:, :4].astype(int)
+            # Convert the first 2 columns to int to safely use them as indices later.
+            data[:, :2] = data[:, :2].astype(int)
             
             self.defPotInfo = data
             # print(self.defPotInfo)

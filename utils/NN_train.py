@@ -296,9 +296,9 @@ def compute_global_system_losses(model, bulkSystem, ham, cachedMats_info=None, r
 
     if bulkSystem.fit_defPot:
         calcDefPots = ham.calcDefPots(cachedMats_info=cachedMats_info, requires_grad=requires_grad, verbosity=0)
-        refDefPots = torch.tensor(bulkSystem.defPotInfo[:, 5], dtype=torch.float64, device=calcDefPots.device)
-        defPotWeights = torch.tensor(bulkSystem.defPotInfo[:, 6], dtype=torch.float64, device=calcDefPots.device)
-        # DefPots are global transition observables; they should not depend on k-point weights or nkpt scaling.
+        refDefPots = torch.tensor(bulkSystem.defPotInfo[:, 3], dtype=torch.float64, device=calcDefPots.device)
+        defPotWeights = torch.tensor(bulkSystem.defPotInfo[:, 4], dtype=torch.float64, device=calcDefPots.device)
+        # DefPots are global single-state observables; they should not depend on k-point weights or nkpt scaling.
         loss_terms["defpot"] = ((calcDefPots - refDefPots) ** 2 * defPotWeights).sum()
         print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {loss_terms['defpot']:.4f}")
 

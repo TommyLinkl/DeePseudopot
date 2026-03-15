@@ -88,7 +88,7 @@ Highly recommended when using a neural network local potential.
 - Optional `perturbEvery` injects random kicks to escape shallow local minima. 
 - Expect periodic `epoch_<N>_*` checkpoints plus `plotBS`/`plotPP` plots.
 - The total training objective can combine the band-structure loss with optional reciprocal-space penalties (`penalize_lambda`, `penalize_mag_lambda`) and, when enabled, deformation-potential or coupling terms.
-- In gradient runs, deformation potentials are treated as global transition observables. Same-k and different-k rows from `expDefPot_X.par` are therefore handled consistently in serial, `separateKptGrad`, and multiprocessing modes.
+- In gradient runs, deformation potentials are treated as global single-state observables. Rows from `expDefPot_X.par` are therefore handled consistently in serial, `separateKptGrad`, and multiprocessing modes.
 
 | Key | Type | Required? | Notes |
 | --- | --- | --- | --- |
@@ -104,7 +104,7 @@ Preferred for traditional Zunger, as well as for NL/SO parameters where the loss
 - Set `mc_bool = 1` and `max_num_epochs = 0`. 
 - Tune `mc_iter`, `mc_percentage`, `mc_beta`, and helper files (`mcOpts*.par`, `<atom>ParamSteps.par`, `mc_beta_schedule`) to balance exploration and acceptance. 
 - Checkpoints are written in `mc_checkpoint.pth`/`best_pot.*` that can be used in future runs. 
-- The Monte Carlo code still uses its legacy defPot path. If you need row-based same-k / different-k transition targets from `expDefPot_X.par`, use the gradient workflow.
+- The Monte Carlo code still uses its legacy defPot path. If you need the row-based single-state targets from `expDefPot_X.par`, use the gradient workflow.
 
 | Key | Type | Required? | Notes |
 | --- | --- | --- | --- |

@@ -1,0 +1,8 @@
+# Single-state defPot targets:
+# kidx(all 0-based index)    bidx    latConst_ratio    defPot_state(eV)    weight
+12    15    1.01    -2.70    1.50    # Gamma VBM
+12    15    0.99    -2.70    1.50
+12    16    1.01     2.60    1.50    # Gamma CBM
+12    16    0.99     2.60    1.50
+12    18    1.01     1.75    0.50    # Gamma CBM+1 (no spin) band
+12    18    0.99     1.75    0.50

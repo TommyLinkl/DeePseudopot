@@ -1163,18 +1163,16 @@ class Hamiltonian:
         defpot_tensors = []
         
         for defPot_entry in self.system.defPotInfo: 
-            kidx_VB = int(defPot_entry[0])
-            kidx_CB = int(defPot_entry[2])
-            def_scale = defPot_entry[4]
+            kidx = int(defPot_entry[0])
+            bidx = int(defPot_entry[1])
+            def_scale = defPot_entry[2]
 
-            eigValsAtVB = self.calcEigValsAtK(kidx_VB, cachedMats_info, requires_grad=requires_grad, verbosity=verbosity)
-            eigValsAtVB_def = self.calcEigValsAtK(kidx_VB, cachedMats_info, requires_grad=requires_grad, def_H=True, def_scale=def_scale, verbosity=verbosity)
-            eigValsAtCB = self.calcEigValsAtK(kidx_CB, cachedMats_info, requires_grad=requires_grad, verbosity=verbosity)
-            eigValsAtCB_def = self.calcEigValsAtK(kidx_CB, cachedMats_info, requires_grad=requires_grad, def_H=True, def_scale=def_scale, verbosity=verbosity)
+            eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=requires_grad, verbosity=verbosity)
+            eigValsAtK_def = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=requires_grad, def_H=True, def_scale=def_scale, verbosity=verbosity)
 
-            gap_org = eigValsAtCB[int(defPot_entry[3])] - eigValsAtVB[int(defPot_entry[1])]
-            gap_def = eigValsAtCB_def[int(defPot_entry[3])] - eigValsAtVB_def[int(defPot_entry[1])]
-            defpot = (gap_org - gap_def) / 2 * (1+def_scale**3) / (1-def_scale**3)
+            eig_org = eigValsAtK[bidx]
+            eig_def = eigValsAtK_def[bidx]
+            defpot = (eig_org - eig_def) / 2 * (1 + def_scale**3) / (1 - def_scale**3)
             defpot_tensors.append(defpot)
 
         return torch.stack(defpot_tensors)# the same number of defpots

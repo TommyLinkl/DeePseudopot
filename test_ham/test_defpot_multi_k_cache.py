@@ -77,20 +77,20 @@ def calc_defpots(rows):
 
 
 def main():
-    same_k_row = [0, 0, 0, 1, 1.0001, 0.0, 1.0]
-    diff_k_row = [0, 0, 1, 1, 1.0001, 0.0, 1.0]
+    k0_row = [0, 0, 1.0001, 0.0, 1.0]
+    k1_row = [1, 1, 1.0001, 0.0, 1.0]
 
-    same_only = calc_defpots([same_k_row])
-    diff_only = calc_defpots([diff_k_row])
-    combined = calc_defpots([same_k_row, diff_k_row])
-    combined_reversed = calc_defpots([diff_k_row, same_k_row])
+    k0_only = calc_defpots([k0_row])
+    k1_only = calc_defpots([k1_row])
+    combined = calc_defpots([k0_row, k1_row])
+    combined_reversed = calc_defpots([k1_row, k0_row])
 
-    np.testing.assert_allclose(combined, np.array([same_only[0], diff_only[0]]), rtol=0.0, atol=1e-12)
-    np.testing.assert_allclose(combined_reversed, np.array([diff_only[0], same_only[0]]), rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(combined, np.array([k0_only[0], k1_only[0]]), rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(combined_reversed, np.array([k1_only[0], k0_only[0]]), rtol=0.0, atol=1e-12)
 
-    # The different-k row must stay correct regardless of whether a same-k row ran before it.
-    np.testing.assert_allclose(combined[1], diff_only[0], rtol=0.0, atol=1e-12)
-    np.testing.assert_allclose(combined_reversed[0], diff_only[0], rtol=0.0, atol=1e-12)
+    # The k=1 state target must stay correct regardless of whether the k=0 target ran before it.
+    np.testing.assert_allclose(combined[1], k1_only[0], rtol=0.0, atol=1e-12)
+    np.testing.assert_allclose(combined_reversed[0], k1_only[0], rtol=0.0, atol=1e-12)
 
     print("test_defpot_multi_k_cache: PASS")
 
