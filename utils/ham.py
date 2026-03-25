@@ -13,7 +13,8 @@ import gc
 
 from .constants import *
 from .pp_func import pot_func, pot_funcLR, long_range_correction
-from .read import init_critical_NNconfig
+from .read import init_critical_NNconfig, setNN
+from utils.local_structure_correction import calcLocalSymmDescriptor
 
 torch.set_default_dtype(torch.float64)
 
@@ -30,7 +31,8 @@ class Hamiltonian:
         cacheSO = True,
         NN_locbool = False,
         model = None,
-        coupling = False
+        coupling = False,
+        LSDmodels = None
     ):
         """
         The Hamiltonian is initialized by passing it an initialized and
@@ -67,6 +69,7 @@ class Hamiltonian:
         self.NN_locbool = NN_locbool
         self.model = model
         self.coupling = coupling   # fit the e-ph couplings? boolean
+        self.fit_eff_masses = system.fit_eff_masses
 
         self.LRgamma = 0.2   # erf attenuation parameter for long-range 
                              # component of potential. This is a good value
@@ -80,18 +83,22 @@ class Hamiltonian:
         self.SOmats_def = {}
         self.NLmats_def = {}
         if SObool and cacheSO:
+            print("Caching SO mats.", flush=True)
+            sys.stdout.flush()
             self.SOmats = self.initSOmat_fast()
             self.SOmats_def = {}
             # check if nonlocal potentials are included, if so, cache them
             self.checknl = False
-            for alpha in range(system.getNAtomTypes()):
-                if abs(self.PPparams[self.system.atomTypes[alpha]][6]) > 1e-8:
+            for atom in self.atomPPorder:
+                if abs(self.PPparams[atom][6]) > 1e-8:
                     self.checknl = True
                     break
-                elif abs(self.PPparams[self.system.atomTypes[alpha]][7]) > 1e-8:
+                elif abs(self.PPparams[atom][7]) > 1e-8:
                     self.checknl = True
                     break
             if self.checknl:
+                print("Caching NL mats.", flush=True)
+                sys.stdout.flush()
                 self.NLmats = self.initNLmat_fast()
                 self.NLmats_def = {}
        
@@ -100,15 +107,26 @@ class Hamiltonian:
 
         
         self.checknl = False
-        for alpha in range(system.getNAtomTypes()):
-            if abs(self.PPparams[self.system.atomTypes[alpha]][6]) > 1e-8:
+        for atom in self.atomPPorder:
+            if abs(self.PPparams[atom][6]) > 1e-8:
                 self.checknl = True
                 break
-            elif abs(self.PPparams[self.system.atomTypes[alpha]][7]) > 1e-8:
+            elif abs(self.PPparams[atom][7]) > 1e-8:
                 self.checknl = True
                 break
-
         
+        if self.coupling or self.fit_eff_masses:
+            if not isinstance(self.system.idxVB, int):
+                raise ValueError("need to specify vb, cb indices for coupling")
+            elif not isinstance(self.system.idxCB, int):
+                raise ValueError("need to specify vb, cb indices for coupling")
+            elif not isinstance(self.system.idxGap, int):
+                raise ValueError("need to specify kpt index of bandgap for coupling")
+            else:
+                self.idx_vb = self.system.idxVB
+                self.idx_cb = self.system.idxCB
+                self.idx_gap = self.system.idxGap
+
         if self.coupling:
             nkpt = self.system.getNKpts()
             #nbv = self.basis.shape[0]
@@ -133,6 +151,14 @@ class Hamiltonian:
 
             if SObool:
                 self.SOmats_couple, self.NLmats_couple = self.initCouplingMats()
+
+        if self.NNConfig['local_env_corr']:
+            # Compute the Behler-Parrinello atomic descriptors (local symmetry descriptors)
+            self.system.localSymmDescr = calcLocalSymmDescriptor(self.system)
+            self.LSDmodels = LSDmodels
+        else:
+            self.system.localSymmDescr = None
+            self.LSDmodels = None
 
         # send things to gpu, if enabled ??
         # Or is it better to send some things at the last minute before diagonalization?
@@ -184,19 +210,19 @@ class Hamiltonian:
         if not requires_grad: 
             Htot = Htot.detach()
         end_time = time.time() if self.NNConfig['runtime_flag'] else None
-        print(f"Building VlocMat, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
-
+        print(f"Building VlocMat, elapsed time: {(end_time - start_time):.2f} seconds", flush=True) if self.NNConfig['runtime_flag'] else None
+        
         if self.SObool:
             start_time = time.time() if self.NNConfig['runtime_flag'] else None
             Htot = self.buildSOmat(kidx, preComp_SOmats_kidx, addMat=Htot)
             end_time = time.time() if self.NNConfig['runtime_flag'] else None
-            print(f"Building SOmat, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
+            print(f"Building SOmat, elapsed time: {(end_time - start_time):.2f} seconds", flush=True) if self.NNConfig['runtime_flag'] else None
 
             if self.checknl: 
                 start_time = time.time() if self.NNConfig['runtime_flag'] else None
                 Htot = self.buildNLmat(kidx, preComp_NLmats_kidx, addMat=Htot)
                 end_time = time.time() if self.NNConfig['runtime_flag'] else None
-                print(f"Building NLmat, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
+                print(f"Building NLmat, elapsed time: {(end_time - start_time):.2f} seconds", flush=True) if self.NNConfig['runtime_flag'] else None
 
         if self.device.type == "cuda":
             # !!! is this sufficient to match previous performance?
@@ -204,9 +230,11 @@ class Hamiltonian:
             # performs construction of H on cpu (at least the first time?), 
             # which might be slower.
             Htot.to(self.device)
-
+        
         if not requires_grad: 
             Htot = Htot.detach()
+
+        sys.stdout.flush()
         return Htot
     
 
@@ -368,6 +396,8 @@ class Hamiltonian:
         """
         nbv = self.basis.shape[0]
         gdiff = torch.stack([self.basis] * nbv, dim=1 ) - self.basis.repeat(nbv,1,1)
+        q = torch.norm(gdiff, dim=2).view(-1,1)
+
 
         def compute_atomFF():
             return self.model(torch.norm(gdiff, dim=2).view(-1,1))
@@ -384,6 +414,7 @@ class Hamiltonian:
                 Vmat = torch.zeros([nbv, nbv])
 
         for alpha in range(self.system.getNAtoms()):
+            atomType = self.system.atomTypes[alpha]
             gdiffDotTau = torch.sum(gdiff * self.system.atomPos[alpha], axis=2)
             sfact_re = 1/self.system.getCellVolume() * torch.cos(gdiffDotTau)
             sfact_im = 1/self.system.getCellVolume() * torch.sin(gdiffDotTau)
@@ -400,12 +431,22 @@ class Hamiltonian:
                 elif self.NNConfig['checkpoint']==1: 
                     atomFF = checkpoint(compute_atomFF, use_reentrant=False)
                 atomFF = atomFF[:, thisAtomIndex].view(nbv, nbv)
-                lr_coeff = self.PPparams[self.system.atomTypes[alpha]][4]
+                lr_coeff = self.PPparams[atomType][4]
                 atomFF = atomFF + long_range_correction(torch.norm(gdiff, dim=2), self.LRgamma, lr_coeff)
             else:
-                # atomFF = pot_func(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
-                atomFF = pot_funcLR(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]], self.LRgamma)
+                # atomFF = pot_func(torch.norm(gdiff, dim=2), self.PPparams[atom])
+                atomFF = pot_funcLR(torch.norm(gdiff, dim=2), self.PPparams[atomType], self.LRgamma)
 
+            if self.NNConfig["local_env_corr"]:
+                all_descr = self.system.G2
+                atom_descr = all_descr[alpha].squeeze(0)
+                
+                N_alpha = torch.full_like(q, atom_descr)
+                zeros = torch.full_like(q, 0.0)
+                x_input = torch.cat([N_alpha, q], dim=1)
+                x_ref_input = torch.cat([zeros, q], dim=1)
+                atomFF += self.LSDmodels[atomType](x_input).view(nbv, nbv) #- self.LSDmodels[atomType](x_ref_input).view(nbv, nbv)
+                
             if self.SObool:
                 # local potential has delta function on spin --> block diagonal
                 Vmat[:nbv, :nbv] = Vmat[:nbv, :nbv] + atomFF * torch.complex(sfact_re, sfact_im)
@@ -519,6 +560,14 @@ class Hamiltonian:
 
         return SOmats
     
+    def _wrap_initSOmat(self, args):
+        nbv = self.basis.shape[0]
+        kidx, SOwidth, defbool, idxGap = args
+        # Allocate a local matrix for this k-point
+        mat = np.zeros((self.system.getNAtoms(), 2*nbv, 2*nbv), dtype=np.complex128)
+        self.initSOmat_fast_oneKpt(kidx, mat, SOwidth, defbool, idxGap)
+        gc.collect()
+        return (kidx, mat)
 
     def initSOmat_fast(self, SOwidth=0.7, defbool=False, idxGap=None):
         """
@@ -552,12 +601,23 @@ class Hamiltonian:
         else:
             nkp = self.system.getNKpts()
         
-        # this can be parallelized over kpoints, but it's not critical since
-        # this is only done once during initialization
-        SOmats_4d = np.zeros((nkp, self.system.getNAtoms(), 2*nbv, 2*nbv), dtype=np.complex128)
-        for kidx in range(nkp):
-            self.initSOmat_fast_oneKpt(kidx, SOmats_4d[kidx], SOwidth, defbool, idxGap)
-            gc.collect()
+        if (self.NNConfig["num_cores"] == 0) or (self.NNConfig["pool_initSO"] == 0):
+            # serial path
+            SOmats_4d = np.zeros((nkp, self.system.getNAtoms(), 2*nbv, 2*nbv), dtype=np.complex128)
+            for kidx in range(nkp):
+                self.initSOmat_fast_oneKpt(kidx, SOmats_4d[kidx], SOwidth, defbool, idxGap)
+                gc.collect()
+            
+        else:
+            print(f"Initializing with {self.NNConfig['num_cores']} pools\n")
+            args_list = [(kidx, SOwidth, defbool, idxGap) for kidx in range(nkp)]
+            with mp.Pool(self.NNConfig['num_cores']) as pool:
+                results = pool.map(self._wrap_initSOmat, args_list)
+
+            # collect into big array
+            SOmats_4d = np.zeros((nkp, self.system.getNAtoms(), 2*nbv, 2*nbv), dtype=np.complex128)
+            for kidx, mat in results:
+                SOmats_4d[kidx] = mat
 
         return SOmats_4d
 
@@ -580,6 +640,7 @@ class Hamiltonian:
         torch datatypes. Be careful if editing, because torch tensors and ndarrays 
         can behave differently in subtle ways (i.e. make sure you really understand the code).
         """
+        
         nbv = self.basis.shape[0]
         # set integral dr ~ 0.0089 Bohr at 25 Hartree energy cutoff
         #dr = 2*np.pi / (100 * torch.norm(self.basis[-1]))
@@ -594,22 +655,28 @@ class Hamiltonian:
         else:
             nkp = self.system.getNKpts()
 
-        print(f"\tinitializing SO: kpt {kidx+1}/{nkp}")
+        print(f"\tinitializing SO: kpt {kidx+1}/{nkp}", flush=True)
         sys.stdout.flush()
+
         if defbool:
             gikp = self.basis + torch.stack([self.system.kpts[idxGap]] * nbv, dim=0)
             gjkp = self.basis + torch.stack([self.system.kpts[idxGap]] * nbv, dim=0)
         else:
             gikp = self.basis + torch.stack([self.system.kpts[kidx]] * nbv, dim=0)
             gjkp = self.basis + torch.stack([self.system.kpts[kidx]] * nbv, dim=0)
+        
         gdiff = torch.stack([self.basis]*nbv, dim=1) - self.basis.repeat(nbv, 1, 1)
-
+        #gdiff = self.basis.unsqueeze(0) - self.basis.unsqueeze(1)
+        #basis = self.basis.to("cuda")
+        #gdiff = basis.unsqueeze(0) - basis.unsqueeze(1)
+        #gdiff = self.basis[:, None, :] - self.basis[None, :, :]
+        
         gikp = gikp.numpy(force=True)
         gjkp = gjkp.numpy(force=True)
+        
         inm = np.linalg.norm(gikp, axis=1)
         jnm = np.linalg.norm(gjkp, axis=1)
-
-
+        
         isum = self._soIntegral_vect(inm, jnm, rcut, SOwidth)
         #isum = self._soIntegral_dan(inm, jnm, SOwidth) # for testing, use the prev line for real calcs
 
@@ -621,7 +688,7 @@ class Hamiltonian:
 
         gcross = np.cross(np.stack([gikp]*nbv, axis=1), 
                             np.stack([gjkp]*nbv, axis=0), axisa=-1, axisb=-1, axisc=-1)
-
+        
         for alpha in range(self.system.getNAtoms()):
             gdiffDotTau = gdiff * self.system.atomPos[alpha]
             gdiffDotTau = np.sum(gdiffDotTau.numpy(force=True), axis=2)
@@ -691,7 +758,8 @@ class Hamiltonian:
         # this can be parallelized over kpoints, but it's not critical since
         # this is only done once during initialization
         for kidx in range(nkp):
-            print(f"\tinitializing NL pots: kpt {kidx+1}/{nkp}")
+            print(f"\tinitializing NL pots: kpt {kidx+1}/{nkp}", flush=True)
+            sys.stdout.flush()
             # i = g
             for i in range(nbv):
                 # j = g'
@@ -758,6 +826,15 @@ class Hamiltonian:
         return NLmats
 
 
+    def _wrap_initNLmat(self, args):
+        nbv = self.basis.shape[0]
+        kidx, width1, width2, shift, defbool, idxGap = args
+        # Allocate a local matrix for this k-point
+        mat = np.zeros((self.system.getNAtoms(), 2, 2*nbv, 2*nbv), dtype=np.complex128)
+        self.initNLmat_fast_oneKpt(kidx, mat, width1, width2, shift, defbool, idxGap)
+        gc.collect()
+        return (kidx, mat)
+
     def initNLmat_fast(self, width1=1.0, width2=1.0, shift=1.5, defbool=False, idxGap=None):
         """
         Calculates the nonlocal integrals V_{l=1}(K,K') = 
@@ -795,10 +872,21 @@ class Hamiltonian:
         
         # this can be parallelized over kpoints, but it's not critical since
         # this is only done once during initialization
-        NLmats_5d = np.zeros((nkp, self.system.getNAtoms(), 2, 2*nbv, 2*nbv), dtype=np.complex128)
-        for kidx in range(nkp):
-            self.initNLmat_fast_oneKpt(kidx, NLmats_5d[kidx], width1, width2, shift, defbool, idxGap)
-            gc.collect()
+        if (self.NNConfig["num_cores"] == 0) or (self.NNConfig["pool_initNL"] == 0):
+          NLmats_5d = np.zeros((nkp, self.system.getNAtoms(), 2, 2*nbv, 2*nbv), dtype=np.complex128)
+          for kidx in range(nkp):
+              self.initNLmat_fast_oneKpt(kidx, NLmats_5d[kidx], width1, width2, shift, defbool, idxGap)
+              gc.collect()
+        else:
+            print(f"Initializing with {self.NNConfig['num_cores']} pools\n")
+            args_list = [(kidx, width1, width2, shift, defbool, idxGap) for kidx in range(nkp)]
+            with mp.Pool(self.NNConfig['num_cores']) as pool:
+                results = pool.map(self._wrap_initNLmat, args_list)
+
+            # collect into big array
+            NLmats_5d = np.zeros((nkp, self.system.getNAtoms(), 2, 2*nbv, 2*nbv), dtype=np.complex128)
+            for kidx, mat in results:
+                NLmats_5d[kidx] = mat
 
         return NLmats_5d
     
@@ -825,6 +913,7 @@ class Hamiltonian:
         torch datatypes. Be careful if editing, because torch tensors and ndarray can behave
         differently in subtle ways (i.e. make sure you really understand the code).
         """
+        
         nbv = self.basis.shape[0]
         # set integral dr ~ 0.0089 Bohr at 25 Hartree energy cutoff
         #dr = 2*np.pi / (100 * torch.norm(self.basis[-1]))
@@ -839,8 +928,9 @@ class Hamiltonian:
         else:
             nkp = self.system.getNKpts()
         
-        print(f"\tinitializing NL pots: kpt {kidx+1}/{nkp}")
+        print(f"\tinitializing NL pots: kpt {kidx+1}/{nkp}", flush=True)
         sys.stdout.flush()
+
         if defbool:
             gikp = self.basis + torch.stack([self.system.kpts[idxGap]] * nbv, dim=0)
             gjkp = self.basis + torch.stack([self.system.kpts[idxGap]] * nbv, dim=0)
@@ -848,6 +938,7 @@ class Hamiltonian:
             gikp = self.basis + torch.stack([self.system.kpts[kidx]] * nbv, dim=0)
             gjkp = self.basis + torch.stack([self.system.kpts[kidx]] * nbv, dim=0)
         gdiff = torch.stack([self.basis]*nbv, dim=1) - self.basis.repeat(nbv, 1, 1)
+        #gdiff = self.basis.unsqueeze(0) - self.basis.unsqueeze(1)
 
         gikp = gikp.numpy(force=True)
         gjkp = gjkp.numpy(force=True)
@@ -1137,7 +1228,6 @@ class Hamiltonian:
         """
         Multiprocessing is implemented. However, the returned bandStruct doesn't have gradients.
         """
-        
         nbands = self.system.nBands
         nkpt = self.system.getNKpts()
 
@@ -1148,9 +1238,6 @@ class Hamiltonian:
                 eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=False)
                 bandStruct[kidx,:] = eigValsAtK
         else: # multiprocessing
-            torch.set_num_threads(1)
-            os.environ["OMP_NUM_THREADS"] = "1"
-            os.environ["MKL_NUM_THREADS"] = "1"
             # print(f"The size of cachedMats_info is: {sys.getsizeof(cachedMats_info)/1024} KB")
             args_list = [(kidx, cachedMats_info, False) for kidx in range(nkpt)]
             with mp.Pool(self.NNConfig['num_cores']) as pool:
@@ -1179,7 +1266,66 @@ class Hamiltonian:
 
         return torch.stack(defpot_tensors)# the same number of defpots
 
+    def calcEffMasses(self, bs):
+        '''Calculate the vbm and cbm effective masses assuming parabolic bands.
+        This REQUIRES that idxGap, idxVB, and idxCB are set. The neighboring point at Gamma - dk
+        used to compute the derivative should be at idxGap - 1 in expBandstructure.par.
+        Returns a list eff_masses: [vb_eff_mass, cb_eff_mass]'''
 
+        eff_masses = [None, None]
+
+        # -----------------------------
+        # Constants
+        # -----------------------------
+        hbar = 1.054571817e-34       # J·s
+        eV_to_J = 1.602176634e-19     # J / eV
+        m_e = 9.1093837015e-31        # kg
+        bohr_to_ang = 0.529177
+
+        # -----------------------------
+        # Compute |Δk| in m^-1; fractional k already scaled by reciprocal lat vecs
+        # -----------------------------
+        
+        kpt0 = 1e10 / bohr_to_ang * self.system.kpts[self.idx_gap]     # a.u.^-1
+        kpt1 = 1e10 / bohr_to_ang * self.system.kpts[self.idx_gap - 1] # a.u.^-1
+        
+        dk = kpt1 - kpt0
+        dk_mag = np.linalg.norm(dk)
+        
+        # -----------------------------
+        # Extract energies at band extrema in eV
+        # -----------------------------
+        vb0 = bs[self.idx_gap, self.idx_vb]
+        vb1 = bs[self.idx_gap - 1, self.idx_vb]
+
+        cb0 = bs[self.idx_gap, self.idx_cb]
+        cb1 = bs[self.idx_gap - 1, self.idx_cb]
+
+        # -----------------------------
+        # Compute second derivative
+        # -----------------------------
+        # E1 - E0 = 1/2 E'' (|Δk|)^2  => E'' = 2 ΔE / (|Δk|)^2
+        # dE_vb = (vb0 - vb1) * eV_to_J  # convert to J
+        # E_dp_vb = 2 * dE_vb / (dk_mag ** 2)
+        dE_vb = - (vb1 - 2 * vb0 + vb1) * eV_to_J  # convert to J
+        E_dp_vb = dE_vb / (dk_mag ** 2)
+        
+        # dE_cb = (cb1 - cb0) * eV_to_J  # convert to J
+        # E_dp_cb = 2 * dE_cb / (dk_mag ** 2)
+        dE_cb = (cb1 - 2 * cb0 + cb1) * eV_to_J  # convert to J
+        E_dp_cb = dE_cb / (dk_mag ** 2)
+
+        # -----------------------------
+        # Effective mass
+        # -----------------------------
+        m_eff_vb = hbar**2 / E_dp_vb / m_e
+        m_eff_cb = hbar**2 / E_dp_cb / m_e
+
+        eff_masses[0] = m_eff_vb
+        eff_masses[1] = m_eff_cb
+
+        return eff_masses
+    
     def initCouplingMats(self, SOwidth=0.7, NLwidth=1.0, NLshift=1.5):
         """
         This function is for caching the SOC and NL derivative potentials.
@@ -1349,8 +1495,27 @@ class Hamiltonian:
 
         gjPlusQ = self.basis + self.system.qpts[qidx]
         gqDiff = torch.stack([self.basis] * nbv, dim=1 ) - gjPlusQ.repeat(nbv,1,1)  # G_i - (G_j + q)
+        q = torch.norm(gqDiff, dim=2).view(-1,1)
+
+        if self.NNConfig["local_env_corr"]:
+            # Precompute the necessary chain rule elements for LSD derivative coupling
+            dv_dN_all = []
+            structFactBeta = []
+            for beta in range(self.system.getNAtoms()):
+                gqDiffDotBeta = torch.sum(gqDiff * self.system.atomPos[beta], axis=2)
+                tmpStructFact = (1.0 / self.system.getCellVolume()) * (torch.cos(gqDiffDotBeta) + 1j * torch.sin(gqDiffDotBeta))
+                structFactBeta.append(tmpStructFact)
+
+                LSD_atomType = self.system.atomTypes[beta]
+                N_beta = float(self.system.G2[beta])
+                dv_dN_Nbeta = self.compute_dv_dN_q(LSD_atomType, N_beta, q)
+                #dv_dN_zero = self.compute_dv_dN_q(LSD_atomType, 0.0, q)
+                dv_dN = dv_dN_Nbeta #- dv_dN_zero
+                dv_dN_all.append(dv_dN)
 
         for alpha, gamma in atomgammaidxs:
+            atomType = self.system.atomTypes[alpha]
+
             if self.SObool:
                 dV = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
             else:
@@ -1378,19 +1543,76 @@ class Hamiltonian:
             thisAtomIndex = thisAtomIndex[0]
 
             if self.NN_locbool:
-                atomFF = self.model(torch.norm(gqDiff, dim=2).view(-1,1))
+                atomFF = self.model(q)
                 atomFF = atomFF[:, thisAtomIndex].view(nbv, nbv)
-                lr_coeff = self.PPparams[self.system.atomTypes[alpha]][4]
+                lr_coeff = self.PPparams[atomType][4]
                 atomFF = atomFF + long_range_correction(torch.norm(gqDiff, dim=2), self.LRgamma, lr_coeff)
             else:
                 #atomFF = pot_func(torch.norm(gqDiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
                 atomFF = pot_funcLR(torch.norm(gqDiff, dim=2), self.PPparams[self.system.atomTypes[alpha]], self.LRgamma)
 
-            dV[:nbv, :nbv] = prefactor * structFact * atomFF
+            # Multiply by structFact before LSD terms to avoid double counting during chain rule
+            atomFF.to(torch.complex128)
+            atomFF = structFact * atomFF
+
+            atomFF_LSD = torch.zeros_like(atomFF)
+            if self.NNConfig["local_env_corr"]:
+                # scalar N_alpha (G2)
+                N_alpha = float(self.system.G2[alpha])
+                N_alphas = torch.full_like(q, N_alpha)
+                zeros = torch.full_like(q, 0)
+
+                x_input = torch.cat([N_alphas, q], dim=1)
+                x_input_zeros = torch.cat([zeros, q], dim=1)
+                delta_v_alpha = self.LSDmodels[atomType](x_input).view(nbv, nbv) #- self.LSDmodels[atomType](x_input_zeros)).view(nbv, nbv)
+
+                atomFF_LSD += structFact * delta_v_alpha
+
+                # --- Chain rule term ∂v/∂N * ∂N/∂R ---
+                for beta in range(self.system.getNAtoms()):
+                    # Now we loop over all atoms... beta? Sorry, this notation is SUPER confusing.
+                    # In the mathematical documentation, we represent the local potential
+                    # V_loc(r) = \sum_\alpha v_\alpha(r). Alpha is an arbitrary atom index.
+                    # When we take a derivative, we take the derivative with respect to 
+                    # # a specific atom, \mu.
+                    # dV^loc(r)/dR_\mu = \sum_\alpha dv_\alpha(r)/dR_\mu. 
+                    # This derivative is only nonzero if \alpha = \mu, so we got used to writing
+                    # dV^loc(r)/dR_\alpha = dv_\alpha(r)/dR_\alpha. 
+                    # This is kind of sloppy notation. We should have written 
+                    # dV_loc(r)/dR_\mu = dv_\mu(r)/dR_\mu. 
+                    # Now we're getting kicked for it. In truth, the index "alpha" in this loop 
+                    # should be called "mu" because it is indexing the derivative atom R_\mu!
+                    # It never mattered before because we only ever needed one index anyway.
+                    # However, for the LSD potential
+                    # dV^lsd/dR_\mu = \sum_\alpha dv^lsd_\alpha(r)/dR_\mu
+                    # is NOT, I repeat, NOT just dV^lsd/dR_\mu = dv^lsd_\mu(r)/dR_\mu !
+                    # The LSD potential is pairwise, not independent, so there are contributions from
+                    # atoms other than \mu to its derivative. This "mu" vs. "alpha" distinction becomes important.
+                    # For legacy reasons, I will not change the above loop variable to "mu", even though
+                    # it is indexing over the derivative variable. I will leave it as alpha.
+                    # I will call the true "alpha" term "beta" because alpha was already taken)
+                    # i.e. \mu -> \alpha and \alpha -> \beta
+                    # Basically, the code can be understood by thinking about the derivative as
+                    # dV^lsd/dR_\alpha = \sum_\beta dv^lsd_\beta(r)/dR_\alpha
+                    # Now, for the LSD derivative, we need the chain rule term. In our new notation 
+                    # dv^lsd_\beta/dN_\beta \cdot dN_\beta/dR_\alpha.
+                    
+                    # This line is implementing the lookup for element
+                    # dN_\alpha/dR_{\mu\gamma}
+                    # But in out weird legacy indexing where \mu -> \alpha and \alpha -> \beta
+                    # dN_\beta/dR_{\alpha\gamma}
+                    dN_dR = self.system.dG2_dR[beta, alpha, gamma]
+                    if abs(dN_dR) < 1e-14:
+                        continue # skip atoms with zero contribution
+                    
+                    # Compute form factor term
+                    atomFF_LSD += structFactBeta[beta] * dv_dN_all[beta] * dN_dR
+
+            dV[:nbv, :nbv] = prefactor * (atomFF + atomFF_LSD)
 
             if self.SObool:
                 # local potential has delta function on spin --> block diagonal
-                dV[nbv:, nbv:] = prefactor * structFact * atomFF
+                dV[nbv:, nbv:] = prefactor * (atomFF + atomFF_LSD)
 
                 # SOC part
                 if isinstance(self.SOmats_couple[qidx, alpha, gamma], torch.Tensor):
@@ -1415,7 +1637,7 @@ class Hamiltonian:
                                 + tmp2 * self.PPparams[self.system.atomTypes[alpha]][7] )
                 
             ret_dict[(alpha,gamma)] = dV
-                
+        
         return ret_dict
 
 
@@ -1532,7 +1754,7 @@ class Hamiltonian:
                                 left_vecs = self.cb_vecs[self.idx_gap][0].view(1,-1)
                             tmp = torch.matmul(dV_dict[key], right_vecs)   # batched multiplication of all degenerate bands
                             tmp = torch.matmul(torch.conj(left_vecs), tmp) # n_right * n_left dot products in the elements of a matrix
-                            mag = torch.sum(tmp.conj() * tmp).real
+                            mag = torch.sum(torch.sqrt(tmp.conj() * tmp)).real
                             avg_couple[(key[0], 'cb')] += torch.sqrt(mag / (n_right * n_left)) / len(symm_equiv[key[0]])
 
                             n_right = len(self.vb_vecs[needKidx])
@@ -1548,7 +1770,7 @@ class Hamiltonian:
                                 left_vecs = self.vb_vecs[self.idx_gap][0].view(1,-1)
                             tmp2 = torch.matmul(dV_dict[key], right_vecs) # batched multiplication of all degenerate bands
                             tmp2 = torch.matmul(torch.conj(left_vecs), tmp2) # n_right * n_left dot products in the elements of a matrix
-                            mag2 = torch.sum(tmp2.conj() * tmp2).real
+                            mag2 = torch.sum(torch.sqrt(tmp2.conj() * tmp2)).real
                             avg_couple[(key[0], 'vb')] += torch.sqrt(mag2 / (n_right * n_left)) / len(symm_equiv[key[0]])
 
             # build ret_dict 
@@ -1600,7 +1822,6 @@ class Hamiltonian:
                     ret_dict[key + (qid,'vb')] = torch.sqrt((cpl_mag / (n_right * n_left))) * AUTOEV
 
         return ret_dict
-
 
     def calcCouplings_diag_fd(
         self,
@@ -1671,6 +1892,8 @@ class Hamiltonian:
         if not (0 <= kidx_gap < self.system.getNKpts()):
             raise ValueError("calcCouplings_diag_fd requires idxGap to be within the k-point list")
 
+
+        print(f"Bandgap kidx = {kidx_gap}")
         qidx_gamma = 0
 
         if base_vals is None:
@@ -1682,7 +1905,7 @@ class Hamiltonian:
                 device=self.system.kpts.device,
             )
         degen_tol_ha = degen_tol_ev / AUTOEV
-
+        
         # Note, user's inputs of idxVB/idxCB shouldn't include the artificial 
         # 2x interleaving of eigenenergies when SOC is off. 
         vb_degen = collect_degen_indices(base_vals, self.system.idxVB, -1, degen_tol_ha)
@@ -1690,7 +1913,7 @@ class Hamiltonian:
         unit_scale = AUTOEV  # report energies/couplings in eV and (eV/Bohr)^2
         unit_label = "eV"
         base_vals_out = base_vals * unit_scale
-
+        
         if debug:
             print("\n[calcCouplings_diag_fd] Debug info")
             print("Coupling units: eV/Bohr")
@@ -1741,6 +1964,7 @@ class Hamiltonian:
                     NN_locbool=self.NN_locbool,
                     model=self.model,
                     coupling=False,
+                    LSDmodels=self.LSDmodels
                 )
 
                 vals_plus = eigvals_no_order(ham_plus, kidx_gap, requires_grad=True) * unit_scale
@@ -1762,7 +1986,29 @@ class Hamiltonian:
 
         return ret_dict
 
+    def compute_dv_dN_q(self, atomType, N_alpha, qvals):
+        """
+        Computes ∂v_lsd(q, N_alpha) / ∂N_alpha
+        N_alpha: scalar (float)
+        qvals: (nbv*nbv, 1) tensor
+        Returns (nbv, nbv) tensor
+        """
+        q = qvals.clone().detach().requires_grad_(True)
+        N = torch.full_like(q, N_alpha, requires_grad=True)
 
+        x_input = torch.cat([N, q], dim=1)
+        v = self.LSDmodels[atomType](x_input)
+
+        dv_dN = torch.autograd.grad(
+            outputs=v,
+            inputs=N,
+            grad_outputs=torch.ones_like(v),
+            create_graph=True
+        )[0]
+
+        nbv = self.basis.shape[0]
+        return dv_dN.view(nbv, nbv)
+    
     def _bessel1(self, x, x1):
         # sin(x)/(x^2) - cos(x)/x = sin(x) * x1^2 - cos(x) * x1
         return np.sin(x) * x1**2 - np.cos(x) * x1
@@ -1850,7 +2096,7 @@ class Hamiltonian:
 
     def _soIntegral_dan(self, k, kp, width):
         """
-        SO integral exactly as daniel's c code computes it,
+        SO integral exactly as daniel weinberg's c code computes it,
         vectorized over k,kp (so assuming k,kp are vectors of
         length nbv). This is useful for testing. The 
         _soIntegral_vect() routine is faster and more robust.
@@ -1897,11 +2143,11 @@ class Hamiltonian:
 
     def _nlIntegral_dan(self, k, kp, width, shift):
         """
-        NL integral exactly as daniel's c code computes it,
+        NL integral exactly as daniel weinberg's c code computes it,
         vectorized over k,kp (so assuming k,kp are vectors of
         length nbv). This is useful for testing. The 
         _nlIntegral_vect() routine is much more robust. It's
-        pretty clear that daniel's routine is not well converged for
+        pretty clear that daniel weinberg's routine is not well converged for
         arbitrary k,kp,width,shift.
         """
         # set integral dr ~ 0.0089 Bohr at 25 Hartree energy cutoff
@@ -1935,10 +2181,17 @@ class Hamiltonian:
         """
         self.model = newmodel
 
+    def set_LSDmodels(self, newmodels):
+        """
+        Use this to set the LSD models for each atom type
+        """
+        self.LSDmodels = {k: v for k, v in newmodels.items()}
 
     def get_PPparams(self):
         return copy.deepcopy(self.PPparams)
     
+    def get_LSDparams(self):
+        return copy.deepcopy(self.system.LSDparams)
 
     def set_PPparams(self, newparams):
         """
@@ -1948,8 +2201,16 @@ class Hamiltonian:
         """
         self.PPparams = newparams
 
+    def set_LSDparams(self, newparams):
+        """
+        Set new values for the algebraic PP "a" params.
+        This is useful when performing optimization of the algebraic
+        parts of the PP.
+        """
+        self.system.LSDparams = newparams
 
-def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device):
+
+def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model=None, LSDmodels=None):
     """
     Initialize the ham class for each BulkSystem. 
     dummy_ham is used to initialize and store the cached SOmats and NLmats in dict cachedMats. 
@@ -1970,23 +2231,25 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device):
         # 2. SObool = True, no parallel --> Initialize ham with cache. No storage / moving is needed.
         # 3. SObool = True, yes parallel --> Do the complicated storage / moving. 
         if not NNConfig['SObool']: 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], coupling=sys.fit_eph)
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=NNConfig['cacheSO'], LSDmodels=LSDmodels, coupling=sys.fit_couplings)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
-        elif (NNConfig['SObool']) and (NNConfig['num_cores']==0): 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], coupling=sys.fit_eph)
+        elif (NNConfig['SObool']) and (NNConfig['num_cores']==0):
+            print(f"num_cores set to {NNConfig['num_cores']}. Initializing Hamiltonian without caching SO mats.") 
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=NNConfig['cacheSO'], LSDmodels=LSDmodels, coupling=sys.fit_couplings)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
-        elif (NNConfig['SObool']) and (NNConfig['cacheSO']==0): 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], coupling=sys.fit_eph)
+        elif (NNConfig['SObool']) and (NNConfig['cacheSO']==0):
+            print(f"cacheSO set to {NNConfig['cacheSO']}. Initializing Hamiltonian without caching SO mats.") 
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=False, LSDmodels=LSDmodels, coupling=sys.fit_couplings)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
-        else: 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=True, cacheSO=False, coupling=sys.fit_eph)
-            dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], coupling=sys.fit_eph)
+        else:
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=True, cacheSO=False, LSDmodels=LSDmodels, coupling=sys.fit_couplings)
+            dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], LSDmodels=LSDmodels, coupling=sys.fit_couplings)
 
             if dummy_ham.SOmats is not None: 
                 # reshape dummy_ham.SOmats has shape (nkpt)*(nAtoms)*(2*nbasis) x (2*nbasis)
@@ -2025,3 +2288,8 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device):
         end_time = time.time()
         print(f"Elapsed time: {(end_time - start_time):.2f} seconds\n")
     return hams, cachedMats_info, shm_dict_SO, shm_dict_NL
+
+
+def set_LSDModels(ham, LSDmodels):
+    ham.set_LSDModels(LSDmodels)
+    

@@ -120,6 +120,7 @@ class Net_celu_HeInit(nn.Module):
                 x = linear_transform(x)
         return x
 
+
 class Net_celu_RandInit(nn.Module):
     def __init__(self, Layers):
         super(Net_celu_RandInit, self).__init__()
@@ -440,7 +441,24 @@ class Net_celu_HeInit_decay(nn.Module):
         output = self.neural_network(x) * decay
         return output
     
-
+class Net_celu_HeInit_decay_LSD(nn.Module):
+    def __init__(self, Layers, decay_rate, decay_center):
+        super(Net_celu_HeInit_decay, self).__init__()
+        self.neural_network = Net_celu_HeInit(Layers)
+        self.decay_rate = torch.tensor(decay_rate, requires_grad=False)
+        self.decay_center = torch.tensor(decay_center, requires_grad=False)
+    
+        # zero-init the final layer of the subnetwork
+        last_layer = self.neural_network.hidden_l[-1]
+        nn.init.zeros_(last_layer.weight)
+        nn.init.zeros_(last_layer.bias)
+        
+    def forward(self, x):
+        q = x[:, 1].unsqueeze(1) # only apply Gaussian decay on q
+        decay = 1 - 1 / (1 + torch.exp(-self.decay_rate * (q - self.decay_center)))
+        output = self.neural_network(x) * decay
+        return output
+    
 class Net_relu_xavier_decayGaussian(nn.Module):
     def __init__(self, Layers, gaussian_std):
         super(Net_relu_xavier_decayGaussian, self).__init__()
@@ -452,6 +470,22 @@ class Net_relu_xavier_decayGaussian(nn.Module):
         output = self.neural_network(x) * gaussian
         return output
 
+class Net_relu_xavier_decayGaussian_LSD(nn.Module):
+    def __init__(self, Layers, gaussian_std):
+        super(Net_relu_xavier_decayGaussian_LSD, self).__init__()
+        self.neural_network = Net_relu_xavier(Layers)
+        
+        # zero-init the final layer of the subnetwork
+        last_layer = self.neural_network.hidden_l[-1]
+        nn.init.zeros_(last_layer.weight)
+        nn.init.zeros_(last_layer.bias)
+
+        self.gaussian_std = torch.tensor(gaussian_std, requires_grad=False)
+    
+    def forward(self, x):
+        q = x[:, 1].unsqueeze(1)  # only apply Gaussian decay on q
+        gaussian = torch.exp(-q**2 / (2 * self.gaussian_std**2))
+        return self.neural_network(x) * gaussian
 
 class Net_sigmoid_xavier_decayGaussian(nn.Module):
     def __init__(self, Layers, gaussian_std):
@@ -476,7 +510,83 @@ class Net_celu_HeInit_decayGaussian(nn.Module):
         output = self.neural_network(x) * gaussian
         return output
 
+class Net_celu_HeInit_decayGaussian_LSD(nn.Module):
+    def __init__(self, Layers, gaussian_std):
+        super(Net_celu_HeInit_decayGaussian_LSD, self).__init__()
+        self.neural_network = Net_celu_HeInit(Layers)
 
+        # zero-init the final layer of the subnetwork
+        last_layer = self.neural_network.hidden_l[-1]
+        nn.init.zeros_(last_layer.weight)
+        nn.init.zeros_(last_layer.bias)
+        
+        self.gaussian_std = torch.tensor(gaussian_std, requires_grad=False)
+    
+    def forward(self, x):
+        q = x[:, 1].unsqueeze(1) # only apply Gaussian decay on q
+        gaussian = torch.exp(-q**2/(2*self.gaussian_std**2))
+        x_ref = torch.zeros_like(x)
+        x_ref[:, 1] = x[:, 1].clone()
+        output = (self.neural_network(x) - self.neural_network(x_ref)) * gaussian
+        # output = (self.neural_network(x)) * gaussian
+        return output
+
+class OscillatingActivation(nn.Module):
+    """
+    Activation function: x + (1/a) * sin^2(ax)
+    Derivative: 1 + sin(2ax), which oscillates around 1 — good for gradient flow.
+    'a' controls the oscillation frequency.
+    """
+    def __init__(self, alpha=1.0):
+        super(OscillatingActivation, self).__init__()
+        self.alpha = alpha
+
+    def forward(self, x):
+        return x + (1.0 / self.alpha) * torch.sin(self.alpha * x) ** 2
+
+
+class Net_osc_HeInit(nn.Module):
+    def __init__(self, Layers, alpha=5.0):
+        super(Net_osc_HeInit, self).__init__()
+        self.hidden_l = nn.ModuleList()
+        self.alpha = alpha
+
+        for input_size, output_size in zip(Layers, Layers[1:]):
+            linear = nn.Linear(input_size, output_size)
+            # He init is still reasonable: activation derivative is 1 + sin(2ax),
+            # which has mean ~1 near zero, similar to ReLU-like activations
+            nn.init.kaiming_normal_(linear.weight, mode='fan_in', nonlinearity='relu')
+            self.hidden_l.append(linear)
+
+    def forward(self, x):
+        L = len(self.hidden_l)
+        for (l, linear_transform) in zip(range(L), self.hidden_l):
+            if l < L - 1:
+                x = OscillatingActivation(self.alpha)(linear_transform(x))
+            else:
+                x = linear_transform(x)
+        return x
+
+
+class Net_osc_HeInit_decayGaussian_LSD(nn.Module):
+    def __init__(self, Layers, gaussian_std, alpha=5.0):
+        super(Net_osc_HeInit_decayGaussian_LSD, self).__init__()
+        self.neural_network = Net_osc_HeInit(Layers, alpha=alpha)
+
+        # Zero-init the final layer, same as the CELU version
+        last_layer = self.neural_network.hidden_l[-1]
+        nn.init.zeros_(last_layer.weight)
+        nn.init.zeros_(last_layer.bias)
+
+        self.gaussian_std = torch.tensor(gaussian_std, requires_grad=False)
+
+    def forward(self, x):
+        q = x[:, 1].unsqueeze(1)  # only apply Gaussian decay on q
+        gaussian = torch.exp(-q**2 / (2 * self.gaussian_std**2))
+        x_ref = torch.zeros_like(x)
+        x_ref[:, 1] = x[:, 1].clone()
+        output = (self.neural_network(x) - self.neural_network(x_ref)) * gaussian
+        return output
 
 class Net_celu_HeInit_scale_decayGaussian(nn.Module):
     def __init__(self, Layers, gaussian_std, scale):

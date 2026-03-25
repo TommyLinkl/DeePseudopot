@@ -82,13 +82,14 @@ vb_vec = vecs[:,7]
 cb_vec = 1/np.sqrt(2) * (vecs[:,8] + vecs[:,9]) # avg over degen subspace
 #e1s = [vals[25], vals[26]]
 e1s = [vals[7], vals[8]]
-print(f"All energies: {[val*AUTOEV for val in vals]}")
-print(f"The real VB and CB band edges are {vals[3]*AUTOEV:.6f} eV and {vals[4]*AUTOEV:.6f} eV respectively.")
-print(f"\nIn our test script, we consider the 'fake' VB and CB as: VBM = {e1s[0]*AUTOEV:.6f}, CBM = {e1s[1]*AUTOEV:.6f} eV")
-print(f"vb-1 degen? {abs(vals[7] - vals[6]) < 1e-5 / AUTOEV}, E_diff = {abs(vals[7] - vals[6])*AUTOEV:.3e} eV")
-print(f"vb-2 degen? {abs(vals[7] - vals[6]) < 1e-5 / AUTOEV}, E_diff = {abs(vals[7] - vals[5])*AUTOEV:.3e} eV")
-print(f"cb+1 degen? {abs(vals[8] - vals[9]) < 1e-5 / AUTOEV}, E_diff = {abs(vals[8] - vals[9])*AUTOEV:.3e} eV")
-print(f"cb+2 degen? {abs(vals[8] - vals[10]) < 1e-5 / AUTOEV}, E_diff = {abs(vals[8] - vals[10])*AUTOEV:.3e} eV")
+print(f"\n\nInitial energies VBM: {e1s[0]}, CBM: {e1s[1]}")
+print(f"vb-1 degen? {abs(vals[7] - vals[6]) < 1e-15}, {abs(vals[7] - vals[6])}")
+print(f"vb-2 degen? {abs(vals[7] - vals[5]) < 1e-15}, {abs(vals[7] - vals[5])}")
+print(f"cb+1 degen? {abs(vals[8] - vals[9]) < 1e-15}, {abs(vals[8] - vals[9])}")
+print(f"cb+2 degen? {abs(vals[8] - vals[10]) < 1e-15}, {abs(vals[8] - vals[10])}")
+
+
+
 
 # compute analytic derivs of potential
 get_derivs = [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
