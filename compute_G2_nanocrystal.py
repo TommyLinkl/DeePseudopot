@@ -211,7 +211,7 @@ def compute_G2(
     positions: np.ndarray,
     material: str,
     eta: float = 0.5,
-    Rc: float = 10.0,
+    Rc: float = 12.0,
 ) -> np.ndarray:
     """Compute the G2 Behler-Parrinello descriptor for every atom.
 
@@ -258,8 +258,12 @@ def compute_G2(
     np.fill_diagonal(exp_term, 0.0)
     np.fill_diagonal(fc, 0.0)
 
+    neighbor_mask = (fc > 0) & (dist > 1e-12)       # (N,N) bool
+    N_neighbors = neighbor_mask.sum(axis=1)          # (N,)  int
+    N_neighbors = np.maximum(N_neighbors, 1)         # guard against isolated atoms
+
     # G2 descriptor (with –1 shift as in the reference pseudocode)
-    G2 = np.sum((exp_term - 1.0) * fc, axis=1)    # (N,)
+    G2 = np.sum((exp_term - 1.0) * fc, axis=1) / N_neighbors    # (N,)
 
     return G2
 

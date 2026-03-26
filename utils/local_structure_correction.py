@@ -24,6 +24,41 @@ def retEquilDist(atom1, atom2):
     if ((atom1 == 'Pb') and (atom2 == 'I')) or ((atom2 == 'Pb') and (atom1 == 'I')):
         return 5.94319 # Bohr Pb-I distance
 
+# def retMinImageDist(atomPos, unitCellVectors):
+#     """
+#     Compute minimum-image convention pairwise displacement vectors and distances.
+
+#     Parameters
+#     ----------
+#     atomPos : (N,3) array
+#         Atomic positions in Cartesian coordinates.
+#     unitCellVectors : (3,3) array
+#         Lattice vectors (a,b,c) in Cartesian coords.
+
+#     Returns
+#     -------
+#     dR : (N,N,3) array
+#         Minimum-image displacement vectors r_j - r_i.
+#     dist : (N,N) array
+#         Pairwise minimum-image distances.
+#     """
+#     nAtoms = atomPos.shape[0]
+#     # Convert Cartesian -> fractional
+#     invCell = np.linalg.inv(unitCellVectors.T)  # (3,3)
+#     fracPos = atomPos @ invCell  # (N,3)
+
+#     # Fractional differences
+#     dFrac = fracPos[:, None, :] - fracPos[None, :, :]  # (N,N,3)
+
+#     # Apply minimum image: wrap to [-0.5,0.5)
+#     dFrac -= np.round(dFrac)
+
+#     # Back to Cartesian
+#     dR = dFrac @ unitCellVectors.T  # (N,N,3)
+#     # print(f"dR = \n {dR[0]}")
+#     dist = np.linalg.norm(dR, axis=-1)  # (N,N)
+#     return dR, dist
+
 def retMinImageDist(atomPos, unitCellVectors):
     """
     Compute minimum-image convention pairwise displacement vectors and distances.
@@ -33,7 +68,7 @@ def retMinImageDist(atomPos, unitCellVectors):
     atomPos : (N,3) array
         Atomic positions in Cartesian coordinates.
     unitCellVectors : (3,3) array
-        Lattice vectors (a,b,c) in Cartesian coords.
+        Lattice vectors as rows: row 0 = a, row 1 = b, row 2 = c.
 
     Returns
     -------
@@ -42,21 +77,22 @@ def retMinImageDist(atomPos, unitCellVectors):
     dist : (N,N) array
         Pairwise minimum-image distances.
     """
-    nAtoms = atomPos.shape[0]
-    # Convert Cartesian -> fractional
-    invCell = np.linalg.inv(unitCellVectors.T)  # (3,3)
-    fracPos = atomPos @ invCell  # (N,3)
+    atomPos = np.asarray(atomPos)
+    cell    = np.asarray(unitCellVectors)   # rows are a,b,c
+    print(f"cell:\n{cell}")
+    # Correct Cartesian -> fractional transform for row-convention cell
+    invCell = np.linalg.inv(cell)           # (3,3)
+    fracPos = atomPos @ invCell             # (N,3)
 
-    # Fractional differences
-    dFrac = fracPos[:, None, :] - fracPos[None, :, :]  # (N,N,3)
+    # Fractional displacements
+    dFrac = fracPos[None, :, :] - fracPos[:, None, :]   # (N,N,3)
 
-    # Apply minimum image: wrap to [-0.5,0.5)
+    # Wrap to [-0.5, 0.5): minimum image in fractional space
     dFrac -= np.round(dFrac)
 
     # Back to Cartesian
-    dR = dFrac @ unitCellVectors.T  # (N,N,3)
-    # print(f"dR = \n {dR[0]}")
-    dist = np.linalg.norm(dR, axis=-1)  # (N,N)
+    dR   = dFrac @ cell                     # (N,N,3)
+    dist = np.linalg.norm(dR, axis=-1)      # (N,N)
     return dR, dist
 
 def cutoff_fc(r, Rc):

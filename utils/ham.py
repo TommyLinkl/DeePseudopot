@@ -2231,25 +2231,25 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model
         # 2. SObool = True, no parallel --> Initialize ham with cache. No storage / moving is needed.
         # 3. SObool = True, yes parallel --> Do the complicated storage / moving. 
         if not NNConfig['SObool']: 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=NNConfig['cacheSO'], LSDmodels=LSDmodels, coupling=sys.fit_couplings)
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=NNConfig['cacheSO'], LSDmodels=LSDmodels, coupling=sys.fit_eph)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
         elif (NNConfig['SObool']) and (NNConfig['num_cores']==0):
             print(f"num_cores set to {NNConfig['num_cores']}. Initializing Hamiltonian without caching SO mats.") 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=NNConfig['cacheSO'], LSDmodels=LSDmodels, coupling=sys.fit_couplings)
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=NNConfig['cacheSO'], LSDmodels=LSDmodels, coupling=sys.fit_eph)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
         elif (NNConfig['SObool']) and (NNConfig['cacheSO']==0):
             print(f"cacheSO set to {NNConfig['cacheSO']}. Initializing Hamiltonian without caching SO mats.") 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=False, LSDmodels=LSDmodels, coupling=sys.fit_couplings)
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=False, LSDmodels=LSDmodels, coupling=sys.fit_eph)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
         else:
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=True, cacheSO=False, LSDmodels=LSDmodels, coupling=sys.fit_couplings)
-            dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], LSDmodels=LSDmodels, coupling=sys.fit_couplings)
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=True, cacheSO=False, LSDmodels=LSDmodels, coupling=sys.fit_eph)
+            dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], LSDmodels=LSDmodels, coupling=sys.fit_eph)
 
             if dummy_ham.SOmats is not None: 
                 # reshape dummy_ham.SOmats has shape (nkpt)*(nAtoms)*(2*nbasis) x (2*nbasis)

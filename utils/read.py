@@ -200,7 +200,7 @@ class BulkSystem:
         self.BS_plot_CBVB_range_zoom = BS_plot_CBVB_range_zoom
         self.systemName = systemName
         self.fit_defPot = False
-        self.fit_couplings = False
+        self.fit_eph = False
         self.fit_eff_masses = False
         self.relE_bIdx = -1
 
@@ -230,16 +230,10 @@ class BulkSystem:
         vars(self).update(attributes)
         if "idxVB" in attributes:
             self.idx_vb = attributes["idxVB"]
-            if self.fit_eph == False: 
-                raise ValueError("Input error: 'fit_eph' must be turned on if 'idxVB' is specified.")
         if "idxCB" in attributes:
             self.idx_cb = attributes["idxCB"]
-            if self.fit_eph == False: 
-                raise ValueError("Input error: 'fit_eph' must be turned on if 'idxCB' is specified.")
         if "idxGap" in attributes:
             self.idx_gap = attributes["idxGap"]
-            if self.fit_eph == False: 
-                raise ValueError("Input error: 'fit_eph' must be turned on if 'idxCB' is specified.")
 
         
     def setSystem(self, systemFilename):
@@ -505,25 +499,30 @@ class BulkSystem:
         material = self.systemName
 
         eta = 0.5 # prefactor in Gaussian [1/(2sigma^2)]
-        Rc = 10.0
+        Rc = 8.0
         Rs = computeEquilDist(atomTypes, material)
         
 
         # Minimum-image distances
         dR, dist = retMinImageDist(atomPos, cell)       # dR: (N,N,3), dist: (N,N)
-
+        print(f"distances = {dist}")
         # Cutoff and derivative
         fc = cutoff_fc(dist, Rc)                        # (N,N)
         fcp = cutoff_fc_prime(dist, Rc)                 # (N,N)
-        
+
         # Zero self-distance
         np.fill_diagonal(Rs, 0.0)
         
         # Radial Gaussian term
         exp_term = np.exp(-eta * (dist - Rs)**2)
-
-        # G2 descriptor
-        G2 = np.sum((exp_term - 1.0) * fc, axis=1)              # (N,)
+        
+        # Count neighbors: off-diagonal entries where fc > 0
+        neighbor_mask = (fc > 0) & (dist > 1e-12)       # (N,N) bool
+        N_neighbors = neighbor_mask.sum(axis=1)          # (N,)  int
+        N_neighbors = np.maximum(N_neighbors, 1)         # guard against isolated atoms
+        print(f"N_neighbors = {N_neighbors}")
+        # Normalized G2 descriptor
+        G2 = np.sum((exp_term - 1.0) * fc, axis=1) / N_neighbors             # (N,)
         
         # g'(R) factor
         gprime = (exp_term - 1) * fcp - 2.0 * eta * (dist - Rs) * fc * exp_term
@@ -543,7 +542,7 @@ class BulkSystem:
                 if beta == alpha:
                     continue
 
-                grad = gprime[alpha, beta] * e_ab[alpha, beta]
+                grad = gprime[alpha, beta] * e_ab[alpha, beta] / N_neighbors[alpha]
 
                 # ∂G2_alpha / ∂R_mu when mu = alpha
                 dG2_dR[alpha, alpha] += grad
@@ -618,7 +617,7 @@ def setAllBulkSystems(nSystem, inputsFolder, resultsFolder, LSD_flag=False):
         sys.print_basisStates(resultsFolder + "basisStates_%d.dat" % iSys)
         if sys.fit_defPot: 
             sys.setExpDefPot_NEW(inputsFolder + "expDefPot_%d.par" % iSys)
-        if sys.fit_couplings: 
+        if sys.fit_eph: 
             sys.setExpCouplings(inputsFolder + "expCoupling_%d.par" % iSys)
             sys.setQPointsAndWeights(inputsFolder + "qpoints_%d.par" % iSys)
         if sys.fit_eff_masses: 

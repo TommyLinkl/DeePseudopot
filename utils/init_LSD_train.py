@@ -214,7 +214,7 @@ def init_LSD_PP(inputsFolder, LSDmodels, systems, atomPPOrder, NNConfig, device,
         return LSDmodels, LSD_PPFunc_val
 
     print(f"\n{'#' * 40}\nInitializing the LSD NNs by training to the pseudopotential differences. ")
-    atoms_to_train = ["Pb", "I", "Cs"]
+    # atoms_to_train = ["Pb", "I", "Cs"]
     for atom in atoms_to_train:
         print(f"Fitting atom type {atom}\n")
         LSDmodels[atom].cpu()
