@@ -484,10 +484,83 @@ class BulkSystem:
         np.savetxt(basisStateFileName, sorted_basisSet, fmt=['%d']+['%f']*(sorted_basisSet.shape[1]-1), delimiter='\t')
         return
     
+    # def compute_G2_and_dG2_dR(self):
+    #     """
+    #     Computes:
+    #       G2[alpha]           = scalar BP descriptor per atom
+    #       dG2_dR[alpha, mu, gamma] = ∂G2_alpha / ∂R_{mu,gamma}
+
+    #     All NumPy, analytic.
+    #     """
+    #     atomPos = np.asarray(self.atomPos)              # (N,3)
+    #     cell = np.asarray(self.unitCellVectors)
+    #     nAtoms = atomPos.shape[0]
+    #     atomTypes = self.atomTypes
+    #     material = self.systemName
+
+    #     eta = 0.5 # prefactor in Gaussian [1/(2sigma^2)]
+    #     Rc = 8.0
+    #     Rs = computeEquilDist(atomTypes, material)
+        
+
+    #     # Minimum-image distances
+    #     dR, dist = retMinImageDist(atomPos, cell)       # dR: (N,N,3), dist: (N,N)
+    #     print(f"distances = {dist}")
+    #     # Cutoff and derivative
+    #     fc = cutoff_fc(dist, Rc)                        # (N,N)
+    #     fcp = cutoff_fc_prime(dist, Rc)                 # (N,N)
+
+    #     # Zero self-distance
+    #     np.fill_diagonal(Rs, 0.0)
+        
+    #     # Radial Gaussian term
+    #     exp_term = np.exp(-eta * (dist - Rs)**2)
+        
+    #     # Count neighbors: off-diagonal entries where fc > 0
+    #     neighbor_mask = (fc > 0) & (dist > 1e-12)       # (N,N) bool
+    #     N_neighbors = neighbor_mask.sum(axis=1)          # (N,)  int
+    #     N_neighbors = np.maximum(N_neighbors, 1)         # guard against isolated atoms
+    #     print(f"N_neighbors = {N_neighbors}")
+    #     # Normalized G2 descriptor
+    #     G2 = np.sum((exp_term - 1.0) * fc, axis=1) / N_neighbors             # (N,)
+        
+    #     # g'(R) factor
+    #     gprime = (exp_term - 1) * fcp - 2.0 * eta * (dist - Rs) * fc * exp_term
+        
+    #     # Initialize derivative tensor
+    #     dG2_dR = np.zeros((nAtoms, nAtoms, 3), dtype=float)
+
+    #     # Unit vectors R_ab / |R_ab|
+    #     with np.errstate(divide='ignore', invalid='ignore'):
+    #         e_ab = np.zeros_like(dR)
+    #         mask = dist > 1e-12
+    #         e_ab[mask] = dR[mask] / dist[mask][:, None]
+
+    #     # Accumulate derivatives
+    #     for alpha in range(nAtoms):
+    #         for beta in range(nAtoms):
+    #             if beta == alpha:
+    #                 continue
+
+    #             grad = gprime[alpha, beta] * e_ab[alpha, beta] / N_neighbors[alpha]
+
+    #             # ∂G2_alpha / ∂R_mu when mu = alpha
+    #             dG2_dR[alpha, alpha] += grad
+
+    #             # ∂G2_alpha / ∂R_mu when mu = beta
+    #             dG2_dR[alpha, beta]  -= grad
+    #         # Ensure derivatives are antisymetric
+    #         assert np.allclose(np.sum(dG2_dR[alpha], axis=0), 0.0)
+        
+    #     # Store on system (NumPy)
+    #     self.G2 = torch.from_numpy(G2)
+    #     self.dG2_dR = torch.from_numpy(dG2_dR)
+    #     return
+
     def compute_G2_and_dG2_dR(self):
         """
         Computes:
-          G2[alpha]           = scalar BP descriptor per atom
+          G2[alpha]                = scalar BP descriptor per atom (soft-normalized)
           dG2_dR[alpha, mu, gamma] = ∂G2_alpha / ∂R_{mu,gamma}
 
         All NumPy, analytic.
@@ -498,37 +571,51 @@ class BulkSystem:
         atomTypes = self.atomTypes
         material = self.systemName
 
-        eta = 0.5 # prefactor in Gaussian [1/(2sigma^2)]
-        Rc = 8.0
+        eta = 0.5
         Rs = computeEquilDist(atomTypes, material)
-        
+        # Per-species parameters
+        Rc_map = {
+            'CsPbI3':  {'Cs': 8.5, 'Pb': 7.0, 'I':  7.0},
+            'CsPbBr3': {'Cs': 8.2, 'Pb': 6.5, 'Br': 6.5},
+            'CsPbCl3': {'Cs': 7.8, 'Pb': 6.0, 'Cl': 6.0},
+        }
 
-        # Minimum-image distances
-        dR, dist = retMinImageDist(atomPos, cell)       # dR: (N,N,3), dist: (N,N)
-        print(f"distances = {dist}")
-        # Cutoff and derivative
-        fc = cutoff_fc(dist, Rc)                        # (N,N)
-        fcp = cutoff_fc_prime(dist, Rc)                 # (N,N)
+        Z_map = {'Cs': 8, 'Pb': 6, 'I':  2, 'Br':  2, 'Cl':  2}
+            
 
-        # Zero self-distance
-        np.fill_diagonal(Rs, 0.0)
-        
-        # Radial Gaussian term
-        exp_term = np.exp(-eta * (dist - Rs)**2)
-        
-        # Count neighbors: off-diagonal entries where fc > 0
+        Rc_per_atom = np.array([Rc_map[material][t] for t in atomTypes])   # (N,)
+        Z_per_atom  = np.array([Z_map[t]  for t in atomTypes])    # (N,)
+
+        # Minimum image distances (unchanged)
+        dR, dist = retMinImageDist(atomPos, cell)                  # (N,N,3), (N,N)
+
+        # Per-atom cutoff: fc[alpha, beta] uses Rc of alpha
+        fc  = np.zeros((nAtoms, nAtoms))
+        fcp = np.zeros((nAtoms, nAtoms))
+        for alpha in range(nAtoms):
+            fc [alpha] = cutoff_fc      (dist[alpha], Rc_per_atom[alpha])
+            fcp[alpha] = cutoff_fc_prime(dist[alpha], Rc_per_atom[alpha])
+
+        np.fill_diagonal(fc,  0.0)
+        np.fill_diagonal(fcp, 0.0)
+        np.fill_diagonal(Rs,  0.0)
+
         neighbor_mask = (fc > 0) & (dist > 1e-12)       # (N,N) bool
         N_neighbors = neighbor_mask.sum(axis=1)          # (N,)  int
         N_neighbors = np.maximum(N_neighbors, 1)         # guard against isolated atoms
         print(f"N_neighbors = {N_neighbors}")
-        # Normalized G2 descriptor
-        G2 = np.sum((exp_term - 1.0) * fc, axis=1) / N_neighbors             # (N,)
-        
-        # g'(R) factor
-        gprime = (exp_term - 1) * fcp - 2.0 * eta * (dist - Rs) * fc * exp_term
-        
-        # Initialize derivative tensor
-        dG2_dR = np.zeros((nAtoms, nAtoms, 3), dtype=float)
+        # Gaussian term
+        exp_term = np.exp(-eta * (dist - Rs)**2)
+
+        # G2
+        S  = np.sum((exp_term - 1.0) * fc, axis=1)               # (N,)
+        # G2 = S / Z_per_atom                                       # (N,)
+        G2 = np.log(np.abs(S) + 1e-8) / Z_per_atom 
+        # isolated = np.abs(S) < 1e-8
+        # G2 = np.where(isolated, 0.0, np.log(np.where(isolated, 1.0, np.abs(S))) / Z_per_atom)
+        print(f"G2 = {G2}")
+        # gprime unchanged
+        gprime = (exp_term - 1.0) * fcp - 2.0 * eta * (dist - Rs) * fc * exp_term
 
         # Unit vectors R_ab / |R_ab|
         with np.errstate(divide='ignore', invalid='ignore'):
@@ -536,24 +623,20 @@ class BulkSystem:
             mask = dist > 1e-12
             e_ab[mask] = dR[mask] / dist[mask][:, None]
 
-        # Accumulate derivatives
+        # Accumulate Derivatives
+        dG2_dR = np.zeros((nAtoms, nAtoms, 3), dtype=float)
         for alpha in range(nAtoms):
             for beta in range(nAtoms):
                 if beta == alpha:
                     continue
+                grad = gprime[alpha, beta] * e_ab[alpha, beta] / Z_per_atom[alpha]
 
-                grad = gprime[alpha, beta] * e_ab[alpha, beta] / N_neighbors[alpha]
-
-                # ∂G2_alpha / ∂R_mu when mu = alpha
                 dG2_dR[alpha, alpha] += grad
-
-                # ∂G2_alpha / ∂R_mu when mu = beta
                 dG2_dR[alpha, beta]  -= grad
-            # Ensure derivatives are antisymetric
+
             assert np.allclose(np.sum(dG2_dR[alpha], axis=0), 0.0)
-        
-        # Store on system (NumPy)
-        self.G2 = torch.from_numpy(G2)
+
+        self.G2     = torch.from_numpy(G2)
         self.dG2_dR = torch.from_numpy(dG2_dR)
         return
 

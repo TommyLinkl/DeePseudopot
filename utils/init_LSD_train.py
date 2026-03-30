@@ -163,8 +163,12 @@ def init_LSD_PP(inputsFolder, LSDmodels, systems, atomPPOrder, NNConfig, device,
                 v_ref = torch.zeros_like(v_ref)
 
             # Get symmetry descriptors, N_alphas, for this atom
-            N_alphas = torch.unique(system.localSymmDescr['G2'][atypeIdx])
             N_alphas = torch.unique(system.G2[atypeIdx])
+
+            # Get reference descriptor value
+            if (iSys == 0):
+                LSDmodels[atom].G2_ref = N_alphas.min()
+                print(f"Adding G2_ref = {LSDmodels[atom].G2_ref} to {atom} LSDmodel")
             
             # Reshape data to include all relevant input->output pairs
             n_q = q.shape[0]
@@ -195,7 +199,7 @@ def init_LSD_PP(inputsFolder, LSDmodels, systems, atomPPOrder, NNConfig, device,
     for atom in atomPPOrder:
         if os.path.exists(inputsFolder + f"init_{atom}_LSDmodel.pth"):
             print(f"\n{'#' * 40}\nInitializing the LSD NN with file {inputsFolder}init_{atom}_LSDmodel.pth.")
-            LSDmodels[atom].load_state_dict(torch.load(inputsFolder + f"init_{atom}_LSDmodel.pth"))
+            LSDmodels[atom].load_state_dict(torch.load(inputsFolder + f"init_{atom}_LSDmodel.pth"), strict=False)
             n_atoms_found += 1
             atoms_to_train.remove(atom)
     if (n_atoms_found == len(atomPPOrder)):
@@ -214,7 +218,7 @@ def init_LSD_PP(inputsFolder, LSDmodels, systems, atomPPOrder, NNConfig, device,
         return LSDmodels, LSD_PPFunc_val
 
     print(f"\n{'#' * 40}\nInitializing the LSD NNs by training to the pseudopotential differences. ")
-    # atoms_to_train = ["Pb", "I", "Cs"]
+    # atoms_to_train = ["Pb", "I"]
     for atom in atoms_to_train:
         print(f"Fitting atom type {atom}\n")
         LSDmodels[atom].cpu()

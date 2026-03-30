@@ -58,7 +58,7 @@ def main():
     G2 = compute_G2(symbols, positions, material)
     print("\nG2 descriptor (one value per atom):")
     for i, (sym, val) in enumerate(zip(symbols, G2)):
-        print(f"  Atom {i:4d}  {sym:3s}  G2 = {val: .6f}")
+        print(f"  Atom {i:4d}  {sym:3s}  G2 = {val: .6g}")
 
     lsd_layers = [2] + NNConfig['LSD_hiddenLayers'] + [1]
     LSDmodels = {}
@@ -76,16 +76,18 @@ def main():
     nQGrid = 4096
     nRGrid = 4096
     qGrid = torch.linspace(0.0, qmax, nQGrid).view(-1, 1)
-    # test_G2s = np.linspace(-0.36, 0.0, 6)
+    #test_G2s = np.linspace(0.0, -6.0, 5)
     # test_G2s = [-0.36, -0.25, -0.18, -0.08, -0.002, -0.001, -0.0001, 0.0]
-    # print(f"test {test_G2s}")
+    #print(f"test {test_G2s}")
     print(f"\nComputing LSD correction for...")
+    #fig, ax = plt.subplots(figsize=(5,5))
     for alpha, symb in enumerate(symbols):
-    # for alpha in range(len(test_G2s)):
+    #for alpha in range(len(test_G2s)):
+        #symb = 'Cs'
         print(f"\t{symb}{alpha}")
         # Get the G2 descriptor for this atom and format the NN input
         atom_descr = G2[alpha]
-        # atom_descr = test_G2s[alpha]
+        #atom_descr = test_G2s[alpha]
         
         N_alpha = torch.full_like(qGrid, atom_descr)
         x_input = torch.cat([N_alpha, qGrid], dim=1)
@@ -104,7 +106,7 @@ def main():
 
         fig, ax = plt.subplots(figsize=(5,5))
         ax.plot(pot[:, 0], pot[:, 1], linewidth=2, label=f"{symb}{alpha}")
-        # ax.plot(pot[:, 0], pot[:, 1], linewidth=2, label=f"N={atom_descr:.2g}")
+        #ax.plot(pot[:, 0], pot[:, 1], linewidth=2, label=f"N={atom_descr:.2g}")
         ax.set_xlim(0.0, 10.0)
         ax.set_xlabel("r [Bohr]")
         ax.set_ylabel(r"$\Delta v^{loc}$ [a.u.]")

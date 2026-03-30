@@ -579,11 +579,14 @@ class Net_osc_HeInit_decayGaussian_LSD(nn.Module):
         nn.init.zeros_(last_layer.bias)
 
         self.gaussian_std = torch.tensor(gaussian_std, requires_grad=False)
+        # Placeholder — will be set before first forward pass
+        self.register_buffer('G2_ref', torch.tensor(0.0))
 
     def forward(self, x):
         q = x[:, 1].unsqueeze(1)  # only apply Gaussian decay on q
         gaussian = torch.exp(-q**2 / (2 * self.gaussian_std**2))
         x_ref = torch.zeros_like(x)
+        x_ref[:, 0] = self.G2_ref
         x_ref[:, 1] = x[:, 1].clone()
         output = (self.neural_network(x) - self.neural_network(x_ref)) * gaussian
         return output

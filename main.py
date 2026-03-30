@@ -77,13 +77,13 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     
     # Evaluate the band structures and pseudopotentials for the initialized NN
     print("\nEvaluating band structures using the initialized pseudopotentials. ")
-    init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}initZunger_plotBS.pdf', 'Init NN BS', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder)
+    # init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}initZunger_plotBS.pdf', 'Init NN BS', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder)
 
     print("Converge the pseudopotentials in the real and reciprocal space for the initialized NN. ")
-    Rmax = 120.0
+    Rmax = 300.0
     qmax = np.array([40.0])
-    nQGrid = np.array([4096])
-    nRGrid = np.array([4096])
+    nQGrid = np.array([4096, 8192])
+    nRGrid = np.array([4096, 8192])
     torch.cuda.empty_cache()
     PPmodel.eval()
     FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -4.0, 4.0, 40.0, 2048, 2048, f'{resultsFolder}initZunger_plotPP', f'{resultsFolder}initZunger_pot', NNConfig['SHOWPLOTS'], PPparams, Rmax)

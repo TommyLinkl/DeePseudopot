@@ -439,7 +439,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
             np.savetxt(output, eff_masses, fmt="%.2f")
 
         # add coupling loss
-        if sys.fit_couplings:
+        if sys.fit_eph:
             if (LSDmodels is None):
                 torch.no_grad()
             
@@ -631,7 +631,7 @@ def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=N
         trainLoss += effMass_Loss
 
         # add coupling loss
-        if sys.fit_couplings:
+        if sys.fit_eph:
             calcCouplings_dict = hams[iSys].calcCouplings()
             
             for atomidx in range(sys.getNAtoms()):

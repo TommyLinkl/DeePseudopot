@@ -79,7 +79,7 @@ def retMinImageDist(atomPos, unitCellVectors):
     """
     atomPos = np.asarray(atomPos)
     cell    = np.asarray(unitCellVectors)   # rows are a,b,c
-    print(f"cell:\n{cell}")
+    
     # Correct Cartesian -> fractional transform for row-convention cell
     invCell = np.linalg.inv(cell)           # (3,3)
     fracPos = atomPos @ invCell             # (N,3)

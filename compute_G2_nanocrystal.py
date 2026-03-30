@@ -210,8 +210,7 @@ def compute_G2(
     symbols: list,
     positions: np.ndarray,
     material: str,
-    eta: float = 0.5,
-    Rc: float = 12.0,
+    eta: float = 0.5
 ) -> np.ndarray:
     """Compute the G2 Behler-Parrinello descriptor for every atom.
 
@@ -228,8 +227,7 @@ def compute_G2(
     positions : (N, 3) array of Cartesian coordinates  [Bohr]
     material  : 'CsPbI3' | 'CsPbBr3' | 'CsPbCl3'
     eta       : Gaussian width parameter  [Bohr^{-2}]
-    Rc        : cutoff radius  [Bohr]
-
+    
     Returns
     -------
     G2 : (N,) numpy array
@@ -240,31 +238,44 @@ def compute_G2(
     # Pairwise distances (no periodic images)
     _, dist = compute_distances(positions)         # (N,N)
 
-    # Cutoff function
-    fc = cutoff_fc(dist, Rc)                       # (N,N)
-
     # Reference distances Rs  [Bohr]
     Rs = computeEquilDist(symbols, material)       # (N,N)
 
+    # Per-species parameters
+    Rc_map = {
+        'CsPbI3':  {'Cs': 8.5, 'Pb': 7.0, 'I':  7.0},
+        'CsPbBr3': {'Cs': 8.2, 'Pb': 6.5, 'Br': 6.5},
+        'CsPbCl3': {'Cs': 7.8, 'Pb': 6.0, 'Cl': 6.0},
+    }
+    
+    Rc_per_atom = np.array([Rc_map[material][t] for t in symbols])   # (N,)
+    
+    # Per-atom cutoff: fc[alpha, beta] uses Rc of alpha
+    fc  = np.zeros((n_atoms, n_atoms))
+    fcp = np.zeros((n_atoms, n_atoms))
+    for alpha in range(n_atoms):
+        fc [alpha] = cutoff_fc      (dist[alpha], Rc_per_atom[alpha])
+    
     # Exclude self-interaction: set Rs diagonal to 0 (dist diagonal is 0 too,
     # but fc(0) ≠ 0 in general, so we explicitly zero out the diagonal below)
     np.fill_diagonal(Rs, 0.0)
-
-    # Gaussian term
-    exp_term = np.exp(-eta * (dist - Rs) ** 2)    # (N,N)
-
-    # Zero self-contribution via the cutoff mask (dist[i,i]=0 <= Rc so fc≠0;
-    # we explicitly remove diagonal to avoid self-counting)
-    np.fill_diagonal(exp_term, 0.0)
     np.fill_diagonal(fc, 0.0)
 
     neighbor_mask = (fc > 0) & (dist > 1e-12)       # (N,N) bool
     N_neighbors = neighbor_mask.sum(axis=1)          # (N,)  int
     N_neighbors = np.maximum(N_neighbors, 1)         # guard against isolated atoms
+    for i in range(len(symbols)):
+        print(f"{symbols[i]} {N_neighbors[i]}")
 
-    # G2 descriptor (with –1 shift as in the reference pseudocode)
-    G2 = np.sum((exp_term - 1.0) * fc, axis=1) / N_neighbors    # (N,)
+    # Gaussian term
+    exp_term = np.exp(-eta * (dist - Rs) ** 2)    # (N,N)
 
+    # Compute G2
+    S  = np.sum((exp_term - 1.0) * fc, axis=1)
+
+    # G2 = S / Z_per_atom                                       # (N,)
+    G2 = np.log(np.abs(S) + 1e-8) / N_neighbors 
+    
     return G2
 
 
