@@ -34,8 +34,8 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     hams, cachedMats_info, shm_dict_SO, shm_dict_NL = initAndCacheHams(systems, NNConfig, PPparams, atomPPOrder, device)
 
     # Calculate bandStructure with the old function form with parameters given in PPparams
-    print("Evaluating band structures using the old Zunger form pseudopotentials in the init_xxx files. ")
-    oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.pdf', 'Old Zunger BS', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder)
+    # print("Evaluating band structures using the old Zunger form pseudopotentials in the init_xxx files. ")
+    # oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.pdf', 'Old Zunger BS', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder)
 
     # Initialize the NN to the local pot function form
     PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder)

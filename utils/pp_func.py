@@ -36,26 +36,44 @@ def pot_funcLR(x, params, gamma):
     pot[nzid] -= params[4] * 4 * np.pi / (x[nzid]**2) * torch.exp(-1 * x[nzid]**2 / (4*gamma**2))
     return pot
   
-
-def realSpacePot(vq, qSpacePot, nRGrid, rmax=25): 
-    # vq and qSpacePot are both 1D tensor of torch.Size([nQGrid]). vq is assumed to be equally spaced. 
-    # rmax and nRGrid are both scalars
+# Vectorized version of Fourier transform - Daniel C 3/12/26
+def realSpacePot(vq, qSpacePot, nRGrid, rmax=25):
     dq = vq[1] - vq[0]
-    
-    # dr = 0.02*2*np.pi / (nGrid * dq)
-    # vr = torch.linspace(0, (nGrid - 1) * dr, nGrid)
-    vr = torch.linspace(0, rmax, nRGrid)
-    rSpacePot = torch.zeros(nRGrid)
-    
-    for ir in range(nRGrid): 
-        if ir==0: 
-            prefactor = 4*np.pi*dq / (8*np.pi**3)
-            rSpacePot[ir] = torch.sum(prefactor * vq**2 * qSpacePot)
-        else: 
-            prefactor = 4*np.pi*dq / (8*np.pi**3 * vr[ir])
-            rSpacePot[ir] = torch.sum(prefactor * vq * torch.sin(vq * vr[ir]) * qSpacePot)
+    vr = torch.linspace(0, rmax, nRGrid, device=vq.device)    # (nRGrid,)
 
-    return (vr.view(-1,1), rSpacePot.view(-1,1))
+    vq_ = vq.flatten()            # guarantee (nQGrid,)
+    qp_ = qSpacePot.flatten()     # guarantee (nQGrid,)
+
+    # (nRGrid-1, 1) * (1, nQGrid) -> (nRGrid-1, nQGrid)
+    sin_term  = torch.sin(vr[1:, None] * vq_[None, :])
+    prefactor = 4 * np.pi * dq / (8 * np.pi**3 * vr[1:])     # (nRGrid-1,)
+    bulk      = prefactor * (sin_term * (vq_ * qp_)[None, :]).sum(dim=1)
+
+    r0 = (4 * np.pi * dq / (8 * np.pi**3)) * (vq_**2 * qp_).sum()
+
+    rSpacePot = torch.cat([r0.unsqueeze(0), bulk])
+
+    return (vr.view(-1, 1), rSpacePot.view(-1, 1))
+
+# def realSpacePot(vq, qSpacePot, nRGrid, rmax=25): 
+#     # vq and qSpacePot are both 1D tensor of torch.Size([nQGrid]). vq is assumed to be equally spaced. 
+#     # rmax and nRGrid are both scalars
+#     dq = vq[1] - vq[0]
+    
+#     # dr = 0.02*2*np.pi / (nGrid * dq)
+#     # vr = torch.linspace(0, (nGrid - 1) * dr, nGrid)
+#     vr = torch.linspace(0, rmax, nRGrid)
+#     rSpacePot = torch.zeros(nRGrid)
+    
+#     for ir in range(nRGrid): 
+#         if ir==0: 
+#             prefactor = 4*np.pi*dq / (8*np.pi**3)
+#             rSpacePot[ir] = torch.sum(prefactor * vq**2 * qSpacePot)
+#         else: 
+#             prefactor = 4*np.pi*dq / (8*np.pi**3 * vr[ir])
+#             rSpacePot[ir] = torch.sum(prefactor * vq * torch.sin(vq * vr[ir]) * qSpacePot)
+
+#     return (vr.view(-1,1), rSpacePot.view(-1,1))
 
 
 def plotBandStruct(bulkSystem_list, bandStruct_list, SHOWPLOTS): 
