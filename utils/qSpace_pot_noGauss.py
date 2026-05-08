@@ -17,7 +17,7 @@ if __name__ == "__main__":
 
     # Read and set up systems
     print(f"\nReading and setting up the BulkSystems.")
-    systems, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams = setAllBulkSystems(nSystem, inputsFolder, resultsFolder)
+    systems, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams, lr_params = setAllBulkSystems(nSystem, inputsFolder, resultsFolder)
 
     # Set up the neural network
     PPmodel = setNN(NNConfig, nPseudopot)

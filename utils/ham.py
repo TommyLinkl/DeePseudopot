@@ -1,5 +1,6 @@
 import sys, os
 import torch
+import torch.nn as nn
 import numpy as np
 from scipy.special import erf
 from scipy.integrate import quad_vec   # quad, quadrature, 
@@ -12,7 +13,7 @@ from multiprocessing import Process, Queue, Pool, shared_memory
 import gc
 
 from .constants import *
-from .pp_func import pot_func, pot_funcLR
+from .pp_func import pot_func, pot_funcLR, long_range_correction
 from .read import init_critical_NNconfig
 
 torch.set_default_dtype(torch.float64)
@@ -30,7 +31,8 @@ class Hamiltonian:
         cacheSO = True,
         NN_locbool = False,
         model = None,
-        coupling = False
+        coupling = False,
+        lr_params = None
     ):
         """
         The Hamiltonian is initialized by passing it an initialized and
@@ -52,6 +54,7 @@ class Hamiltonian:
 
         self.basis = system.basis() # check if this is done the same as Daniel
         self.PPparams = PPparams
+        self.lr_params = lr_params
         self.atomPPorder = atomPPorder
         self.system = system
         self.device = device
@@ -368,9 +371,10 @@ class Hamiltonian:
         """
         nbv = self.basis.shape[0]
         gdiff = torch.stack([self.basis] * nbv, dim=1 ) - self.basis.repeat(nbv,1,1)
+        gdiff_norm = torch.norm(gdiff, dim=2)
 
         def compute_atomFF():
-            return self.model(torch.norm(gdiff, dim=2).view(-1,1))
+            return self.model(gdiff_norm.view(-1,1))
     
         if addMat is not None:
             if self.SObool:
@@ -393,16 +397,23 @@ class Hamiltonian:
                 raise ValueError("Type of atoms in PP. ")
             thisAtomIndex = thisAtomIndex[0]
 
+            atom_label = str(self.system.atomTypes[alpha])
+            lr_scale = None
+            if self.lr_params is not None and atom_label in self.lr_params:
+                lr_scale = self.lr_params[atom_label]
+
             if self.NN_locbool:
                 # atomFF = self.model(torch.norm(gdiff, dim=2).view(-1,1))
                 if self.NNConfig['checkpoint']==0: 
-                    atomFF = self.model(torch.norm(gdiff, dim=2).view(-1,1))
+                    atomFF = self.model(gdiff_norm.view(-1,1))
                 elif self.NNConfig['checkpoint']==1: 
                     atomFF = checkpoint(compute_atomFF, use_reentrant=False)
                 atomFF = atomFF[:, thisAtomIndex].view(nbv, nbv)
+                lr_coeff = lr_scale if lr_scale is not None else self.PPparams[atom_label][4]
+                atomFF = atomFF + long_range_correction(gdiff_norm, self.LRgamma, lr_coeff)
             else:
                 # atomFF = pot_func(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
-                atomFF = pot_funcLR(torch.norm(gdiff, dim=2), self.PPparams[self.system.atomTypes[alpha]], self.LRgamma)
+                atomFF = pot_funcLR(gdiff_norm, self.PPparams[atom_label], self.LRgamma, lr_scale=lr_scale)
 
             if self.SObool:
                 # local potential has delta function on spin --> block diagonal
@@ -1347,6 +1358,7 @@ class Hamiltonian:
 
         gjPlusQ = self.basis + self.system.qpts[qidx]
         gqDiff = torch.stack([self.basis] * nbv, dim=1 ) - gjPlusQ.repeat(nbv,1,1)  # G_i - (G_j + q)
+        gqDiff_norm = torch.norm(gqDiff, dim=2)
 
         for alpha, gamma in atomgammaidxs:
             if self.SObool:
@@ -1375,12 +1387,19 @@ class Hamiltonian:
                 raise ValueError("Type of atoms in PP. ")
             thisAtomIndex = thisAtomIndex[0]
 
+            atom_label = str(self.system.atomTypes[alpha])
+            lr_scale = None
+            if self.lr_params is not None and atom_label in self.lr_params:
+                lr_scale = self.lr_params[atom_label]
+
             if self.NN_locbool:
-                atomFF = self.model(torch.norm(gqDiff, dim=2).view(-1,1))
+                atomFF = self.model(gqDiff_norm.view(-1,1))
                 atomFF = atomFF[:, thisAtomIndex].view(nbv, nbv)
+                lr_coeff = lr_scale if lr_scale is not None else self.PPparams[atom_label][4]
+                atomFF = atomFF + long_range_correction(gqDiff_norm, self.LRgamma, lr_coeff)
             else:
                 #atomFF = pot_func(torch.norm(gqDiff, dim=2), self.PPparams[self.system.atomTypes[alpha]])
-                atomFF = pot_funcLR(torch.norm(gqDiff, dim=2), self.PPparams[self.system.atomTypes[alpha]], self.LRgamma)
+                atomFF = pot_funcLR(gqDiff_norm, self.PPparams[atom_label], self.LRgamma, lr_scale=lr_scale)
 
             dV[:nbv, :nbv] = prefactor * structFact * atomFF
 
@@ -1766,17 +1785,75 @@ class Hamiltonian:
     def get_PPparams(self):
         return copy.deepcopy(self.PPparams)
     
+    def get_lr_params(self):
+        return self.lr_params
+    
 
     def set_PPparams(self, newparams):
         """
         Set new values for the algebraic PP "a" params.
+        Sync algebraic PP table with live LR parameters.
         This is useful when performing optimization of the algebraic
         parts of the PP.
         """
         self.PPparams = newparams
+        if self.lr_params is None:
+            return
+
+        for atom_label, params in newparams.items():
+            key = str(atom_label)
+            if len(params) < 5:
+                continue
+
+            lr_value = params[4]
+            if not isinstance(lr_value, torch.Tensor):
+                lr_tensor = torch.tensor(float(lr_value), dtype=torch.float64)
+            else:
+                lr_tensor = lr_value.detach().clone()
+
+            if key in self.lr_params:
+                with torch.no_grad():
+                    self.lr_params[key].data.copy_(lr_tensor)
+            else:
+                self.lr_params[key] = nn.Parameter(lr_tensor)
 
 
-def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device):
+    def enforce_lr_constraint(self):
+        """Re-center LR tails so species-averaged contribution stays neutral."""
+        if self.lr_params is None or len(self.lr_params) == 0:
+            return
+
+        ctr = {}
+        constrain_lbl = None
+        for i in range(self.system.getNAtoms()):
+            atom_label = str(self.system.atomTypes[i])
+            ctr[atom_label] = ctr.get(atom_label, 0) + 1
+            if constrain_lbl is None and atom_label in self.lr_params:
+                lr_val = self.lr_params[atom_label].detach()
+                if lr_val.abs().item() > 1e-10:
+                    constrain_lbl = atom_label
+
+        if constrain_lbl is None:
+            return
+
+        sum_lr = torch.tensor(0.0, dtype=torch.float64)
+        for i in range(self.system.getNAtoms()):
+            atom_label = str(self.system.atomTypes[i])
+            if atom_label == constrain_lbl:
+                continue
+            if atom_label in self.lr_params:
+                sum_lr = sum_lr + self.lr_params[atom_label].detach()
+            else:
+                sum_lr = sum_lr + self.PPparams[atom_label][4].detach()
+
+        correction = -1.0 * sum_lr / ctr[constrain_lbl]
+        self.PPparams[constrain_lbl][4] = correction
+        if constrain_lbl in self.lr_params:
+            with torch.no_grad():
+                self.lr_params[constrain_lbl].data.copy_(correction.detach())
+
+
+def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, lr_params):
     """
     Initialize the ham class for each BulkSystem. 
     dummy_ham is used to initialize and store the cached SOmats and NLmats in dict cachedMats. 
@@ -1797,23 +1874,23 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device):
         # 2. SObool = True, no parallel --> Initialize ham with cache. No storage / moving is needed.
         # 3. SObool = True, yes parallel --> Do the complicated storage / moving. 
         if not NNConfig['SObool']: 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], lr_params=lr_params)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
         elif (NNConfig['SObool']) and (NNConfig['num_cores']==0): 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], lr_params=lr_params)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
         elif (NNConfig['SObool']) and (NNConfig['cacheSO']==0): 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], lr_params=lr_params)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
         else: 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=True, cacheSO=False)
-            dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'])
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=True, cacheSO=False, lr_params=lr_params)
+            dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], lr_params=lr_params)
 
             if dummy_ham.SOmats is not None: 
                 # reshape dummy_ham.SOmats has shape (nkpt)*(nAtoms)*(2*nbasis) x (2*nbasis)

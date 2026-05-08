@@ -23,7 +23,7 @@ def eval_fullBand(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'result
     
     # Read and set up systems
     print(f"\nReading and setting up the BulkSystems.")
-    systems, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams = setAllBulkSystems(nSystem, inputsFolder, resultsFolder)
+    systems, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams, lr_params = setAllBulkSystems(nSystem, inputsFolder, resultsFolder)
 
     # Set up the neural network
     PPmodel = setNN(NNConfig, nPseudopot)
@@ -43,13 +43,13 @@ def eval_fullBand(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'result
     hams = []
     for iSys, sys in enumerate(systems):
         start_time = time.time()
-        ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, iSys, SObool=NNConfig['SObool'], cacheSO=False)
+        ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, iSys, SObool=NNConfig['SObool'], cacheSO=False, lr_params=lr_params)
         hams.append(ham)
         end_time = time.time()
         print(f"Elapsed time: {(end_time - start_time):.2f} seconds\n")
 
     # Load the NN model from init_PPmodel.pth
-    PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder)
+    PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder, lr_params=lr_params, pp_params=PPparams, lr_gamma=hams[0].LRgamma if hams else 0.2)
 
     # Calculate bandStructure with the old function form with parameters given in PPparams
     oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.pdf', 'Old Zunger BS', NNConfig, hams, systems, writeBS=True)
@@ -64,7 +64,8 @@ def eval_fullBand(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'result
     nRGrid = np.array([2048, 4096])
     torch.cuda.empty_cache()
     PPmodel.eval()
-    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, f'{resultsFolder}eval_plotPP', f'{resultsFolder}eval_pot', NNConfig['SHOWPLOTS'])
+    lr_gamma_value = hams[0].LRgamma if hams else 0.2
+    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, f'{resultsFolder}eval_plotPP', f'{resultsFolder}eval_pot', NNConfig['SHOWPLOTS'], lr_params=lr_params, pp_params=PPparams, lr_gamma=lr_gamma_value)
 
     # Write out PP_data
     write_PP_qSpace(f'{resultsFolder}eval_qSpace_pot.dat', PPmodel, atomPPOrder)

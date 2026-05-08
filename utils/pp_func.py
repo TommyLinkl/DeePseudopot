@@ -13,11 +13,71 @@ def pot_func(x, params):
     return pot
 
 
-def pot_funcLR(x, params, gamma):
-    pot = params[0]*(x*x - params[1]) / (params[2] * torch.exp(params[3]*x*x) - 1.0)
-    nzid = torch.nonzero(x > 1e-4, as_tuple=True) # x is batched, but want to avoid division by 0
-    pot[nzid] -= params[4] * 4 * np.pi / (x[nzid]**2) * torch.exp(-1 * x[nzid]**2 / (4*gamma**2))
-    return pot
+def long_range_correction(x, gamma, lr_coeff):
+    """
+    Long-range Coulomb tail added to the short-range potential.
+    lr_coeff (long-range coefficient) is passed in as a live nn.Parameter. 
+    """
+    if not isinstance(lr_coeff, torch.Tensor):
+        lr_coeff = torch.as_tensor(lr_coeff, dtype=x.dtype, device=x.device)
+    elif lr_coeff.dtype != x.dtype or lr_coeff.device != x.device:
+        lr_coeff = lr_coeff.to(dtype=x.dtype, device=x.device)
+
+    correction = torch.zeros_like(x)
+    mask = x > 1e-4
+    if mask.any():
+        correction[mask] = -lr_coeff * 4 * np.pi / (x[mask]**2) * torch.exp(-x[mask]**2 / (4 * gamma**2))
+    return correction
+
+
+def pot_funcLR(x, params, gamma, lr_scale=None):
+    """
+    Return Zunger local potential with optional long-range override.
+
+    ``params[4]`` stores the static long-range coefficient from the init files.
+    When LR training is enabled we pass a live ``nn.Parameter`` via
+    ``lr_scale`` so gradients flow through that tensor without mutating the
+    original parameter array.
+    """
+    pot = pot_func(x, params)
+    lr_coeff = lr_scale if lr_scale is not None else params[4]
+    return pot + long_range_correction(x, gamma, lr_coeff)
+
+
+def add_long_range_to_model_output(q_grid, model_output, atomPPOrder, lr_params=None, pp_params=None, lr_gamma=0.2):
+    """Add the LR tail to NN-local pseudopotentials evaluated on ``q_grid``."""
+    if lr_gamma is None:
+        return model_output.detach().clone() if isinstance(model_output, torch.Tensor) else torch.as_tensor(model_output, dtype=torch.float64)
+
+    if isinstance(model_output, torch.Tensor):
+        augmented = model_output.detach().clone()
+        dtype = augmented.dtype
+        device = augmented.device
+    else:
+        augmented = torch.as_tensor(model_output, dtype=torch.float64)
+        dtype = augmented.dtype
+        device = augmented.device
+
+    q_tensor = torch.as_tensor(q_grid, dtype=dtype, device=device).view(-1)
+    for idx, atom_label in enumerate(atomPPOrder):
+        coeff_tensor = None
+        if lr_params is not None and atom_label in lr_params:
+            coeff_tensor = lr_params[atom_label].detach()
+        elif pp_params is not None and atom_label in pp_params and len(pp_params[atom_label]) > 4:
+            raw = pp_params[atom_label][4]
+            coeff_tensor = raw.detach() if isinstance(raw, torch.Tensor) else torch.tensor(raw, dtype=dtype, device=device)
+
+        if coeff_tensor is None:
+            continue
+
+        coeff_tensor = coeff_tensor.to(dtype=dtype, device=device)
+        if abs(coeff_tensor.item()) < 1e-12:
+            continue
+
+        tail = long_range_correction(q_tensor, lr_gamma, coeff_tensor)
+        augmented[:, idx] = augmented[:, idx] + tail
+
+    return augmented
   
 
 def realSpacePot(vq, qSpacePot, nRGrid, rmax=25): 
@@ -148,54 +208,91 @@ def plotBandStruct_reorder(newOrderBS, bandIdx):
     return fig, ax
 
 
-def plotPP(atomPPOrder, ref_q, pred_q, ref_vq_atoms, pred_vq_atoms, ref_labelName, pred_labelName, lineshape_array, boolPlotDiff, SHOWPLOTS):
-    # ref_vq_atoms and pred_vq_atoms are 2D tensors. Each tensor contains the pseudopotential (either ref or pred)
-    # for atoms in the order of atomPPOrder. 
-    # ref_labelName and pred_labelName are strings. 
-    # lineshape_array has twice the length of atomPPOrder, with: ref_atom1, pred_atom1, ref_atom2, pred_atom2, ... 
-    if boolPlotDiff and torch.equal(ref_q, pred_q): 
-        fig, axs = plt.subplots(1,3, figsize=(12,4))
-        ref_q = ref_q.view(-1).detach().numpy()
-        pred_q = pred_q.view(-1).detach().numpy()
-        
-        for iAtom in range(len(atomPPOrder)):
-            ref_vq = ref_vq_atoms[:, iAtom].view(-1).detach().numpy()
-            pred_vq = pred_vq_atoms[:, iAtom].view(-1).detach().numpy()
-            axs[0].plot(ref_q, ref_vq, lineshape_array[iAtom*2], label=atomPPOrder[iAtom]+" "+ref_labelName)
-            axs[0].plot(pred_q, pred_vq, lineshape_array[iAtom*2+1], label=atomPPOrder[iAtom]+" "+pred_labelName)
-            axs[1].plot(ref_q, pred_vq - ref_vq, lineshape_array[iAtom*2], label=atomPPOrder[iAtom]+" diff (pred - ref)")
-            (ref_vr, ref_rSpacePot) = realSpacePot(torch.tensor(ref_q), torch.tensor(ref_vq), 3000)
-            (pred_vr, pred_rSpacePot) = realSpacePot(torch.tensor(pred_q), torch.tensor(pred_vq), 3000)
-            axs[2].plot(ref_vr.view(-1).detach().numpy(), ref_rSpacePot.view(-1).detach().numpy(), lineshape_array[iAtom*2], label=atomPPOrder[iAtom]+" "+ref_labelName)
-            axs[2].plot(pred_vr.view(-1).detach().numpy(), pred_rSpacePot.view(-1).detach().numpy(), lineshape_array[iAtom*2+1], label=atomPPOrder[iAtom]+" "+pred_labelName)
-        axs[0].set(xlabel=r"$q$", ylabel=r"$v(q)$", xlim=(0,9))
-        axs[0].legend(frameon=False)
-        axs[1].set(xlabel=r"$q$", ylabel=r"$v_{NN}(q) - v_{func}(q)$", xlim=(0,9))
-        axs[1].legend(frameon=False)
-        axs[2].set(xlabel=r"$r$", ylabel=r"$v(r)$", xlim=(0,12))
-        axs[2].legend(frameon=False)
-    
+def plotPP(atomPPOrder, ref_q, pred_q, ref_vq_atoms, pred_vq_atoms, ref_labelName, pred_labelName, lineshape_array, boolPlotDiff, SHOWPLOTS, ref_component="local only", pred_component="local only", pred_lr_vq_atoms=None, pred_lr_component="NN_loc + LR tail", lr_params=None, pp_params=None, lr_gamma=0.2, lr_lineshape='--'):
+    def _annotate(label: str, component: str) -> str:
+        component = component.strip()
+        component_suffix = component if component else "unspecified"
+        return f"{label} [{component_suffix}]"
+
+    def _as_tensor(data):
+        return data if isinstance(data, torch.Tensor) else torch.as_tensor(data, dtype=torch.float64)
+
+    def _lr_style(idx: int):
+        if isinstance(lr_lineshape, (list, tuple)):
+            return lr_lineshape[idx]
+        return lr_lineshape
+
+    ref_q_tensor = _as_tensor(ref_q).view(-1)
+    pred_q_tensor = _as_tensor(pred_q).view(-1)
+    ref_vq_tensor = _as_tensor(ref_vq_atoms)
+    pred_vq_tensor = _as_tensor(pred_vq_atoms)
+
+    if pred_lr_vq_atoms is None and (lr_params is not None or pp_params is not None):
+        pred_lr_vq_atoms = add_long_range_to_model_output(pred_q_tensor, pred_vq_tensor, atomPPOrder, lr_params=lr_params, pp_params=pp_params, lr_gamma=lr_gamma)
+
+    include_lr = pred_lr_vq_atoms is not None
+    if include_lr:
+        pred_lr_tensor = _as_tensor(pred_lr_vq_atoms)
+        diff = (pred_lr_tensor - pred_vq_tensor).abs().max().item()
+        if diff < 1e-12:
+            include_lr = False
     else:
-        fig, axs = plt.subplots(1,2, figsize=(9,4))
-        ref_q = ref_q.view(-1).detach().numpy()
-        pred_q = pred_q.view(-1).detach().numpy()
-        
-        for iAtom in range(len(atomPPOrder)):
-            ref_vq = ref_vq_atoms[:, iAtom].view(-1).detach().numpy()
-            pred_vq = pred_vq_atoms[:, iAtom].view(-1).detach().numpy()
-            axs[0].plot(ref_q, ref_vq, lineshape_array[iAtom*2], label=atomPPOrder[iAtom]+" "+ref_labelName)
-            axs[0].plot(pred_q, pred_vq, lineshape_array[iAtom*2+1], label=atomPPOrder[iAtom]+" "+pred_labelName)
-            (ref_vr, ref_rSpacePot) = realSpacePot(torch.tensor(ref_q), torch.tensor(ref_vq), 3000)
-            (pred_vr, pred_rSpacePot) = realSpacePot(torch.tensor(pred_q), torch.tensor(pred_vq), 3000)
-            axs[1].plot(ref_vr.view(-1).detach().numpy(), ref_rSpacePot.view(-1).detach().numpy(), lineshape_array[iAtom*2], label=atomPPOrder[iAtom]+" "+ref_labelName)
-            axs[1].plot(pred_vr.view(-1).detach().numpy(), pred_rSpacePot.view(-1).detach().numpy(), lineshape_array[iAtom*2+1], label=atomPPOrder[iAtom]+" "+pred_labelName)
-        axs[0].set(xlabel=r"$q$", ylabel=r"$v(q)$", xlim=(0,7))
-        axs[0].legend(frameon=False)
-        axs[1].set(xlabel=r"$r$", ylabel=r"$v(r)$", xlim=(0,8))
+        pred_lr_tensor = None
+
+    same_grid = ref_q_tensor.shape == pred_q_tensor.shape and torch.allclose(ref_q_tensor, pred_q_tensor)
+
+    if boolPlotDiff and same_grid:
+        fig, axs = plt.subplots(1, 3, figsize=(12, 4))
+    else:
+        fig, axs = plt.subplots(1, 2, figsize=(9, 4))
+
+    q_ref_np = ref_q_tensor.detach().numpy()
+    q_pred_np = pred_q_tensor.detach().numpy()
+
+    for iAtom, atom_label in enumerate(atomPPOrder):
+        ref_vq = ref_vq_tensor[:, iAtom].detach()
+        pred_vq = pred_vq_tensor[:, iAtom].detach()
+        ref_legend = _annotate(atom_label + " " + ref_labelName, ref_component)
+        pred_legend = _annotate(atom_label + " " + pred_labelName, pred_component)
+
+        axs[0].plot(q_ref_np, ref_vq.cpu().numpy(), lineshape_array[iAtom * 2], label=ref_legend)
+        axs[0].plot(q_pred_np, pred_vq.cpu().numpy(), lineshape_array[iAtom * 2 + 1], label=pred_legend)
+
+        if include_lr:
+            pred_lr = pred_lr_tensor[:, iAtom].detach()
+            axs[0].plot(q_pred_np, pred_lr.cpu().numpy(), _lr_style(iAtom), label=_annotate(atom_label + " " + pred_labelName, pred_lr_component))
+
+        if boolPlotDiff and same_grid:
+            diff_local = (pred_vq - ref_vq).cpu().numpy()
+            axs[1].plot(q_pred_np, diff_local, lineshape_array[iAtom * 2 + 1], label=f"{atom_label} diff ({pred_component} - {ref_component})")
+            if include_lr:
+                diff_lr = (pred_lr - ref_vq).cpu().numpy()
+                axs[1].plot(q_pred_np, diff_lr, _lr_style(iAtom), label=f"{atom_label} diff ({pred_lr_component} - {ref_component})")
+
+        ref_vr, ref_rSpace = realSpacePot(ref_q_tensor, ref_vq, 3000)
+        pred_vr, pred_rSpace = realSpacePot(pred_q_tensor, pred_vq, 3000)
+        r_axis = 2 if boolPlotDiff and same_grid else 1
+        axs[r_axis].plot(ref_vr.view(-1).detach().cpu().numpy(), ref_rSpace.view(-1).detach().cpu().numpy(), lineshape_array[iAtom * 2], label=ref_legend)
+        axs[r_axis].plot(pred_vr.view(-1).detach().cpu().numpy(), pred_rSpace.view(-1).detach().cpu().numpy(), lineshape_array[iAtom * 2 + 1], label=pred_legend)
+
+        if include_lr:
+            pred_lr_vr, pred_lr_rSpace = realSpacePot(pred_q_tensor, pred_lr, 3000)
+            axs[r_axis].plot(pred_lr_vr.view(-1).detach().cpu().numpy(), pred_lr_rSpace.view(-1).detach().cpu().numpy(), _lr_style(iAtom), label=_annotate(atom_label + " " + pred_labelName, pred_lr_component))
+
+    axs[0].set(xlabel=r"$q$", ylabel=r"$v(q)$")
+    axs[0].legend(frameon=False)
+
+    if boolPlotDiff and same_grid:
+        axs[1].set(xlabel=r"$q$", ylabel=r"$v_{NN}(q) - v_{func}(q)$")
         axs[1].legend(frameon=False)
-        
+        axs[2].set(xlabel=r"$r$", ylabel=r"$v(r)$")
+        axs[2].legend(frameon=False)
+    else:
+        axs[1].set(xlabel=r"$r$", ylabel=r"$v(r)$")
+        axs[1].legend(frameon=False)
+
     fig.tight_layout()
-    if SHOWPLOTS: 
+    if SHOWPLOTS:
         plt.show()
     return fig
 
@@ -225,7 +322,7 @@ def plot_training_validation_cost(training_cost_x, training_cost, validation_cos
     return fig
 
 
-def FT_converge_and_write_pp(atomPPOrder, qmax_array, nQGrid_array, nRGrid_array, model, val_dataset, xmin, xmax, ymin, ymax, choiceQMax, choiceNQGrid, choiceNRGrid, ppPlotFilePrefix, potRAtomFilePrefix, SHOWPLOTS):
+def FT_converge_and_write_pp(atomPPOrder, qmax_array, nQGrid_array, nRGrid_array, model, val_dataset, xmin, xmax, ymin, ymax, choiceQMax, choiceNQGrid, choiceNRGrid, ppPlotFilePrefix, potRAtomFilePrefix, SHOWPLOTS, lr_params=None, pp_params=None, lr_gamma=0.2):
     cmap = plt.get_cmap('rainbow')
     figtot, axstot = plt.subplots(1, len(atomPPOrder), figsize=(9,4))
     
@@ -240,9 +337,11 @@ def FT_converge_and_write_pp(atomPPOrder, qmax_array, nQGrid_array, nRGrid_array
         qmax, nQGrid, nRGrid = combo
 
         qGrid = torch.linspace(0.0, qmax, nQGrid).view(-1, 1)
-        NN = model(qGrid)
+        with torch.no_grad():
+            nn_local = model(qGrid)
+            nn_total = add_long_range_to_model_output(qGrid, nn_local, atomPPOrder, lr_params=lr_params, pp_params=pp_params, lr_gamma=lr_gamma)
         for iAtom in range(len(atomPPOrder)):
-            (vr, rSpacePot) = realSpacePot(qGrid.view(-1), NN[:, iAtom].view(-1), nRGrid)
+            (vr, rSpacePot) = realSpacePot(qGrid.view(-1), nn_total[:, iAtom].view(-1), nRGrid)
             if (qmax==choiceQMax) and (nQGrid==choiceNQGrid) and (nRGrid==choiceNRGrid): 
                 axstot[iAtom].plot(vr.detach().numpy(), rSpacePot.detach().numpy(), "-", color=colors[i], label="My FT, 0<q<%d, nQGrid=%d, nRGrid=%d" % (qmax,nQGrid,nRGrid))
             else:
@@ -257,11 +356,30 @@ def FT_converge_and_write_pp(atomPPOrder, qmax_array, nQGrid_array, nRGrid_array
         plt.show()
     
     choiceQGrid = torch.linspace(0.0, choiceQMax, choiceNQGrid).view(-1, 1)
-    NN = model(choiceQGrid)
-    fig = plotPP(atomPPOrder, val_dataset.q, choiceQGrid, val_dataset.vq_atoms, NN, "ZungerForm", "NN", ["-",":" ]*len(atomPPOrder), False, SHOWPLOTS);
+    with torch.no_grad():
+        nn_local = model(choiceQGrid)
+        nn_total = add_long_range_to_model_output(choiceQGrid, nn_local, atomPPOrder, lr_params=lr_params, pp_params=pp_params, lr_gamma=lr_gamma)
+    fig = plotPP(
+        atomPPOrder,
+        val_dataset.q,
+        choiceQGrid,
+        val_dataset.vq_atoms,
+        nn_local,
+        "ZungerForm",
+        "NN",
+        ["-",":" ]*len(atomPPOrder),
+        False,
+        SHOWPLOTS,
+        ref_component="analytic local (no LR tail)",
+        pred_component="NN_loc (no LR tail)",
+        pred_lr_vq_atoms=nn_total,
+        lr_params=lr_params,
+        pp_params=pp_params,
+        lr_gamma=lr_gamma
+    );
     fig.savefig(ppPlotFilePrefix+".png") 
     for iAtom in range(len(atomPPOrder)):
-        (vr, rSpacePot) = realSpacePot(choiceQGrid.view(-1), NN[:, iAtom].view(-1), choiceNRGrid)
+        (vr, rSpacePot) = realSpacePot(choiceQGrid.view(-1), nn_total[:, iAtom].view(-1), choiceNRGrid)
         pot = torch.cat((vr, rSpacePot), dim=1).detach().numpy()
         np.savetxt(potRAtomFilePrefix+"_"+atomPPOrder[iAtom]+".dat", pot, delimiter='    ', fmt='%e')
     if SHOWPLOTS: 

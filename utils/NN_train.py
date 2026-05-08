@@ -20,7 +20,7 @@ from .constants import *
 from .pp_func import plotPP, plot_training_validation_cost, plotBandStruct, plot_mc_cost, plotBandStruct_reorder
 from .smooth_order import reorder_smoothness_deg2_tensors, reorder_kpt_smoothness_deg2_tensors
 
-def print_and_inspect_gradients(model, filename=None, show=False): 
+def print_and_inspect_gradients(model, filename=None, show=False, lr_params=None): 
     """
     Prints and/or saves the gradients of the model parameters.
 
@@ -34,6 +34,14 @@ def print_and_inspect_gradients(model, filename=None, show=False):
                 print(f'Gradient values:\n{param.grad}\n')
             else:
                 print(f'Parameter: {name}, Gradient: None (no gradient computed)\n')
+        if lr_params is not None:
+            for name, param in lr_params.items():
+                grad = param.grad
+                if grad is not None:
+                    print(f'Parameter: lr_params.{name}, Gradient shape: {grad.shape}')
+                    print(f'Gradient values:\n{grad}\n')
+                else:
+                    print(f'Parameter: lr_params.{name}, Gradient: None (no gradient computed)\n')
     elif (filename is not None) and show: 
         with open(filename, 'w') as f:
             for name, param in model.named_parameters():
@@ -42,10 +50,19 @@ def print_and_inspect_gradients(model, filename=None, show=False):
                     grad_str = np.array2string(param.grad.numpy(), precision=5, suppress_small=True, max_line_width=999999, threshold=99*99)
                     f.write(f'Gradient values:\n{grad_str}\n\n')
                 else:
-                    f.write(f'Parameter: {name}, Gradient: None (no gradient computed)\n\n')    
+                    f.write(f'Parameter: {name}, Gradient: None (no gradient computed)\n\n')
+            if lr_params is not None:
+                for name, param in lr_params.items():
+                    grad = param.grad
+                    if grad is not None:
+                        f.write(f'Parameter: lr_params.{name}, Gradient shape: {grad.shape}\n')
+                        grad_str = np.array2string(grad.detach().numpy(), precision=5, suppress_small=True, max_line_width=999999, threshold=99*99)
+                        f.write(f'Gradient values:\n{grad_str}\n\n')
+                    else:
+                        f.write(f'Parameter: lr_params.{name}, Gradient: None (no gradient computed)\n\n')    
 
 
-def print_and_inspect_NNParams(model, filename=None, show=False): 
+def print_and_inspect_NNParams(model, filename=None, show=False, lr_params=None): 
     """
     Prints and/or saves the values of the model parameters.
 
@@ -56,12 +73,21 @@ def print_and_inspect_NNParams(model, filename=None, show=False):
         for name, param in model.named_parameters():
             print(f'Parameter: {name}, Tensor shape: {param.shape}')
             print(f'Parameter values:\n{param}\n')
+        if lr_params is not None:
+            for name, param in lr_params.items():
+                print(f'Parameter: lr_params.{name}, Tensor shape: {param.shape}')
+                print(f'Parameter values:\n{param.data}\n')
     elif (filename is not None) and show: 
         with open(filename, 'w') as f:
             for name, param in model.named_parameters():
                 f.write(f'Parameter: {name}, Tensor shape: {param.shape}\n')
                 tensor_str = np.array2string(param.detach().numpy(), precision=5, suppress_small=True, max_line_width=999999, threshold=99*99)
                 f.write(f'Parameter values:\n{tensor_str}\n\n')
+            if lr_params is not None:
+                for name, param in lr_params.items():
+                    f.write(f'Parameter: lr_params.{name}, Tensor shape: {param.shape}\n')
+                    tensor_str = np.array2string(param.detach().numpy(), precision=5, suppress_small=True, max_line_width=999999, threshold=99*99)
+                    f.write(f'Parameter values:\n{tensor_str}\n\n')
 
 
 def write_PP_qSpace(writeFileName, model, atomPPOrder):
@@ -118,7 +144,7 @@ def get_max_gradient_param(model):
         return None, None, None
 
 
-def judge_well_conditioned_grad(model, maxGradThreshold=50.0): 
+def judge_well_conditioned_grad(model, maxGradThreshold=50.0, lr_params=None): 
     maxGrad = None
     minGrad = None
     for _, param in model.named_parameters():
@@ -127,6 +153,13 @@ def judge_well_conditioned_grad(model, maxGradThreshold=50.0):
                 maxGrad = param.grad.abs().max().item()
             if minGrad is None or param.grad.abs().min().item() > minGrad:
                 minGrad = param.grad.abs().min().item()
+    if lr_params is not None:
+        for _, param in lr_params.items():
+            if param.grad is not None:
+                if maxGrad is None or param.grad.abs().max().item() > maxGrad:
+                    maxGrad = param.grad.abs().max().item()
+                if minGrad is None or param.grad.abs().min().item() > minGrad:
+                    minGrad = param.grad.abs().min().item()
     print(f"Max and min of absolute gradients = {maxGrad:.3f}, {minGrad:.3f}.   Are the gradients well-conditioned? {maxGrad<=maxGradThreshold}")
     return maxGrad, minGrad
 
@@ -372,6 +405,15 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
                 singleKptGradients[name] = param.grad.detach().clone() * bulkSystem.kptWeights[kidx]
             else: 
                 singleKptGradients[name] += param.grad.detach().clone() * bulkSystem.kptWeights[kidx]
+    if ham.lr_params is not None:
+        for lr_name, lr_param in ham.lr_params.items():
+            if lr_param.grad is not None:
+                key = f"lr_params.{lr_name}"
+                grad_clone = lr_param.grad.detach().clone() * bulkSystem.kptWeights[kidx]
+                if key not in singleKptGradients:
+                    singleKptGradients[key] = grad_clone
+                else:
+                    singleKptGradients[key] += grad_clone
     trainLoss_systemKpt = systemKptLoss.detach().item() * bulkSystem.kptWeights[kidx]
     del systemKptLoss
     gc.collect()
@@ -437,6 +479,8 @@ def trainIter_naive(model, systems, hams, optimizer, cachedMats_info=None, runti
     if preAdjustBool: 
         manual_GD_one_param(model, preAdjustStepSize)
     else:
+        for ham in hams:
+            ham.enforce_lr_constraint()
         optimizer.step()
     end_time = time.time() if runtime_flag else None
     print(f"loss_backward + optimizer.step, elapsed time: {(end_time - start_time):.2f} seconds") if runtime_flag else None
@@ -501,6 +545,15 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                             gradients_system[name] = param.grad.detach().clone() * sys.kptWeights[kidx]
                         else: 
                             gradients_system[name] += param.grad.detach().clone() * sys.kptWeights[kidx]
+                if hams[iSys].lr_params is not None:
+                    for lr_name, lr_param in hams[iSys].lr_params.items():
+                        if lr_param.grad is not None:
+                            key = f"lr_params.{lr_name}"
+                            grad_clone = lr_param.grad.detach().clone() * sys.kptWeights[kidx]
+                            if key not in gradients_system:
+                                gradients_system[key] = grad_clone
+                            else:
+                                gradients_system[key] += grad_clone
                 trainLoss_system += systemKptLoss.detach().item() * sys.kptWeights[kidx]
                 del systemKptLoss
                 gc.collect()
@@ -543,14 +596,24 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
         for name, param in model.named_parameters():
             if name in total_gradients:
                 param.grad = total_gradients[name].detach().clone()
+        if hams and hams[0].lr_params is not None:
+            for lr_name, lr_param in hams[0].lr_params.items():
+                key = f"lr_params.{lr_name}"
+                if key in total_gradients:
+                    lr_param.grad = total_gradients[key].detach().clone()
+                else:
+                    lr_param.grad = None
 
     start_time = time.time() if NNConfig['runtime_flag'] else None
     if preAdjustBool: 
         if verbosity>1:
-            print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_gradients.dat', show=True)
-            print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_params.dat', show=True)
+            lr_param_dict = hams[0].lr_params if hams else None
+            print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_gradients.dat', show=True, lr_params=lr_param_dict)
+            print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_params.dat', show=True, lr_params=lr_param_dict)
         manual_GD_one_param(model, preAdjustStepSize)
     else:
+        for ham in hams:
+            ham.enforce_lr_constraint()
         optimizer.step()
     end_time = time.time() if NNConfig['runtime_flag'] else None
     print(f"optimizer step, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
@@ -604,7 +667,8 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
             torch.save(model.state_dict(), f'{resultsFolder}preEpoch_{pre_epoch+1}_PPmodel.pth')
             torch.cuda.empty_cache()
 
-            maxGrad, _ = judge_well_conditioned_grad(model)
+            lr_param_dict = hams[0].lr_params if hams else None
+            maxGrad, _ = judge_well_conditioned_grad(model, lr_params=lr_param_dict)
             if pre_min_maxGrad is None or maxGrad <= pre_min_maxGrad:
                 print("This is the best pre-adjust epoch so far. ")
                 pre_min_maxGrad = maxGrad
@@ -636,9 +700,11 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
         training_COST.append(trainLoss.item())
         print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], training cost (including penalty): {trainLoss.item():.4f}")
         if (epoch<=9) or ((epoch + 1) % NNConfig['plotEvery'] == 0):
-            print_and_inspect_gradients(model, f'{resultsFolder}epoch_{epoch+1}_gradients.dat', show=True)
-            print_and_inspect_NNParams(model, f'{resultsFolder}epoch_{epoch+1}_params.dat', show=True)
-        judge_well_conditioned_grad(model)
+            lr_param_dict = hams[0].lr_params if hams else None
+            print_and_inspect_gradients(model, f'{resultsFolder}epoch_{epoch+1}_gradients.dat', show=True, lr_params=lr_param_dict)
+            print_and_inspect_NNParams(model, f'{resultsFolder}epoch_{epoch+1}_params.dat', show=True, lr_params=lr_param_dict)
+        lr_param_dict = hams[0].lr_params if hams else None
+        judge_well_conditioned_grad(model, lr_params=lr_param_dict)
 
         # perturb the model
         if (NNConfig['perturbEvery']>0) and (epoch>0) and (epoch % NNConfig['perturbEvery']==0): 
@@ -660,7 +726,28 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
             file_valCost.flush()
             
             model.cpu()
-            fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, model(val_dataset.q), "ZungerForm", f"NN_{epoch+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+            with torch.no_grad():
+                nn_local = model(val_dataset.q)
+            lr_param_dict = hams[0].lr_params if hams else None
+            pp_param_dict = hams[0].PPparams if hams else None
+            lr_gamma_value = hams[0].LRgamma if hams else 0.2
+            fig = plotPP(
+                atomPPOrder,
+                val_dataset.q,
+                val_dataset.q,
+                val_dataset.vq_atoms,
+                nn_local,
+                "ZungerForm",
+                f"NN_{epoch+1}",
+                ["-",":" ]*len(atomPPOrder),
+                True,
+                NNConfig['SHOWPLOTS'],
+                ref_component="analytic local (no LR tail)",
+                pred_component="NN_loc (no LR tail)",
+                lr_params=lr_param_dict,
+                pp_params=pp_param_dict,
+                lr_gamma=lr_gamma_value
+            );
             fig.savefig(f'{resultsFolder}epoch_{epoch+1}_plotPP.pdf')
             fig.savefig(f'{resultsFolder}epoch_{epoch+1}_plotPP.png')
             model.to(device)
@@ -841,7 +928,28 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             print_and_inspect_NNParams(newModel, f'{resultsFolder}best_params.dat', show=True)
             print_and_inspect_NNParams(newModel, f'{resultsFolder}final_params.dat', show=True)
 
-            fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, currModel(val_dataset.q), "ZungerForm", f"mc_iter_{iter+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+            with torch.no_grad():
+                nn_local = currModel(val_dataset.q)
+            lr_param_dict = hams[0].lr_params if hams else None
+            pp_param_dict = hams[0].PPparams if hams else None
+            lr_gamma_value = hams[0].LRgamma if hams else 0.2
+            fig = plotPP(
+                atomPPOrder,
+                val_dataset.q,
+                val_dataset.q,
+                val_dataset.vq_atoms,
+                nn_local,
+                "ZungerForm",
+                f"mc_iter_{iter+1}",
+                ["-",":" ]*len(atomPPOrder),
+                True,
+                NNConfig['SHOWPLOTS'],
+                ref_component="analytic local (no LR tail)",
+                pred_component="NN_loc (no LR tail)",
+                lr_params=lr_param_dict,
+                pp_params=pp_param_dict,
+                lr_gamma=lr_gamma_value
+            );
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf')
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
             torch.save(currModel.state_dict(), f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth')
@@ -872,7 +980,28 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             print(f"Accepted. currLoss={currLoss.item():.4f}")
             print_and_inspect_NNParams(newModel, f'{resultsFolder}final_params.dat', show=True)
 
-            fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, currModel(val_dataset.q), "ZungerForm", f"mc_iter_{iter+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+            with torch.no_grad():
+                nn_local = currModel(val_dataset.q)
+            lr_param_dict = hams[0].lr_params if hams else None
+            pp_param_dict = hams[0].PPparams if hams else None
+            lr_gamma_value = hams[0].LRgamma if hams else 0.2
+            fig = plotPP(
+                atomPPOrder,
+                val_dataset.q,
+                val_dataset.q,
+                val_dataset.vq_atoms,
+                nn_local,
+                "ZungerForm",
+                f"mc_iter_{iter+1}",
+                ["-",":" ]*len(atomPPOrder),
+                True,
+                NNConfig['SHOWPLOTS'],
+                ref_component="analytic local (no LR tail)",
+                pred_component="NN_loc (no LR tail)",
+                lr_params=lr_param_dict,
+                pp_params=pp_param_dict,
+                lr_gamma=lr_gamma_value
+            );
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf')
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
             torch.save(currModel.state_dict(), f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth')
@@ -901,7 +1030,28 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             file_trainCost.flush()
             print(f"Not accepted. currLoss={currLoss.item():.4f}")
             
-            fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, currModel(val_dataset.q), "ZungerForm", f"mc_iter_{iter+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+            with torch.no_grad():
+                nn_local = currModel(val_dataset.q)
+            lr_param_dict = hams[0].lr_params if hams else None
+            pp_param_dict = hams[0].PPparams if hams else None
+            lr_gamma_value = hams[0].LRgamma if hams else 0.2
+            fig = plotPP(
+                atomPPOrder,
+                val_dataset.q,
+                val_dataset.q,
+                val_dataset.vq_atoms,
+                nn_local,
+                "ZungerForm",
+                f"mc_iter_{iter+1}",
+                ["-",":" ]*len(atomPPOrder),
+                True,
+                NNConfig['SHOWPLOTS'],
+                ref_component="analytic local (no LR tail)",
+                pred_component="NN_loc (no LR tail)",
+                lr_params=lr_param_dict,
+                pp_params=pp_param_dict,
+                lr_gamma=lr_gamma_value
+            );
             # fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf')
             os.remove(f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf')
             os.remove(f'{resultsFolder}mc_iter_{iter+1}_plotBS.png')

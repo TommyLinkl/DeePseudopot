@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 import numpy as np
 import os
 import multiprocessing as mp
@@ -33,7 +34,7 @@ def read_NNConfigFile(filename):
                     config[key] = bool(int(value))
                 elif key in ['nSystem', 'num_cores', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter', 'pre_adjust_moves', 'mc_perturb_mode']:
                     config[key] = int(value)
-                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2', 'mc_percentage', 'mc_beta', 'pre_adjust_stepSize', 'penalize_starting', 'penalize_lambda']:
+                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'init_Zunger_optimizer_lr', 'optimizer_lr', 'init_Zunger_scheduler_gamma', 'scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2', 'mc_percentage', 'mc_beta', 'pre_adjust_stepSize', 'penalize_starting', 'penalize_lambda', 'longRange_lr']:
                     config[key] = float(value)
                 elif key in ['hiddenLayers']: 
                     config[key] = [int(x) for x in value.split()]
@@ -103,12 +104,13 @@ def init_critical_NNconfig():
     return config
 
 
-def read_PPparams(atomPPOrder, paramsFilePath): 
+def read_PPparams(atomPPOrder, paramsFilePath, train_lr=False): 
     PPparams = {}
     totalParams = torch.empty(0,9, dtype=torch.float64) # see the readme for definition of all 9 params.
                                    # They are not all used in this test. Only
                                    # params 0-3,5-7 are used (local pot, SOC,
                                    # and nonlocal, no long range or strain)
+    lr_params = nn.ParameterDict() if train_lr else None
     for atomType in atomPPOrder:
         file_path = f"{paramsFilePath}{atomType}Params.par"
         if os.path.isfile(file_path):
@@ -116,9 +118,13 @@ def read_PPparams(atomPPOrder, paramsFilePath):
                 a = torch.tensor([float(line.strip()) for line in file], dtype=torch.float64)
             totalParams = torch.cat((totalParams, a.unsqueeze(0)), dim=0)
             PPparams[atomType] = a
+
+            if train_lr and abs(a[4].item()) > 1e-10:
+                lr_param_value = torch.tensor(a[4].item(), dtype=torch.float64)
+                lr_params[atomType] = nn.Parameter(lr_param_value)
         else:
             raise FileNotFoundError("Error: File " + file_path + " cannot be found. This atom cannot be initialized. ")
-    return PPparams, totalParams
+    return PPparams, totalParams, lr_params
 
 class BulkSystem:
     def __init__(self, scale=1.0, unitCellVectors_unscaled=None, atomTypes=None, atomPos_unscaled=None, kpts_recipLatVec=None, expBandStruct=None, nBands=16, maxKE=5, BS_plot_center=-5.0, BS_plot_CBVB_range=10.0, BS_plot_CBVB_range_zoom=5.0, systemName='No_Name'):
@@ -151,6 +157,7 @@ class BulkSystem:
         self.systemName = systemName
         self.fit_defPot = False
         self.relE_bIdx = -1
+        self.trainLR = False
         
         
     def setInputs(self, inputFilename):
@@ -165,7 +172,7 @@ class BulkSystem:
                         attributes[key] = float(value)
                     elif key in ['nBands', 'idxVB', 'idxCB', 'idxGap', 'relE_bIdx']:            # nBands can be redundant
                         attributes[key] = int(float(value))
-                    elif key in ['fit_defPot']: 
+                    elif key in ['fit_defPot', 'trainLR']: 
                         attributes[key] = bool(int(value))
                     elif key in ['systemName']: 
                         attributes[key] = value
@@ -337,7 +344,7 @@ class BulkSystem:
 
 
     def getCellVolume(self): 
-        return float(torch.dot(self.unitCellVectors[0], torch.cross(self.unitCellVectors[1], self.unitCellVectors[2])))
+        return float(torch.dot(self.unitCellVectors[0], torch.cross(self.unitCellVectors[1], self.unitCellVectors[2], dim=0)))
     
     def getNAtoms(self):
         return len(self.atomTypes)
@@ -355,9 +362,9 @@ class BulkSystem:
         prefactor = 2 * np.pi / cellVolume
         # print(f'cellVolume = {cellVolume}')
         # print(f'prefactor = {prefactor}')
-        gVector1 = prefactor * torch.cross(self.unitCellVectors[1], self.unitCellVectors[2])
-        gVector2 = prefactor * torch.cross(self.unitCellVectors[2], self.unitCellVectors[0])
-        gVector3 = prefactor * torch.cross(self.unitCellVectors[0], self.unitCellVectors[1])
+        gVector1 = prefactor * torch.cross(self.unitCellVectors[1], self.unitCellVectors[2], dim=0)
+        gVector2 = prefactor * torch.cross(self.unitCellVectors[2], self.unitCellVectors[0], dim=0)
+        gVector3 = prefactor * torch.cross(self.unitCellVectors[0], self.unitCellVectors[1], dim=0)
         gVectors = torch.cat((gVector1.unsqueeze(0), gVector2.unsqueeze(0), gVector3.unsqueeze(0)), dim=0).to(torch.float64)
         return gVectors
     
@@ -462,9 +469,10 @@ def setAllBulkSystems(nSystem, inputsFolder, resultsFolder):
     nPseudopot = len(atomPPOrder)
     print(f"There are {nPseudopot} atomic pseudopotentials. They are in the order of: {atomPPOrder}")
     
-    PPparams, totalParams = read_PPparams(atomPPOrder, inputsFolder + "init_")
+    train_lr_enabled = any(getattr(sys, 'trainLR', False) for sys in systemsList)
+    PPparams, totalParams, lr_params = read_PPparams(atomPPOrder, inputsFolder + "init_", train_lr=train_lr_enabled)
     localPotParams = totalParams[:,:4]
-    return systemsList, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams
+    return systemsList, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams, lr_params
 
 def setNN(config, nPseudopot):
     layers = [1] + config['hiddenLayers'] + [nPseudopot]
@@ -480,4 +488,3 @@ def setNN(config, nPseudopot):
     else:
         raise ValueError(f"Function {config['PPmodel']} does not exist.")
     return PPmodel
-

@@ -1,0 +1,8 @@
+nBands = 28
+maxKE = 8.0
+BS_plot_center = 6.0
+BS_plot_CBVB_range = 16.0
+BS_plot_CBVB_range_zoom = 4.0
+systemName = Si
+physicalBandOrdering = 0
+trainLR = 1

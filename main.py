@@ -25,20 +25,20 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     
     # Read and set up systems
     print(f"\nReading and setting up the BulkSystems.")
-    systems, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams = setAllBulkSystems(nSystem, inputsFolder, resultsFolder)
+    systems, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams, lr_params = setAllBulkSystems(nSystem, inputsFolder, resultsFolder)
 
     # Set up the neural network
     PPmodel = setNN(NNConfig, nPseudopot)
 
     # Initialize the ham class for each BulkSystem. Cache the SO and NL mats. 
-    hams, cachedMats_info, shm_dict_SO, shm_dict_NL = initAndCacheHams(systems, NNConfig, PPparams, atomPPOrder, device)
+    hams, cachedMats_info, shm_dict_SO, shm_dict_NL = initAndCacheHams(systems, NNConfig, PPparams, atomPPOrder, device, lr_params)
 
     # Calculate bandStructure with the old function form with parameters given in PPparams
     print("Evaluating band structures using the old Zunger form pseudopotentials in the init_xxx files. ")
     oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.pdf', 'Old Zunger BS', NNConfig, hams, systems, cachedMats_info, writeBS=True)
 
     # Initialize the NN to the local pot function form
-    PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder)
+    PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder, lr_params=lr_params, pp_params=PPparams)
 
     # Evaluate the band structures and pseudopotentials for the initialized NN
     print("\nEvaluating band structures using the initialized pseudopotentials. ")
@@ -50,7 +50,8 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     nRGrid = np.array([2048, 4096])
     torch.cuda.empty_cache()
     PPmodel.eval()
-    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -4.0, 4.0, 40.0, 2048, 2048, f'{resultsFolder}initZunger_plotPP', f'{resultsFolder}initZunger_pot', NNConfig['SHOWPLOTS'])
+    lr_gamma_value = hams[0].LRgamma if hams else 0.2
+    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -4.0, 4.0, 40.0, 2048, 2048, f'{resultsFolder}initZunger_plotPP', f'{resultsFolder}initZunger_pot', NNConfig['SHOWPLOTS'], lr_params=lr_params, pp_params=PPparams, lr_gamma=lr_gamma_value)
     write_PP_qSpace(f'{resultsFolder}initZunger_qSpace_pot.dat', PPmodel, atomPPOrder)
 
 
@@ -58,7 +59,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     if (not NNConfig['mc_bool']): 
         print(f"\n{'#' * 40}\nStart training of the NN to fit to band structures. ")
 
-        optimizer = init_optimizer(inputsFolder, PPmodel, NNConfig)
+        optimizer = init_optimizer(inputsFolder, PPmodel, NNConfig, lr_params)
         scheduler = ExponentialLR(optimizer, gamma=NNConfig['scheduler_gamma'])
 
         start_time = time.time()
@@ -78,7 +79,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
 
         PPmodel = bestModel
         PPmodel.eval()
-        FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -4.0, 4.0, 40.0, 2048, 2048, resultsFolder + 'best_plotPP', resultsFolder + 'best_pot', NNConfig['SHOWPLOTS'])
+        FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -4.0, 4.0, 40.0, 2048, 2048, resultsFolder + 'best_plotPP', resultsFolder + 'best_pot', NNConfig['SHOWPLOTS'], lr_params=lr_params, pp_params=PPparams, lr_gamma=lr_gamma_value)
 
         PPmodel = currModel
 
@@ -86,7 +87,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     ############# Writing the trained NN PP ############# 
     print(f"\n{'#' * 40}\nWriting the NN pseudopotentials")
     PPmodel.eval()
-    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -4.0, 4.0, 40.0, 2048, 2048, resultsFolder + 'final_plotPP', resultsFolder + 'final_pot', NNConfig['SHOWPLOTS'])
+    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -4.0, 4.0, 40.0, 2048, 2048, resultsFolder + 'final_plotPP', resultsFolder + 'final_pot', NNConfig['SHOWPLOTS'], lr_params=lr_params, pp_params=PPparams, lr_gamma=lr_gamma_value)
 
     ############# Creating animation ############# 
     start_time = time.time()

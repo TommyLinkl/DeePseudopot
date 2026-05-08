@@ -59,13 +59,30 @@ def norm_retrain_func(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     
     # Read and set up systems
     print(f"\nReading and setting up the BulkSystems.")
-    systems, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams = setAllBulkSystems(nSystem, inputsFolder, resultsFolder)
+    systems, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams, lr_params = setAllBulkSystems(nSystem, inputsFolder, resultsFolder)
 
     # Set up the neural network
     PPmodel = setNN(NNConfig, nPseudopot)
-    PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder)
+    PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder, lr_params=lr_params, pp_params=PPparams)
     print_and_inspect_NNParams(PPmodel, f'{resultsFolder}loaded_0_params.dat', show=True)
-    fig = plotPP(atomPPOrder, ZungerPPFunc_val.q, ZungerPPFunc_val.q, ZungerPPFunc_val.vq_atoms, PPmodel(ZungerPPFunc_val.q), "ZungerForm", f"loaded_0", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+    with torch.no_grad():
+        nn_local = PPmodel(ZungerPPFunc_val.q)
+    fig = plotPP(
+        atomPPOrder,
+        ZungerPPFunc_val.q,
+        ZungerPPFunc_val.q,
+        ZungerPPFunc_val.vq_atoms,
+        nn_local,
+        "ZungerForm",
+        f"loaded_0",
+        ["-",":" ]*len(atomPPOrder),
+        True,
+        NNConfig['SHOWPLOTS'],
+        ref_component="analytic local (no LR tail)",
+        pred_component="NN_loc (no LR tail)",
+        lr_params=lr_params,
+        pp_params=PPparams
+    );
     fig.savefig(f'{resultsFolder}loaded_0_plotPP.png')
 
     for iRepeat in range(3):          # repeat 3 times? 
@@ -73,7 +90,24 @@ def norm_retrain_func(inputsFolder = 'inputs/', resultsFolder = 'results/'):
         old_forScale = PPmodel(torch.tensor([0.0])).detach()
         norm_params_NN(PPmodel)
         print_and_inspect_NNParams(PPmodel, f'{resultsFolder}norm_{iRepeat}_params.dat', show=True)
-        fig = plotPP(atomPPOrder, ZungerPPFunc_val.q, ZungerPPFunc_val.q, ZungerPPFunc_val.vq_atoms, PPmodel(ZungerPPFunc_val.q), "ZungerForm", f"norm_{iRepeat}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+        with torch.no_grad():
+            nn_local = PPmodel(ZungerPPFunc_val.q)
+        fig = plotPP(
+            atomPPOrder,
+            ZungerPPFunc_val.q,
+            ZungerPPFunc_val.q,
+            ZungerPPFunc_val.vq_atoms,
+            nn_local,
+            "ZungerForm",
+            f"norm_{iRepeat}",
+            ["-",":" ]*len(atomPPOrder),
+            True,
+            NNConfig['SHOWPLOTS'],
+            ref_component="analytic local (no LR tail)",
+            pred_component="NN_loc (no LR tail)",
+            lr_params=lr_params,
+            pp_params=PPparams
+        );
         fig.savefig(f'{resultsFolder}norm_{iRepeat}_plotPP.png')
         new_forScale = PPmodel(torch.tensor([0.0])).detach()
         print(f"Before and after normalization: {old_forScale}, {new_forScale}. ")
@@ -87,21 +121,55 @@ def norm_retrain_func(inputsFolder = 'inputs/', resultsFolder = 'results/'):
         NNConfig['PPmodel_scale'] = new_scale.tolist()
 
         print_and_inspect_NNParams(PPmodel, f'{resultsFolder}rescale_{iRepeat}_params.dat', show=True)
-        fig = plotPP(atomPPOrder, ZungerPPFunc_val.q, ZungerPPFunc_val.q, ZungerPPFunc_val.vq_atoms, PPmodel(ZungerPPFunc_val.q), "ZungerForm", f"rescale_{iRepeat}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+        with torch.no_grad():
+            nn_local = PPmodel(ZungerPPFunc_val.q)
+        fig = plotPP(
+            atomPPOrder,
+            ZungerPPFunc_val.q,
+            ZungerPPFunc_val.q,
+            ZungerPPFunc_val.vq_atoms,
+            nn_local,
+            "ZungerForm",
+            f"rescale_{iRepeat}",
+            ["-",":" ]*len(atomPPOrder),
+            True,
+            NNConfig['SHOWPLOTS'],
+            ref_component="analytic local (no LR tail)",
+            pred_component="NN_loc (no LR tail)",
+            lr_params=lr_params,
+            pp_params=PPparams
+        );
         fig.savefig(f'{resultsFolder}rescale_{iRepeat}_plotPP.png')
 
 
 
         # Now I actually want to retrain on the function
-        PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder, force_retrain=True)
+        PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder, force_retrain=True, lr_params=lr_params, pp_params=PPparams)
         print_and_inspect_NNParams(PPmodel, f'{resultsFolder}retrained_{iRepeat}_params.dat', show=True)
-        fig = plotPP(atomPPOrder, ZungerPPFunc_val.q, ZungerPPFunc_val.q, ZungerPPFunc_val.vq_atoms, PPmodel(ZungerPPFunc_val.q), "ZungerForm", f"retrained_{iRepeat}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
+        with torch.no_grad():
+            nn_local = PPmodel(ZungerPPFunc_val.q)
+        fig = plotPP(
+            atomPPOrder,
+            ZungerPPFunc_val.q,
+            ZungerPPFunc_val.q,
+            ZungerPPFunc_val.vq_atoms,
+            nn_local,
+            "ZungerForm",
+            f"retrained_{iRepeat}",
+            ["-",":" ]*len(atomPPOrder),
+            True,
+            NNConfig['SHOWPLOTS'],
+            ref_component="analytic local (no LR tail)",
+            pred_component="NN_loc (no LR tail)",
+            lr_params=lr_params,
+            pp_params=PPparams
+        );
         fig.savefig(f'{resultsFolder}retrained_{iRepeat}_plotPP.png')
         plt.close('all')
 
     return
     # Initialize the ham class for each BulkSystem. Cache the SO and NL mats. 
-    hams, cachedMats_info, shm_dict_SO, shm_dict_NL = initAndCacheHams(systems, NNConfig, PPparams, atomPPOrder, device)
+    hams, cachedMats_info, shm_dict_SO, shm_dict_NL = initAndCacheHams(systems, NNConfig, PPparams, atomPPOrder, device, lr_params)
 
     # Evaluate the band structures and pseudopotentials for the initialized NN
     print("\nEvaluating band structures using the initialized pseudopotentials. ")
@@ -113,14 +181,14 @@ def norm_retrain_func(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     nRGrid = np.array([2048, 4096])
     torch.cuda.empty_cache()
     PPmodel.eval()
-    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, f'{resultsFolder}initZunger_plotPP', f'{resultsFolder}initZunger_pot', NNConfig['SHOWPLOTS'])
+    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, f'{resultsFolder}initZunger_plotPP', f'{resultsFolder}initZunger_pot', NNConfig['SHOWPLOTS'], lr_params=lr_params, pp_params=PPparams)
 
     return 
     ############# Fit NN to band structures ############# 
     if (not NNConfig['mc_bool']): 
         print(f"\n{'#' * 40}\nStart training of the NN to fit to band structures. ")
 
-        optimizer = init_optimizer(inputsFolder, PPmodel, NNConfig)
+        optimizer = init_optimizer(inputsFolder, PPmodel, NNConfig, lr_params)
         scheduler = ExponentialLR(optimizer, gamma=NNConfig['scheduler_gamma'])
 
         start_time = time.time()
@@ -140,7 +208,8 @@ def norm_retrain_func(inputsFolder = 'inputs/', resultsFolder = 'results/'):
 
         PPmodel = bestModel
         PPmodel.eval()
-        FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, resultsFolder + 'best_plotPP', resultsFolder + 'best_pot', NNConfig['SHOWPLOTS'])
+        lr_gamma_value = hams[0].LRgamma if hams else 0.2
+        FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, resultsFolder + 'best_plotPP', resultsFolder + 'best_pot', NNConfig['SHOWPLOTS'], lr_params=lr_params, pp_params=PPparams, lr_gamma=lr_gamma_value)
 
         PPmodel = currModel
 
@@ -148,7 +217,8 @@ def norm_retrain_func(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     ############# Writing the trained NN PP ############# 
     print(f"\n{'#' * 40}\nWriting the NN pseudopotentials")
     PPmodel.eval()
-    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, resultsFolder + 'final_plotPP', resultsFolder + 'final_pot', NNConfig['SHOWPLOTS'])
+    lr_gamma_value = hams[0].LRgamma if hams else 0.2
+    FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -2.0, 1.0, 20.0, 2048, 2048, resultsFolder + 'final_plotPP', resultsFolder + 'final_pot', NNConfig['SHOWPLOTS'], lr_params=lr_params, pp_params=PPparams, lr_gamma=lr_gamma_value)
 
     ############# Creating animation ############# 
     start_time = time.time()
