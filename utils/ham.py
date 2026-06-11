@@ -12,7 +12,7 @@ from multiprocessing import Process, Queue, Pool, shared_memory
 import gc
 
 from .constants import *
-from .pp_func import pot_func, pot_funcLR, long_range_correction
+from .pp_func import pot_func, pot_funcLR, long_range_correction, qSpacePot_ft
 from .read import init_critical_NNconfig, setNN
 from utils.local_structure_correction import calcLocalSymmDescriptor
 
@@ -154,10 +154,8 @@ class Hamiltonian:
 
         if self.NNConfig['local_env_corr']:
             # Compute the Behler-Parrinello atomic descriptors (local symmetry descriptors)
-            self.system.localSymmDescr = calcLocalSymmDescriptor(self.system)
             self.LSDmodels = LSDmodels
         else:
-            self.system.localSymmDescr = None
             self.LSDmodels = None
 
         # send things to gpu, if enabled ??
@@ -438,14 +436,21 @@ class Hamiltonian:
                 atomFF = pot_funcLR(torch.norm(gdiff, dim=2), self.PPparams[atomType], self.LRgamma)
 
             if self.NNConfig["local_env_corr"]:
-                all_descr = self.system.G2
-                atom_descr = all_descr[alpha].squeeze(0)
+                descriptors = self.system.env_descriptors[atomType]
+                indx_alpha = torch.where(self.system.atom_indices[atomType] == alpha)[0].squeeze(0)
+                N_alpha = descriptors[indx_alpha, :]
                 
-                N_alpha = torch.full_like(q, atom_descr)
-                zeros = torch.full_like(q, 0.0)
-                x_input = torch.cat([N_alpha, q], dim=1)
-                x_ref_input = torch.cat([zeros, q], dim=1)
-                atomFF += self.LSDmodels[atomType](x_input).view(nbv, nbv) #- self.LSDmodels[atomType](x_ref_input).view(nbv, nbv)
+                N_alphas = N_alpha.repeat(q.shape[0], 1)
+                
+                x_input = torch.cat([N_alphas, q], dim=1)
+                # x_ref_input = torch.cat([zeros, q], dim=1)
+
+                # rSpaceLSD = self.LSDmodels[atomType](x_input)
+                # print(f"shape of vr = {vr.shape}, rSpaceLSD = {rSpaceLSD.shape}")
+                # qSpaceLSD = spherical_ft(vr, rSpaceLSD, q)
+                # atomFF += qSpaceLSD.view(nbv, nbv)
+                # print(f"Added q LSD")
+                atomFF += self.LSDmodels[atomType](x_input).view(nbv, nbv)
                 
             if self.SObool:
                 # local potential has delta function on spin --> block diagonal
@@ -1498,8 +1503,8 @@ class Hamiltonian:
         q = torch.norm(gqDiff, dim=2).view(-1,1)
 
         if self.NNConfig["local_env_corr"]:
-            # Precompute the necessary chain rule elements for LSD derivative coupling
-            dv_dN_all = []
+            # Precompute the necessary chain rule elements for DeltaV derivative coupling
+            dv_lsd_dR_all = []
             structFactBeta = []
             for beta in range(self.system.getNAtoms()):
                 gqDiffDotBeta = torch.sum(gqDiff * self.system.atomPos[beta], axis=2)
@@ -1507,11 +1512,11 @@ class Hamiltonian:
                 structFactBeta.append(tmpStructFact)
 
                 LSD_atomType = self.system.atomTypes[beta]
-                N_beta = float(self.system.G2[beta])
-                dv_dN_Nbeta = self.compute_dv_dN_q(LSD_atomType, N_beta, q)
-                #dv_dN_zero = self.compute_dv_dN_q(LSD_atomType, 0.0, q)
-                dv_dN = dv_dN_Nbeta #- dv_dN_zero
-                dv_dN_all.append(dv_dN)
+                indx_beta    = torch.where(self.system.atom_indices[LSD_atomType] == beta)[0].squeeze(0).item()
+                N_beta       = self.system.env_descriptors[LSD_atomType][indx_beta].unsqueeze(0)  # (1, n_descr)
+
+                dv_lsd_dR = self.compute_dv_lsd_dR(LSD_atomType, N_beta, q, self.system.atomPos)
+                dv_lsd_dR_all.append(dv_lsd_dR)
 
         for alpha, gamma in atomgammaidxs:
             atomType = self.system.atomTypes[alpha]
@@ -1557,19 +1562,21 @@ class Hamiltonian:
 
             atomFF_LSD = torch.zeros_like(atomFF)
             if self.NNConfig["local_env_corr"]:
-                # scalar N_alpha (G2)
-                N_alpha = float(self.system.G2[alpha])
-                N_alphas = torch.full_like(q, N_alpha)
-                zeros = torch.full_like(q, 0)
-
+                descriptors = self.system.env_descriptors[atomType]
+                indx_alpha = torch.where(self.system.atom_indices[atomType] == alpha)[0].squeeze(0)
+                N_alpha = descriptors[indx_alpha, :]
+                
+                N_alphas = N_alpha.repeat(q.shape[0], 1)
+                
                 x_input = torch.cat([N_alphas, q], dim=1)
-                x_input_zeros = torch.cat([zeros, q], dim=1)
-                delta_v_alpha = self.LSDmodels[atomType](x_input).view(nbv, nbv) #- self.LSDmodels[atomType](x_input_zeros)).view(nbv, nbv)
+                
+                delta_v_alpha = self.LSDmodels[atomType](x_input).view(nbv, nbv)
 
                 atomFF_LSD += structFact * delta_v_alpha
 
                 # --- Chain rule term ∂v/∂N * ∂N/∂R ---
                 for beta in range(self.system.getNAtoms()):
+                    atomFF_LSD += structFactBeta[beta] * dv_lsd_dR_all[beta][gamma]
                     # Now we loop over all atoms... beta? Sorry, this notation is SUPER confusing.
                     # In the mathematical documentation, we represent the local potential
                     # V_loc(r) = \sum_\alpha v_\alpha(r). Alpha is an arbitrary atom index.
@@ -1601,12 +1608,12 @@ class Hamiltonian:
                     # dN_\alpha/dR_{\mu\gamma}
                     # But in out weird legacy indexing where \mu -> \alpha and \alpha -> \beta
                     # dN_\beta/dR_{\alpha\gamma}
-                    dN_dR = self.system.dG2_dR[beta, alpha, gamma]
-                    if abs(dN_dR) < 1e-14:
-                        continue # skip atoms with zero contribution
+                    # dN_dR = self.system.dG2_dR[beta, alpha, gamma]
+                    # if abs(dN_dR) < 1e-14:
+                    #     continue # skip atoms with zero contribution
                     
                     # Compute form factor term
-                    atomFF_LSD += structFactBeta[beta] * dv_dN_all[beta] * dN_dR
+                    atomFF_LSD += structFactBeta[beta] * dv_lsd_dR_all[beta][gamma]
 
             dV[:nbv, :nbv] = prefactor * (atomFF + atomFF_LSD)
 
@@ -1640,6 +1647,38 @@ class Hamiltonian:
         
         return ret_dict
 
+    def compute_dV_dn(self, atomType, N_alpha, qvals):
+        """
+        Computes ∂v_lsd(q, N) / ∂N for each q point and each descriptor.
+
+        Parameters
+        ----------
+        atomType : str
+        N_alpha  : (1, n_descr) tensor — descriptor vector for this atom
+        qvals    : (nbv*nbv, 1) tensor — q grid
+
+        Returns
+        -------
+        dV_dn : (nbv*nbv, n_descr) tensor — gradient of network output w.r.t each descriptor
+        """
+        q = qvals.clone().detach().requires_grad_(True)   # (nbv*nbv, 1) — no grad needed on q
+        N = N_alpha.detach().requires_grad_(True)         # (1, n_descr) — leaf, grad w.r.t. this
+        N_rep = N.expand(q.shape[0], -1)                  # (nbv*nbv, n_descr)
+        print(f"N.requires_grad   = {N.requires_grad} {N.grad_fn}")
+        print(f"N_rep.requires_grad = {N_rep.requires_grad} {N.grad_fn}")
+        x_input = torch.cat([N_rep, q], dim=1)            # (nbv*nbv, n_descr + 1)
+        print(f"x_input.requires_grad = {x_input.requires_grad} {x_input.grad_fn}")
+        v = self.LSDmodels[atomType](x_input)             # (nbv*nbv, 1)
+        print(f"v.requires_grad   = {v.requires_grad} {v.grad_fn}")
+        dV_dn = torch.autograd.grad(
+            outputs      = v,                        # scalar
+            inputs       = N,
+            grad_outputs = torch.ones_like(v),
+            create_graph = False,
+            retain_graph = False
+        )[0]                                               # (1, n_descr)
+
+        return dV_dn                            # (n_descr,)
 
     def calcCouplings(self, qlist=None, atomgammaidxs=None, symm_equiv=None):
         """
@@ -1986,28 +2025,30 @@ class Hamiltonian:
 
         return ret_dict
 
-    def compute_dv_dN_q(self, atomType, N_alpha, qvals):
+    def compute_dv_lsd_dR(self, atomType, N_alpha, qvals, atomPos):
         """
         Computes ∂v_lsd(q, N_alpha) / ∂N_alpha
         N_alpha: scalar (float)
         qvals: (nbv*nbv, 1) tensor
         Returns (nbv, nbv) tensor
         """
+        
         q = qvals.clone().detach().requires_grad_(True)
-        N = torch.full_like(q, N_alpha, requires_grad=True)
-
+        N = N_alpha.repeat(q.shape[0], 1)
+        print(f"q {q.shape}")
+        print(f"N {N.shape}")
         x_input = torch.cat([N, q], dim=1)
         v = self.LSDmodels[atomType](x_input)
-
-        dv_dN = torch.autograd.grad(
+        
+        dv_dR = torch.autograd.grad(
             outputs=v,
-            inputs=N,
+            inputs=atomPos,
             grad_outputs=torch.ones_like(v),
             create_graph=True
         )[0]
-
+        print(f"dv_dR {dv_dR.shape}\n{dv_dR}")
         nbv = self.basis.shape[0]
-        return dv_dN.view(nbv, nbv)
+        return dv_dR.view(nbv, nbv)
     
     def _bessel1(self, x, x1):
         # sin(x)/(x^2) - cos(x)/x = sin(x) * x1^2 - cos(x) * x1

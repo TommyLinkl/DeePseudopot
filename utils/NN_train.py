@@ -40,7 +40,7 @@ def print_and_inspect_gradients(model, filename=None, show=False):
             for name, param in model.named_parameters():
                 if param.grad is not None:
                     f.write(f'Parameter: {name}, Gradient shape: {param.grad.shape}\n')
-                    grad_str = np.array2string(param.grad.numpy(), precision=5, suppress_small=True, max_line_width=999999, threshold=99*99)
+                    grad_str = np.array2string(param.grad.detach().cpu().numpy(), precision=5, suppress_small=True, max_line_width=999999, threshold=99*99)
                     f.write(f'Gradient values:\n{grad_str}\n\n')
                 else:
                     f.write(f'Parameter: {name}, Gradient: None (no gradient computed)\n\n')    
@@ -61,13 +61,15 @@ def print_and_inspect_NNParams(model, filename=None, show=False):
         with open(filename, 'w') as f:
             for name, param in model.named_parameters():
                 f.write(f'Parameter: {name}, Tensor shape: {param.shape}\n')
-                tensor_str = np.array2string(param.detach().numpy(), precision=5, suppress_small=True, max_line_width=999999, threshold=99*99)
+                tensor_str = np.array2string(param.detach().cpu().numpy(), precision=5, suppress_small=True, max_line_width=999999, threshold=99*99)
                 f.write(f'Parameter values:\n{tensor_str}\n\n')
 
 
-def write_PP_qSpace(writeFileName, model, atomPPOrder):
-    qGrid = torch.linspace(0.0, 30.0, 4096).view(-1, 1)
-    NN = model(qGrid)     
+def write_PP_qSpace(writeFileName, model, atomPPOrder, qmax=40.0, nQGrid=4096):
+    # q grid must match FT_converge_and_write_pp's choice grid (choiceQMax,
+    # choiceNQGrid) so qSpace_pot.dat and final_pot_q_*.dat share one grid.
+    qGrid = torch.linspace(0.0, qmax, int(nQGrid)).view(-1, 1)
+    NN = model(qGrid)
 
     # write out
     with open(writeFileName, 'w') as file: 
@@ -315,20 +317,25 @@ def compute_global_system_losses(model, bulkSystem, ham, cachedMats_info=None, r
         print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {loss_terms['defpot']:.4f}")
 
     if bulkSystem.fit_eph:
-        calcCouplings_dict = ham.calcCouplings_diag_fd(debug=coupling_debug)
-        if coupling_debug:
-            print(calcCouplings_dict)
+        # Keep the autograd graph alive through buildCouplingMats: the LSD
+        # correction is trained by differentiating the coupling loss, so use the
+        # analytic, differentiable calcCouplings() (NOT the finite-difference
+        # calcCouplings_diag_fd) and force grad on even under an outer no_grad.
+        with torch.enable_grad():
+            calcCouplings_dict = ham.calcCouplings()
+            if coupling_debug:
+                print(calcCouplings_dict)
 
-        for atomidx in range(bulkSystem.getNAtoms()):
-            for gamma in range(3):
-                for qidx in range(bulkSystem.qpts.shape[0]):
-                    for band in ["vb", "cb"]:
-                        if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in bulkSystem.expCouplingBands):
-                            cpl_key = (atomidx, gamma, qidx, band)
-                            cpl_weight = bulkSystem.expCouplingWeights.get(cpl_key, 1.0) if bulkSystem.expCouplingWeights is not None else 1.0
-                            loss_terms["coupling"] += ((abs(calcCouplings_dict[cpl_key]) - abs(bulkSystem.expCouplingBands[cpl_key])) ** 2 * bulkSystem.qptWeights[qidx] * cpl_weight) * bulkSystem.getNKpts()
-                        else:
-                            print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
+            for atomidx in range(bulkSystem.getNAtoms()):
+                for gamma in range(3):
+                    for qidx in range(bulkSystem.qpts.shape[0]):
+                        for band in ["vb", "cb"]:
+                            if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in bulkSystem.expCouplingBands):
+                                cpl_key = (atomidx, gamma, qidx, band)
+                                cpl_weight = bulkSystem.expCouplingWeights.get(cpl_key, 1.0) if bulkSystem.expCouplingWeights is not None else 1.0
+                                loss_terms["coupling"] += ((abs(calcCouplings_dict[cpl_key]) - abs(bulkSystem.expCouplingBands[cpl_key])) ** 2 * bulkSystem.qptWeights[qidx] * cpl_weight) * bulkSystem.getNKpts()
+                            else:
+                                print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
 
         return loss_terms, calcCouplings_dict
 
@@ -1039,7 +1046,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
             fig.savefig(f'{resultsFolder}epoch_{epoch+1}_plotPP.png')
             model.to(device)
 
-            write_PP_qSpace(f'{resultsFolder}epoch_{epoch+1}_qSpace_pot.dat', model, atomPPOrder)
+            write_PP_qSpace(f'{resultsFolder}epoch_{epoch+1}_qSpace_pot.dat', model, atomPPOrder, qmax=NNConfig['qmax'], nQGrid=NNConfig['nQGrid'])
 
             torch.save(model.state_dict(), f'{resultsFolder}epoch_{epoch+1}_PPmodel.pth')
             torch.save(optimizer.state_dict(), f'{resultsFolder}epoch_{epoch+1}_AdamState.pth')
@@ -1270,7 +1277,7 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf')
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
             torch.save(currModel.state_dict(), f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth')
-            write_PP_qSpace(f'{resultsFolder}final_qSpace_pot.dat', newModel, atomPPOrder)
+            write_PP_qSpace(f'{resultsFolder}final_qSpace_pot.dat', newModel, atomPPOrder, qmax=NNConfig['qmax'], nQGrid=NNConfig['nQGrid'])
             shutil.copy(f'{resultsFolder}final_qSpace_pot.dat', f'{resultsFolder}best_qSpace_pot.dat')
 
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth', f'{resultsFolder}final_PPmodel.pth')
@@ -1306,7 +1313,7 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf')
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
             torch.save(currModel.state_dict(), f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth')
-            write_PP_qSpace(f'{resultsFolder}final_qSpace_pot.dat', newModel, atomPPOrder)
+            write_PP_qSpace(f'{resultsFolder}final_qSpace_pot.dat', newModel, atomPPOrder, qmax=NNConfig['qmax'], nQGrid=NNConfig['nQGrid'])
 
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth', f'{resultsFolder}final_PPmodel.pth')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf', f'{resultsFolder}final_plotPP.pdf')

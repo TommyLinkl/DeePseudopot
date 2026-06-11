@@ -11,7 +11,44 @@ from .constants import *
 
 torch.set_default_dtype(torch.float64)
 
-def pot_func(x, params): 
+def qSpacePot_ft(r, V_r, q_magnitudes):
+    """
+    Compute V(q) = 4π/q ∫ V(r) sin(qr) r dr  for each |q|
+
+    q_magnitudes: [NQGRID, 1] tensor of |q| values
+    r_max: cutoff in real space (Bohr) — make sure V(r) -> 0 before here
+    n_r: number of radial quadrature points
+    """
+    # Build a 1D radial grid (this is NOT paired with q points)
+    dr = r[1] - r[0]
+
+    # Evaluate the NN once on the r grid
+    r = r.squeeze()
+    V_r = V_r.squeeze()                            # [n_r]
+
+    # Compute the transform for all q simultaneously
+    q = q_magnitudes.squeeze()                     # [NQGRID]
+
+    # Outer product: sin(qr) for all (q, r) pairs
+    qr = torch.outer(q, r)                         # [NQGRID, n_r]
+    sin_qr = torch.sin(qr)                         # [NQGRID, n_r]
+
+    # Integrand: V(r) * sin(qr) * r, integrated over r
+    integrand = V_r * r * sin_qr                   # [NQGRID, n_r]  (broadcasts)
+    integral = torch.sum(integrand * dr, dim=-1)   # [NQGRID]
+
+    # Handle q=0 separately via L'Hopital: V(q=0) = 4π ∫ V(r) r² dr
+    V_q = 4 * torch.pi / q * integral
+
+    # Fix q=0 if present
+    q0_mask = q < 1e-10
+    if q0_mask.any():
+        V_q0 = 4 * torch.pi * torch.sum(V_r * r**2 * dr)
+        V_q[q0_mask] = V_q0
+
+    return V_q                                     # [NQGRID]
+
+def pot_func(x, params):
     pot = (params[0]*(x*x - params[1]) / (params[2] * torch.exp(params[3]*x*x) - 1.0))
     return pot
 

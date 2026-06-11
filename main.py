@@ -34,7 +34,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     
     # Read and set up systems
     print(f"\nReading and setting up the BulkSystems.")
-    systems, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams = setAllBulkSystems(nSystem, inputsFolder, resultsFolder, NNConfig['local_env_corr'])
+    systems, atomPPOrder, nPseudopot, PPparams, totalParams, localPotParams = setAllBulkSystems(nSystem, inputsFolder, resultsFolder, NNConfig['local_env_corr'], descriptor_backend=NNConfig.get('descriptor_backend', 'handcrafted'))
 
     # Set up the neural network
     PPmodel = setNN(NNConfig, nPseudopot)
@@ -43,11 +43,12 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     if NNConfig['local_env_corr']:
         # Set up the neural network to predict the LSD potential
         os.makedirs(f"{resultsFolder}LSD/", exist_ok=True)
-        lsd_layers = [2] + NNConfig['LSD_hiddenLayers'] + [1]
         LSDmodels = {}
-        
+
         print(f"atomPPOrder = {atomPPOrder}")
         for atom in atomPPOrder:
+            n_descr = systems[0].env_descriptors[atom].shape[1]
+            lsd_layers = [n_descr + 1] + NNConfig['LSD_hiddenLayers'] + [1]
             LSDmodels[atom] = setNN_LSD(NNConfig, layers=lsd_layers)
             print(f"\nLSDmodel[{atom}] = {LSDmodels[atom]}")
 
@@ -63,7 +64,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     hams, cachedMats_info, shm_dict_SO, shm_dict_NL = initAndCacheHams(systems, NNConfig, PPparams, atomPPOrder, device)
     if NNConfig['local_env_corr']:
         # Initialize the LSD correction to the potential differences
-        LSDmodels, LSD_PPFunc_val = init_LSD_PP(inputsFolder, LSDmodels, systems, atomPPOrder, NNConfig, device, resultsFolder, force_retrain=NNConfig["init_LSD_force_retrain"])
+        LSDmodels, LSD_PPFunc_val = init_LSD_PP(inputsFolder, LSDmodels, systems, atomPPOrder, NNConfig, resultsFolder, force_retrain=NNConfig["init_LSD_force_retrain"])
         
         for iSys, system in enumerate(systems):
           hams[iSys].set_LSDmodels(LSDmodels)
