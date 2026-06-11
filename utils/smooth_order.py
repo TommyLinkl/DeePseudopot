@@ -4,9 +4,9 @@ import numpy as np
 from scipy.optimize import linear_sum_assignment
 
 torch.set_default_dtype(torch.float64)
-torch.set_num_threads(1)
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
+# torch.set_num_threads(1)
+# os.environ["OMP_NUM_THREADS"] = "1"
+# os.environ["MKL_NUM_THREADS"] = "1"
 
 
 def extrapolate(y1, y2, y3, y4):

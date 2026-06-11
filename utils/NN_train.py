@@ -18,7 +18,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 
 from .constants import *
-from .pp_func import plotPP, plot_training_validation_cost, plotBandStruct, plot_mc_cost, plotBandStruct_reorder
+from .pp_func import plotPP, plotLSD, plot_training_validation_cost, plotBandStruct, plot_mc_cost, plotBandStruct_reorder
 from .smooth_order import reorder_smoothness_deg2_tensors, reorder_kpt_smoothness_deg2_tensors
 
 def print_and_inspect_gradients(model, filename=None, show=False): 
@@ -40,7 +40,7 @@ def print_and_inspect_gradients(model, filename=None, show=False):
             for name, param in model.named_parameters():
                 if param.grad is not None:
                     f.write(f'Parameter: {name}, Gradient shape: {param.grad.shape}\n')
-                    grad_str = np.array2string(param.grad.numpy(), precision=5, suppress_small=True, max_line_width=999999, threshold=99*99)
+                    grad_str = np.array2string(param.grad.detach().cpu().numpy(), precision=5, suppress_small=True, max_line_width=999999, threshold=99*99)
                     f.write(f'Gradient values:\n{grad_str}\n\n')
                 else:
                     f.write(f'Parameter: {name}, Gradient: None (no gradient computed)\n\n')    
@@ -61,13 +61,15 @@ def print_and_inspect_NNParams(model, filename=None, show=False):
         with open(filename, 'w') as f:
             for name, param in model.named_parameters():
                 f.write(f'Parameter: {name}, Tensor shape: {param.shape}\n')
-                tensor_str = np.array2string(param.detach().numpy(), precision=5, suppress_small=True, max_line_width=999999, threshold=99*99)
+                tensor_str = np.array2string(param.detach().cpu().numpy(), precision=5, suppress_small=True, max_line_width=999999, threshold=99*99)
                 f.write(f'Parameter values:\n{tensor_str}\n\n')
 
 
-def write_PP_qSpace(writeFileName, model, atomPPOrder):
-    qGrid = torch.linspace(0.0, 30.0, 4096).view(-1, 1)
-    NN = model(qGrid)     
+def write_PP_qSpace(writeFileName, model, atomPPOrder, qmax=40.0, nQGrid=4096):
+    # q grid must match FT_converge_and_write_pp's choice grid (choiceQMax,
+    # choiceNQGrid) so qSpace_pot.dat and final_pot_q_*.dat share one grid.
+    qGrid = torch.linspace(0.0, qmax, int(nQGrid)).view(-1, 1)
+    NN = model(qGrid)
 
     # write out
     with open(writeFileName, 'w') as file: 
@@ -81,6 +83,20 @@ def write_PP_qSpace(writeFileName, model, atomPPOrder):
             for iAtom in range(len(atomPPOrder)): 
                 file.write(f"{NN[i,iAtom]:.8f}          ")
             file.write("\n")
+    return
+
+def write_LSD_qSpace(writeFileName, LSDmodel, N_alpha):
+    qGrid = torch.linspace(0.0, 30.0, 4096).view(-1, 1)
+    N_alphas = N_alpha * torch.ones_like(qGrid)
+    x_inputs = torch.cat((N_alphas, qGrid), dim=1)
+    NN = LSDmodel(x_inputs)     
+
+    output = np.concatenate(
+        (qGrid.detach().numpy().reshape(-1,1), 
+         NN.detach().numpy().reshape(-1,1)), axis=1)
+    
+    # write out
+    np.savetxt(writeFileName, output, fmt="%8f", header=f"{N_alpha}")
     return
 
 
@@ -247,7 +263,6 @@ def penalty_loss(f_x, x, penalize_start=4.5, lambda_penalty=1.0, penalize=True):
 
     return penalty
 
-
 def mag_penalty_loss(f_x, f_x_max, lambda_penalty=1.0, penalize=True):
     if (not penalize) or (lambda_penalty <= 0):
         return torch.tensor(0.0)
@@ -258,7 +273,6 @@ def mag_penalty_loss(f_x, f_x_max, lambda_penalty=1.0, penalize=True):
     excess = torch.relu(abs_f_x - f_x_max)
     mag_penalty = lambda_penalty * torch.mean(S_x * excess)
     return mag_penalty
-
 
 def compute_global_system_losses(model, bulkSystem, ham, cachedMats_info=None, requires_grad=True, coupling_debug=False):
     if model is not None:
@@ -291,7 +305,7 @@ def compute_global_system_losses(model, bulkSystem, ham, cachedMats_info=None, r
         loss_terms["mag_penalty"] = mag_penalty_loss(
             v_q,
             ham.NNConfig["penalize_mag_threshold"],
-            ham.NNConfig["penalize_mag_lambda"] * bulkSystem.getNKpts(),
+            ham.NNConfig["penalize_mag_lambda"] * bulkSystem.getNKpts()
         )
 
     if bulkSystem.fit_defPot:
@@ -303,39 +317,49 @@ def compute_global_system_losses(model, bulkSystem, ham, cachedMats_info=None, r
         print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {loss_terms['defpot']:.4f}")
 
     if bulkSystem.fit_eph:
-        calcCouplings_dict = ham.calcCouplings_diag_fd(debug=coupling_debug)
-        if coupling_debug:
-            print(calcCouplings_dict)
+        # Keep the autograd graph alive through buildCouplingMats: the LSD
+        # correction is trained by differentiating the coupling loss, so use the
+        # analytic, differentiable calcCouplings() (NOT the finite-difference
+        # calcCouplings_diag_fd) and force grad on even under an outer no_grad.
+        with torch.enable_grad():
+            calcCouplings_dict = ham.calcCouplings()
+            if coupling_debug:
+                print(calcCouplings_dict)
 
-        for atomidx in range(bulkSystem.getNAtoms()):
-            for gamma in range(3):
-                for qidx in range(bulkSystem.qpts.shape[0]):
-                    for band in ["vb", "cb"]:
-                        if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in bulkSystem.expCouplingBands):
-                            cpl_key = (atomidx, gamma, qidx, band)
-                            cpl_weight = bulkSystem.expCouplingWeights.get(cpl_key, 1.0) if bulkSystem.expCouplingWeights is not None else 1.0
-                            loss_terms["coupling"] += ((abs(calcCouplings_dict[cpl_key]) - abs(bulkSystem.expCouplingBands[cpl_key])) ** 2 * bulkSystem.qptWeights[qidx] * cpl_weight) * bulkSystem.getNKpts()
-                        else:
-                            print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
+            for atomidx in range(bulkSystem.getNAtoms()):
+                for gamma in range(3):
+                    for qidx in range(bulkSystem.qpts.shape[0]):
+                        for band in ["vb", "cb"]:
+                            if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in bulkSystem.expCouplingBands):
+                                cpl_key = (atomidx, gamma, qidx, band)
+                                cpl_weight = bulkSystem.expCouplingWeights.get(cpl_key, 1.0) if bulkSystem.expCouplingWeights is not None else 1.0
+                                loss_terms["coupling"] += ((abs(calcCouplings_dict[cpl_key]) - abs(bulkSystem.expCouplingBands[cpl_key])) ** 2 * bulkSystem.qptWeights[qidx] * cpl_weight) * bulkSystem.getNKpts()
+                            else:
+                                print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
 
         return loss_terms, calcCouplings_dict
 
     return loss_terms, None
 
-
-def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None, writeBS=False, resultsFolder=""): 
+def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None, writeBS=False, LSDmodels=None, resultsFolder=""): 
     if (model is not None): 
         print(f"\t{runName}: Evaluating band structures using the NN-pp model. ")
         model.eval()
     else:
         print(f"\t{runName}: Evaluating band structures using the old Zunger function form. ")
     
+    if LSDmodels:
+        print(f"\t{runName}: Band structures will be corrected with LSD NN potential.")
+        for key in LSDmodels:
+            LSDmodels[key].eval()
+
     plot_bandStruct_list = []
     total_BS_MSE = 0
     true_BS_MSE = 0
     totalPenalty = 0
     totalMagPenalty = 0
     defPot_MSE = 0
+    effMass_MSE = 0
     coupling_MSE = 0
     for iSys, sys in enumerate(systems):
         if (model is not None): 
@@ -343,6 +367,9 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
             hams[iSys].set_NNmodel(model)
         else: 
             hams[iSys].NN_locbool = False
+
+        if (LSDmodels is not None):
+            hams[iSys].set_LSDmodels(LSDmodels)
 
         start_time = time.time()
         with torch.no_grad():
@@ -409,26 +436,89 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
                         print("\n", file=fwrite, end="")
                     print("\n\n", file=fwrite, end="")
 
-        print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... ")
+        # Add in effective mass loss
+        if sys.fit_eff_masses:
+            eff_masses = hams[iSys].calcEffMasses(evalBS)
+            effMassLoss = sys.effMassWeight * ((eff_masses[0] - sys.expEffMasses[0])**2 + (eff_masses[1] - sys.expEffMasses[1])**2)
+            effMass_MSE += effMassLoss
+            print(f"Calculated effMasses = {eff_masses}, refEffMasses = {sys.expEffMasses}, effMass_Loss = {effMassLoss:.4f}")
+            output = f"{BSplotFilename.replace("_plotBS.pdf", f"_effMasses_{iSys}.dat")}"
+            np.savetxt(output, eff_masses, fmt="%.2f")
+
+        # add coupling loss
+        if sys.fit_eph:
+            if (LSDmodels is None):
+                torch.no_grad()
+            
+            calcCouplings_dict = hams[iSys].calcCouplings()
+            # for key, item in calcCouplings_dict.items():
+            #     print(f"{key}: {item}")
+            # calcCouplings_dict_fd = hams[iSys].calcCouplings_diag_fd()
+            # for key in calcCouplings_dict:
+            #     print(f"{key}: {calcCouplings_dict_fd[key]}")
+
+            for atomidx in range(sys.getNAtoms()):
+                for gamma in range(3):
+                    for qidx in range(sys.qpts.shape[0]):
+                        for band in ["vb", "cb"]:
+                            if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in sys.expCouplingBands):
+                                cpl_key = (atomidx, gamma, qidx, band)
+                                cpl_weight = sys.expCouplingWeights.get(cpl_key, 1.0) if sys.expCouplingWeights is not None else 1.0
+                                coupling_MSE += ((abs(calcCouplings_dict[cpl_key]) - abs(sys.expCouplingBands[cpl_key])) ** 2 * sys.qptWeights[qidx] * cpl_weight) * sys.getNKpts()
+                            else: 
+                                print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
+            
+            print(f"couplingMSE = {coupling_MSE:.4g}")
+
+            output = f"{BSplotFilename.replace("_plotBS.pdf", f"_couplingBands_{iSys}.dat")}"
+            with open(output, 'w') as fwrite:
+                for atomidx in range(sys.getNAtoms()):
+                    print(f"Atom idx = {atomidx}   atom = {sys.atomTypes[atomidx]}   position = {sys.atomPos[atomidx]}", file=fwrite)
+
+                    for band in ["vb", "cb"]:
+                        print(f"{band}-{band} coupling elements. ", file=fwrite, end="")
+                        for gamma in range(3):
+                            if gamma == 0:
+                                print("polarization of derivative = x", file=fwrite)
+                            elif gamma == 1:
+                                print("polarization of derivative = y", file=fwrite)
+                            else:
+                                print("polarization of derivative = z", file=fwrite)
+
+                            for qidx in range(sys.qpts.shape[0]):
+                                if (atomidx, gamma, qidx, band) in calcCouplings_dict:
+                                    val = calcCouplings_dict[(atomidx, gamma, qidx, band)]
+                                    val_item = val.item() if torch.is_tensor(val) else val
+                                    if abs(val_item) < 1e-9:
+                                        print("0   ", file=fwrite, end="")
+                                    else:
+                                        print(f"{val_item:.5e}   ", file=fwrite, end="")
+                                else:
+                                    print("Not-fit   ", file=fwrite, end="")
+                            print("\n", file=fwrite, end="")
+                        print("\n", file=fwrite, end="")
+                    print("\n\n", file=fwrite, end="")
+
+        print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... Total_BS_MSE = {total_BS_MSE:.4f}. Penalty = {totalPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}. effMass_MSE = {effMass_MSE:.4f}.")
 
     fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
-    totalPenaltyAll = totalPenalty + totalMagPenalty
-    print(f"\t{runName}: Finished evaluating all band structures with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. Total_BS_MSE = {total_BS_MSE:.4f}. DecayPenalty = {totalPenalty:.4f}. MagPenalty = {totalMagPenalty:.4f}. TotalPenalty = {totalPenaltyAll:.4f}. defPot_MSE = {defPot_MSE:.4f}. Coupling_MSE = {coupling_MSE:.4f}. ")
-    fig.suptitle(f"{runName}: total_BS_MSE = {total_BS_MSE:.4f}. DecayPenalty = {totalPenalty:.4f}. MagPenalty = {totalMagPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}.")
+    print(f"\t{runName}: Finished evaluating all band structures with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. Total_BS_MSE = {total_BS_MSE:.4f}. Penalty = {totalPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}.")
+    fig.suptitle(f"{runName}: total_BS_MSE = {total_BS_MSE:.4f}. Penalty = {totalPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}. effMass_MSE = {effMass_MSE:.4f}.")
     fig.savefig(BSplotFilename)
     fig.savefig(BSplotFilename.replace('.pdf', '.png'))
     plt.close('all')
     torch.cuda.empty_cache()
-    return total_BS_MSE + totalPenaltyAll + defPot_MSE + coupling_MSE
+    return total_BS_MSE + totalPenalty + defPot_MSE + effMass_MSE
 
 
-def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, model, cachedMats_info=None, prevBS=None, verbosity=0):
+def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cachedMats_info=None, prevBS=None, LSDmodels=None, LSDoptimizers=None):
     """
     loop over kidx
     The rest of the arguments are "constants" / "constant functions" for a single kidx
     For performance, it is recommended that the ham in the argument doesn't have SOmat and NLmat initialized. 
     """
     singleKptGradients = {}
+    singleKptGradients_LSD = {}
 
     calcEnergies = ham.calcEigValsAtK(kidx, cachedMats_info, requires_grad=True)
     extrapolated_eigVal = calcEnergies.clone()
@@ -441,7 +531,10 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, model, cachedMats_info=
         systemKptLoss = weighted_mse_energiesAtKpt(calcEnergies, bulkSystem, kidx)
 
     start_time = time.time() if ham.NNConfig['runtime_flag'] else None
-    model.zero_grad(set_to_none=True)
+    optimizer.zero_grad()
+    if LSDoptimizers is not None:
+        for key in LSDoptimizers:
+            LSDoptimizers[key].zero_grad()
     systemKptLoss.backward()
     end_time = time.time() if ham.NNConfig['runtime_flag'] else None
     print(f"loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if ham.NNConfig['runtime_flag'] else None
@@ -452,19 +545,34 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, model, cachedMats_info=
             else: 
                 singleKptGradients[name] += param.grad.detach().clone() * bulkSystem.kptWeights[kidx]
     trainLoss_systemKpt = systemKptLoss.detach().item() * bulkSystem.kptWeights[kidx]
+
+    if LSDmodels:
+        for key in LSDmodels:
+            singleKptGradients_LSD[key] = {}
+            for name, param in LSDmodels[key].named_parameters():
+                if param.grad is not None: 
+                    if name not in singleKptGradients_LSD:
+                        singleKptGradients_LSD[key][name] = param.grad.detach().clone() * bulkSystem.kptWeights[kidx]
+                    else:
+                        singleKptGradients_LSD[key][name] += param.grad.detach().clone() * bulkSystem.kptWeights[kidx]
     del systemKptLoss
     gc.collect()
 
     calcEnergies = calcEnergies.detach()
     extrapolated_eigVal = extrapolated_eigVal.detach()
-    return singleKptGradients, trainLoss_systemKpt, calcEnergies, extrapolated_eigVal
+    return singleKptGradients, trainLoss_systemKpt, calcEnergies, extrapolated_eigVal, singleKptGradients_LSD
 
 
-def trainIter_naive(model, systems, hams, optimizer, cachedMats_info=None, runtime_flag=False, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1):
+def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, runtime_flag=False, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, LSDmodels=None, LSDoptimizers=None):
     trainLoss = torch.tensor(0.0)
+    coupling_Loss = torch.tensor(0.0)
+    effMass_Loss = torch.tensor(0.0)
+    
     for iSys, sys in enumerate(systems):
         hams[iSys].NN_locbool = True
         hams[iSys].set_NNmodel(model)
+        if LSDmodels:
+            hams[iSys].set_LSDmodels(LSDmodels)
 
         NN_outputs = hams[iSys].calcBandStruct_withGrad(cachedMats_info)
 
@@ -490,17 +598,109 @@ def trainIter_naive(model, systems, hams, optimizer, cachedMats_info=None, runti
             systemLoss = weighted_mse_bandStruct(NN_outputs, sys)
         trainLoss += systemLoss
 
-        global_loss_terms, _ = compute_global_system_losses(model, sys, hams[iSys], cachedMats_info=cachedMats_info, requires_grad=True, coupling_debug=False)
-        trainLoss += global_loss_terms["penalty"] + global_loss_terms["mag_penalty"] + global_loss_terms["defpot"] + global_loss_terms["coupling"]
+        # Add in penalization of non-decay
+        if ("penalize_starting" in hams[iSys].NNConfig) and ("penalize_lambda" in hams[iSys].NNConfig): 
+            q = torch.linspace(hams[iSys].NNConfig["penalize_starting"], 12.0, 50).view(-1,1)
+            v_q = model(q)
 
+            penalty = penalty_loss(v_q, q, hams[iSys].NNConfig["penalize_starting"], hams[iSys].NNConfig["penalize_lambda"]*sys.getNKpts())
+            trainLoss += penalty
+            # print(f"Done penalizing the non-decaying pp by {penalty}")
+
+        if ("penalize_mag_threshold" in hams[iSys].NNConfig) and ("penalize_mag_lambda" in hams[iSys].NNConfig) and (hams[iSys].NNConfig["penalize_mag_lambda"] > 0) and (model is not None):
+            q = torch.linspace(0.0, 12.0, 240, dtype=torch.float64).view(-1, 1)
+            v_q = model(q)
+            # Keep the historical regularization scale, but evaluate it once per system.
+            mag_penalty = mag_penalty_loss(
+                v_q,
+                hams[iSys].NNConfig["penalize_mag_threshold"],
+                hams[iSys].NNConfig["penalize_mag_lambda"] * sys.getNKpts()
+            )
+            trainLoss += mag_penalty
+            print(f"Done penalizing the large magnitude pp by {mag_penalty}")
+
+        # Add in deformation potential
+        if sys.fit_defPot: 
+            calcDefPots = hams[iSys].calcDefPots(cachedMats_info=cachedMats_info, requires_grad=True)
+
+            refDefPots = torch.tensor(sys.defPotInfo[:,5])
+            defPotWeights = torch.tensor(sys.defPotInfo[:,6])
+            defPotLoss = ((calcDefPots - refDefPots) ** 2 * defPotWeights).sum() * sys.getNKpts()
+            print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {defPotLoss:.4f}")
+            trainLoss += defPotLoss
+
+        # Add in effective mass loss
+        if sys.fit_eff_masses:
+            eff_masses = hams[iSys].calcEffMasses(NN_outputs)
+            effMass_MSE = sys.effMassWeight * ((eff_masses[0] - sys.expEffMasses[0])**2 + (eff_masses[1] - sys.expEffMasses[1])**2)
+            effMass_Loss += effMass_MSE
+            
+        trainLoss += effMass_Loss
+
+        # add coupling loss
+        if sys.fit_eph:
+            calcCouplings_dict = hams[iSys].calcCouplings()
+            
+            for atomidx in range(sys.getNAtoms()):
+                for gamma in range(3):
+                    for qidx in range(sys.qpts.shape[0]):
+                        for band in ["vb", "cb"]:
+                            if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in sys.expCouplingBands):
+                                cpl_key = (atomidx, gamma, qidx, band)
+                                cpl_weight = sys.expCouplingWeights.get(cpl_key, 1.0) if sys.expCouplingWeights is not None else 1.0
+                                coupling_Loss += ((abs(calcCouplings_dict[cpl_key]) - abs(sys.expCouplingBands[cpl_key])) ** 2 * sys.qptWeights[qidx] * cpl_weight) * sys.getNKpts()
+                            else: 
+                                print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
+            
+            print(f"couplingMSE = {coupling_Loss:.4g}")
+
+            output = os.path.join(resultsFolder, f"couplingBands_{iSys}.dat")
+            with open(output, 'w') as fwrite:
+                for atomidx in range(sys.getNAtoms()):
+                    print(f"Atom idx = {atomidx}   atom = {sys.atomTypes[atomidx]}   position = {sys.atomPos[atomidx]}", file=fwrite)
+
+                    for band in ["vb", "cb"]:
+                        print(f"{band}-{band} coupling elements. ", file=fwrite, end="")
+                        for gamma in range(3):
+                            if gamma == 0:
+                                print("\npolarization of derivative = x", file=fwrite)
+                            elif gamma == 1:
+                                print("polarization of derivative = y", file=fwrite)
+                            else:
+                                print("polarization of derivative = z", file=fwrite)
+
+                            for qidx in range(sys.qpts.shape[0]):
+                                if (atomidx, gamma, qidx, band) in calcCouplings_dict:
+                                    val = calcCouplings_dict[(atomidx, gamma, qidx, band)]
+                                    val_item = val.item() if torch.is_tensor(val) else val
+                                    if abs(val_item) < 1e-9:
+                                        print("0   ", file=fwrite, end="")
+                                    else:
+                                        print(f"{val_item:.5e}   ", file=fwrite, end="")
+                                else:
+                                    print("Not-fit   ", file=fwrite, end="")
+                            print("\n", file=fwrite, end="")
+                        print("\n", file=fwrite, end="")
+                    print("\n\n", file=fwrite, end="")
+        trainLoss += coupling_Loss
 
     start_time = time.time() if runtime_flag else None
     optimizer.zero_grad()
+    if LSDmodels:
+        for key in LSDoptimizers:
+            LSDoptimizers[key].zero_grad()
+
     trainLoss.backward()
     if preAdjustBool: 
         manual_GD_one_param(model, preAdjustStepSize)
+        if LSDmodels:
+            for key in LSDmodels:
+                manual_GD_one_param(LSDmodels[key], preAdjustStepSize)
     else:
         optimizer.step()
+        if LSDmodels:
+            for key in LSDoptimizers:
+                LSDoptimizers[key].step()
     end_time = time.time() if runtime_flag else None
     print(f"loss_backward + optimizer.step, elapsed time: {(end_time - start_time):.2f} seconds") if runtime_flag else None
 
@@ -508,21 +708,37 @@ def trainIter_naive(model, systems, hams, optimizer, cachedMats_info=None, runti
     return model, trainLoss
 
 
-def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, prevBS=None): 
+def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, prevBS=None, LSDmodels=None, LSDoptimizers=None): 
     def merge_dicts(dicts):
         merged_dict = {}
-        for d in dicts:
-            for key in d:
-                merged_dict[key] = merged_dict.get(key, 0) + d[key]
+        for d in dicts: # extracts dict from tuple of dicts
+            for key in d: # loops over dict keys
+                merged_dict[key] = merged_dict.get(key, 0) + d[key] # appends values to dict
         return merged_dict
 
+    def merge_dicts_LSD(kpt_tuple):
+        merged_dict = {}
+        for kpt_dict in kpt_tuple: # extracts dict from tuple of dicts
+            for key in kpt_dict: # loops over atomType keys
+                merged_dict[key] = {}
+                for nn_key in kpt_dict[key]:
+                    merged_dict[key][nn_key] = merged_dict[key].get(nn_key, 0) + kpt_dict[key][nn_key] # appends values to dict
+        return merged_dict
+    
     trainLoss = 0.0
     total_gradients = {}
+    total_gradients_LSD = {}
     for iSys, sys in enumerate(systems):
         trainLoss_system = 0.0
         gradients_system = {}
         hams[iSys].NN_locbool = True
         hams[iSys].set_NNmodel(model)
+        
+        if LSDmodels:
+            gradients_system_LSD = {}
+            for key in LSDmodels:
+              gradients_system_LSD[key] = {}
+              hams[iSys].set_LSDmodels(LSDmodels)
 
         if (NNConfig['num_cores']==0):   # No multiprocessing
             currBS = torch.zeros([sys.getNKpts(), sys.nBands])
@@ -541,8 +757,37 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                     systemKptLoss = weighted_mse_energiesAtKpt(calcEnergies, sys, kidx)
                 currBS[kidx,:] = calcEnergies.detach().clone()
 
+                # add in penalization of the non-decay
+                if ("penalize_starting" in hams[iSys].NNConfig) and ("penalize_lambda" in hams[iSys].NNConfig): 
+                    q = torch.linspace(hams[iSys].NNConfig["penalize_starting"], 12.0, 50).view(-1,1)
+                    v_q = model(q)
+
+                    penalty = penalty_loss(v_q, q, hams[iSys].NNConfig["penalize_starting"], hams[iSys].NNConfig["penalize_lambda"])
+                    systemKptLoss += penalty
+                    # print(f"Done penalizing the non-decaying pp by {penalty}")
+
+                if ("penalize_mag_threshold" in hams[iSys].NNConfig) and ("penalize_mag_lambda" in hams[iSys].NNConfig) and (hams[iSys].NNConfig["penalize_mag_lambda"] > 0) and (model is not None):
+                    q = torch.linspace(0.0, 12.0, 240, dtype=torch.float64).view(-1, 1)
+                    v_q = model(q)
+                    # Keep the historical regularization scale, but evaluate it once per system.
+                    mag_penalty = mag_penalty_loss(
+                        v_q,
+                        hams[iSys].NNConfig["penalize_mag_threshold"],
+                        hams[iSys].NNConfig["penalize_mag_lambda"]
+                    )
+                    systemKptLoss += mag_penalty
+                    print(f"Done penalizing the large magnitude pp by {mag_penalty}")
+
+                # Add in defPot loss
+                # Add in effective mass loss
+                if sys.fit_eff_masses:
+                    print(f"Warning: effective mass fitting not available with separateKptGrad.")
+
                 start_time = time.time() if NNConfig['runtime_flag'] else None
                 optimizer.zero_grad()
+                if LSDmodels:
+                    for key in LSDmodels:
+                        LSDoptimizers[key].zero_grad()
                 systemKptLoss.backward()
                 end_time = time.time() if NNConfig['runtime_flag'] else None
                 print(f"loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
@@ -553,49 +798,51 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                             gradients_system[name] = param.grad.detach().clone() * sys.kptWeights[kidx]
                         else: 
                             gradients_system[name] += param.grad.detach().clone() * sys.kptWeights[kidx]
+                
+                if LSDmodels:
+                    for key in LSDmodels:
+                        for name, param in LSDmodels[key].named_parameters():
+                            if param.grad is not None:
+                                if name not in gradients_system_LSD[key]:
+                                    gradients_system_LSD[key][name] = param.grad.detach().clone() * sys.kptWeights[kidx]
+                                else: 
+                                    gradients_system_LSD[key][name] += param.grad.detach().clone() * sys.kptWeights[kidx]
+
                 trainLoss_system += systemKptLoss.detach().item() * sys.kptWeights[kidx]
                 del systemKptLoss
                 gc.collect()
 
         else: # multiprocessing
             optimizer.zero_grad()
+            if LSDoptimizers is not None:
+                for key in LSDoptimizers:
+                    LSDoptimizers[key].zero_grad()
                 
             if (NNConfig['smooth_reorder']) and (prevBS is not None): 
                 print("WARNING. We are reordering the band structure according to smoothness using the previous iteration BS. ")
             prevBS = prevBS.detach() if prevBS is not None else None
-            args_list = [(kidx, hams[iSys], sys, model, cachedMats_info, prevBS) for kidx in range(sys.getNKpts())]
+            args_list = [(kidx, hams[iSys], sys, optimizer, model, cachedMats_info, prevBS, LSDmodels, LSDoptimizers) for kidx in range(sys.getNKpts())]
 
             # PyTorch autograd is not safe to use from forked workers.
             # Use an explicit spawn context for the per-k-point backward passes.
             ctx = mp.get_context("spawn")
             with ctx.Pool(NNConfig['num_cores']) as pool:
                 results_systemKpt = pool.starmap(calcEigValsAtK_wGrad_parallel, args_list)
-                gradients_systemKpt, trainLoss_systemKpt, eigValsList, extrapolated_eigValList = zip(*results_systemKpt)
+                gradients_systemKpt, trainLoss_systemKpt, eigValsList, extrapolated_eigValList, gradients_systemKpt_LSD = zip(*results_systemKpt)
             currBS = torch.stack(eigValsList).detach()
             extrapolated_points = torch.stack(extrapolated_eigValList).detach()
 
             gc.collect()
             gradients_system = merge_dicts(gradients_systemKpt)
+            
             trainLoss_system = torch.sum(torch.tensor(trainLoss_systemKpt))
-
-        global_loss_terms, _ = compute_global_system_losses(model, sys, hams[iSys], cachedMats_info=cachedMats_info, requires_grad=True, coupling_debug=False)
-        global_system_loss = global_loss_terms["penalty"] + global_loss_terms["mag_penalty"] + global_loss_terms["defpot"] + global_loss_terms["coupling"]
-        if global_system_loss.detach().item() != 0.0:
-            start_time = time.time() if NNConfig['runtime_flag'] else None
-            optimizer.zero_grad()
-            global_system_loss.backward()
-            end_time = time.time() if NNConfig['runtime_flag'] else None
-            print(f"global_loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
-
-            for name, param in model.named_parameters():
-                if param.grad is not None:
-                    if name not in gradients_system:
-                        gradients_system[name] = param.grad.detach().clone()
-                    else:
-                        gradients_system[name] += param.grad.detach().clone()
-        trainLoss_system += global_system_loss.detach().item()
-
+            if LSDmodels:
+                gradients_system_LSD = merge_dicts_LSD(gradients_systemKpt_LSD)
+                
         total_gradients = merge_dicts([total_gradients, gradients_system])
+        if LSDmodels:
+            total_gradients_LSD = merge_dicts_LSD([total_gradients_LSD, gradients_system_LSD])
+        
         trainLoss += trainLoss_system
 
         # Plot each individual band for debugging
@@ -616,14 +863,28 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
             if name in total_gradients:
                 param.grad = total_gradients[name].detach().clone()
 
+    if LSDmodels:
+        for key in LSDoptimizers:
+            LSDoptimizers[key].zero_grad()
+            with torch.no_grad():
+                for name, param in LSDmodels[key].named_parameters():
+                    if name in total_gradients_LSD[key]:
+                        param.grad = total_gradients_LSD[key][name].detach().clone()
+
     start_time = time.time() if NNConfig['runtime_flag'] else None
     if preAdjustBool: 
         if verbosity>1:
             print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_gradients.dat', show=True)
             print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_params.dat', show=True)
         manual_GD_one_param(model, preAdjustStepSize)
+        if LSDmodels:
+            for key in LSDoptimizers:
+                manual_GD_one_param(LSDmodels[key], NNConfig['pre_adjust_LSD_step_size'])
     else:
         optimizer.step()
+        if LSDmodels:
+            for key in LSDoptimizers:
+                LSDoptimizers[key].step()
     end_time = time.time() if NNConfig['runtime_flag'] else None
     print(f"optimizer step, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
 
@@ -633,20 +894,28 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
     return model, trainLoss, currBS
 
 
-def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, optimizer, scheduler, val_dataset, resultsFolder, cachedMats_info=None):
+def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, optimizer, scheduler, val_dataset, resultsFolder, cachedMats_info=None, LSDmodels=None, LSDoptimizers=None, LSDscheduler=None, LSDval_dataset=None):
     trainingCOST_x =[]
     training_COST = []
     validationCOST_x = []
     validation_COST =[]
     file_trainCost = open(f'{resultsFolder}final_training_cost.dat', "w")
     file_valCost = open(f'{resultsFolder}final_validation_cost.dat', "w")
+
     model.to(device)
+    if LSDmodels:
+        os.makedirs(f"{resultsFolder}LSD/", exist_ok=True)
+        for key in LSDmodels:
+            LSDmodels[key].to(device)
+    
     best_validation_loss = float('inf')
     no_improvement_count = 0
     prevBS = None
 
     pre_min_maxGrad = None
     pre_min_epoch = None
+    pre_min_maxGrad_LSD = {atom: None for atom in set(atomPPOrder)}
+    pre_min_epoch_LSD = {atom: None for atom in set(atomPPOrder)}
     # pre_adjustments. Optimizing only ONE PARAMETER at a time, which has the largest gradient
     if ('pre_adjust_moves' in NNConfig) and (NNConfig['pre_adjust_moves']>0): 
         for pre_epoch in range(NNConfig['pre_adjust_moves']):
@@ -656,12 +925,15 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
                 pre_adjust_stepSize = None
 
             model.train()
+            if LSDmodels:
+                for key in LSDmodels:
+                    LSDmodels[key].train()
 
             if NNConfig['separateKptGrad']==0: 
-                model, trainLoss = trainIter_naive(model, systems, hams, optimizer, cachedMats_info, NNConfig['runtime_flag'], preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch)
+                model, trainLoss = trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info, NNConfig['runtime_flag'], preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers)
             else: 
                 model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, prevBS=prevBS.detach() if prevBS is not None else None)
-
+                
             file_trainCost.write(f"{pre_epoch-NNConfig['pre_adjust_moves']-1}  {trainLoss.item()}\n")
             file_trainCost.flush()
             trainingCOST_x.append(pre_epoch-NNConfig['pre_adjust_moves']-1)
@@ -671,9 +943,17 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
             # print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_params.dat', show=True)
 
             model.eval()
-            val_MSE = evalBS_noGrad(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_plotBS.pdf', f'preEpoch_{pre_epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder)
+            if LSDmodels:
+                for key in LSDmodels:
+                    LSDmodels[key].eval()
+            val_MSE = evalBS_noGrad(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_plotBS.pdf', f'preEpoch_{pre_epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True, LSDmodels=LSDmodels)
 
             torch.save(model.state_dict(), f'{resultsFolder}preEpoch_{pre_epoch+1}_PPmodel.pth')
+            if LSDmodels:
+                for key in LSDmodels:
+                    torch.save(LSDmodels[key].state_dict(), f'{resultsFolder}preEpoch_{pre_epoch+1}_LSDmodel_{key}.pth')
+            else:
+                print(f"WARNING: LSDmodels are NONE!")
             torch.cuda.empty_cache()
 
             maxGrad, _ = judge_well_conditioned_grad(model)
@@ -681,11 +961,23 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
                 print("This is the best pre-adjust epoch so far. ")
                 pre_min_maxGrad = maxGrad
                 pre_min_epoch = pre_epoch
+
+            if LSDmodels:
+                for key in LSDmodels:
+                    maxGrad, _ = judge_well_conditioned_grad(LSDmodels[key])
+                    if pre_min_maxGrad_LSD[key] is None or maxGrad <= pre_min_maxGrad_LSD[key]:
+                        print(f"This is the best pre-adjust epoch for LSD[{key}] so far. ")
+                        pre_min_maxGrad_LSD[key] = maxGrad
+                        pre_min_epoch_LSD[key] = pre_epoch
             print()
         
         model.load_state_dict(torch.load(f'{resultsFolder}preEpoch_{pre_min_epoch+1}_PPmodel.pth'))
         print(f"We have re-loaded back to the preEpoch_{pre_min_epoch+1}, which gives the best-conditioned gradients. ")
 
+        if LSDmodels:
+            for key in LSDmodels:
+                LSDmodels[key].load_state_dict(torch.load(f'{resultsFolder}preEpoch_{pre_min_epoch_LSD[key]+1}_LSDmodel_{key}.pth'))
+                print(f"We have re-loaded LSD[{key}] back to the preEpoch_{pre_min_epoch_LSD[key]+1}, which gives the best-conditioned gradients. ")
         # Clean-up
         for pre_epoch in range(NNConfig['pre_adjust_moves']):
             if (pre_epoch%20!=0) and (pre_epoch!=pre_min_epoch): 
@@ -698,10 +990,13 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
 
         # train
         model.train()
-        if NNConfig['separateKptGrad']==0: 
-            model, trainLoss = trainIter_naive(model, systems, hams, optimizer, cachedMats_info, NNConfig['runtime_flag'], resultsFolder=resultsFolder, epoch=epoch)
+        if LSDmodels:
+            for key in LSDmodels:
+                LSDmodels[key].train()
+        if NNConfig['separateKptGrad']==0:
+            model, trainLoss = trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info, NNConfig['runtime_flag'], resultsFolder=resultsFolder, epoch=epoch, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers)
         else: 
-            model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, resultsFolder=resultsFolder, epoch=epoch, prevBS=prevBS.detach() if prevBS is not None else None)
+            model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, resultsFolder=resultsFolder, epoch=epoch, prevBS=prevBS.detach() if prevBS is not None else None, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers)
         file_trainCost.write(f"{epoch+1}  {trainLoss.item()}\n")
         file_trainCost.flush()
         trainingCOST_x.append(epoch+1)
@@ -710,7 +1005,16 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
         if (epoch<=9) or ((epoch + 1) % NNConfig['plotEvery'] == 0):
             print_and_inspect_gradients(model, f'{resultsFolder}epoch_{epoch+1}_gradients.dat', show=True)
             print_and_inspect_NNParams(model, f'{resultsFolder}epoch_{epoch+1}_params.dat', show=True)
+            if LSDmodels:
+                for key in LSDmodels:
+                    print_and_inspect_gradients(LSDmodels[key], f'{resultsFolder}LSD/epoch_{epoch+1}_gradients_LSD_{key}.dat', show=True)
+                    print_and_inspect_NNParams(LSDmodels[key], f'{resultsFolder}LSD/epoch_{epoch+1}_params_LSD_{key}.dat', show=True)
+
         judge_well_conditioned_grad(model)
+        if LSDmodels:
+            for key in LSDmodels:
+                print(f"LSD ({key}):")
+                judge_well_conditioned_grad(LSDmodels[key])
 
         # perturb the model
         if (NNConfig['perturbEvery']>0) and (epoch>0) and (epoch % NNConfig['perturbEvery']==0): 
@@ -720,11 +1024,16 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
         # scheduler of learning rate
         if (epoch > 0) and (epoch % NNConfig['schedulerStep'] == 0):
             scheduler.step()
+            if LSDmodels:
+                LSDscheduler.step()
 
         # evaluation
         if (epoch + 1) % NNConfig['plotEvery'] == 0:
             model.eval()
-            val_MSE = evalBS_noGrad(model, f'{resultsFolder}epoch_{epoch+1}_plotBS.pdf', f'epoch_{epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder)
+            if LSDmodels:
+                for key in LSDmodels:
+                    LSDmodels[key].eval()
+            val_MSE = evalBS_noGrad(model, f'{resultsFolder}epoch_{epoch+1}_plotBS.pdf', f'epoch_{epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True, LSDmodels=LSDmodels)
             validationCOST_x.append(epoch+1)
             validation_COST.append(val_MSE)
             print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], validation cost (including penalty): {val_MSE:.4f}")
@@ -737,24 +1046,45 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
             fig.savefig(f'{resultsFolder}epoch_{epoch+1}_plotPP.png')
             model.to(device)
 
-            write_PP_qSpace(f'{resultsFolder}epoch_{epoch+1}_qSpace_pot.dat', model, atomPPOrder)
+            write_PP_qSpace(f'{resultsFolder}epoch_{epoch+1}_qSpace_pot.dat', model, atomPPOrder, qmax=NNConfig['qmax'], nQGrid=NNConfig['nQGrid'])
 
             torch.save(model.state_dict(), f'{resultsFolder}epoch_{epoch+1}_PPmodel.pth')
             torch.save(optimizer.state_dict(), f'{resultsFolder}epoch_{epoch+1}_AdamState.pth')
             torch.cuda.empty_cache()
-        '''
-        # Dynamic stopping: Stop training if no improvement for 'patience' epochs
-        if val_MSE < best_validation_loss - 1e-4:
-            best_validation_loss = val_MSE
-            no_improvement_count = 0
-        else:
-            no_improvement_count += 1
-        if no_improvement_count >= NNConfig['patience']:
-            print(f"Early stopping at Epoch {epoch} due to lack of improvement.")
-            break
-        '''
+
+            if LSDmodels:
+                for key in LSDmodels:
+                    LSDmodels[key].cpu()
+                    # Plot all LSD potentials
+                    for n_u in range(LSDval_dataset[key].n_unique):
+                        n_q = LSDval_dataset[key].n_q_grid
+                        q = LSDval_dataset[key].q[n_u*n_q:(n_u+1)*n_q].view(-1, 1)
+                        vq_init = LSDval_dataset[key].vq_atoms[n_u*n_q:(n_u+1)*n_q].view(-1, 1)
+                        N_alphas = LSDval_dataset[key].N_alphas[n_u*n_q:(n_u+1)*n_q].view(-1, 1)
+                        x_inputs = torch.cat((N_alphas, q), dim=1)
+                        fig = plotLSD(key, q, q, vq_init, LSDmodels[key](x_inputs), "InitialLSD", "OptLSD", ["-",":" ], True, NNConfig['SHOWPLOTS'])
+                        fig.savefig(f'{resultsFolder}LSD/epoch_{epoch+1}_plotLSD_{key}_{n_u}.pdf')
+                        LSDmodels[key].to(device)
+
+                        write_LSD_qSpace(f'{resultsFolder}LSD/epoch_{epoch+1}_qSpace_pot_LSD_{key}_{n_u}.dat', LSDmodels[key], N_alphas[0])
+                    
+                    
+                    print(f"Printing LSD model for {key} epoch {epoch}")
+                    torch.save(LSDmodels[key].state_dict(), f'{resultsFolder}epoch_{epoch+1}_{key}_LSDmodel.pth')
+                    torch.save(LSDoptimizers[key].state_dict(), f'{resultsFolder}epoch_{epoch+1}_{key}_LSD_AdamState.pth')
+                    print_and_inspect_gradients(LSDmodels[key], f'{resultsFolder}LSD/epoch_{epoch+1}_gradients_LSD_{key}.dat', show=True)
+                    print_and_inspect_NNParams(LSDmodels[key], f'{resultsFolder}LSD/epoch_{epoch+1}_params_LSD_{key}.dat', show=True)
+        
         plt.close('all')
         torch.cuda.empty_cache()
+    
+    if LSDmodels:
+        for key in LSDmodels:
+            torch.save(LSDmodels[key].state_dict(), f'{resultsFolder}final_{key}_LSDmodel.pth')
+            torch.save(LSDoptimizers[key].state_dict(), f'{resultsFolder}final_{key}_LSD_AdamState.pth')
+    else:
+        print(f"WARNING: LSDmodels is empty")
+    
     fig_cost = plot_training_validation_cost(trainingCOST_x, training_COST, validation_cost_x=validationCOST_x, validation_cost=validation_COST, ylogBoolean=True, SHOWPLOTS=NNConfig['SHOWPLOTS']);
     fig_cost.savefig(resultsFolder + 'final_train_cost.pdf')
     torch.cuda.empty_cache()
@@ -947,7 +1277,7 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf')
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
             torch.save(currModel.state_dict(), f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth')
-            write_PP_qSpace(f'{resultsFolder}final_qSpace_pot.dat', newModel, atomPPOrder)
+            write_PP_qSpace(f'{resultsFolder}final_qSpace_pot.dat', newModel, atomPPOrder, qmax=NNConfig['qmax'], nQGrid=NNConfig['nQGrid'])
             shutil.copy(f'{resultsFolder}final_qSpace_pot.dat', f'{resultsFolder}best_qSpace_pot.dat')
 
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth', f'{resultsFolder}final_PPmodel.pth')
@@ -983,7 +1313,7 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf')
             fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.png')
             torch.save(currModel.state_dict(), f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth')
-            write_PP_qSpace(f'{resultsFolder}final_qSpace_pot.dat', newModel, atomPPOrder)
+            write_PP_qSpace(f'{resultsFolder}final_qSpace_pot.dat', newModel, atomPPOrder, qmax=NNConfig['qmax'], nQGrid=NNConfig['nQGrid'])
 
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth', f'{resultsFolder}final_PPmodel.pth')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf', f'{resultsFolder}final_plotPP.pdf')

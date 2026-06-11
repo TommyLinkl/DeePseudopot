@@ -15,3 +15,4 @@ max_num_epochs = 200
 plotEvery = 50
 schedulerStep = 20
 patience = 50
+PPmodel = Net_celu_HeInit_decayGaussian

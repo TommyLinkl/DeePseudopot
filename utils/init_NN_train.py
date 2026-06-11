@@ -32,7 +32,6 @@ class init_Zunger_data(Dataset):
             self.w = torch.ones_like(self.vq_atoms)
         self.len = self.q.shape[0]
 
-
     def __getitem__(self,index):
         return self.q[index],self.vq_atoms[index],self.w[index]
     
@@ -118,8 +117,8 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
                 plot_pred_outputs = pred_outputs.cpu()
                 print(f"Epoch [{epoch+1}/{NNConfig['init_Zunger_num_epochs']}], Validation Loss: {loss.item():.4f}")
                 fig = plotPP(atomPPOrder, plot_q, plot_q, plot_vq_atoms, plot_pred_outputs, "ZungerForm", f"NN_{epoch+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS'])
-                fig.savefig(f"{resultsFolder}initZunger_epoch_{epoch}_plotPP.pdf")
-                fig.savefig(f"{resultsFolder}initZunger_epoch_{epoch}_plotPP.png")
+                fig.savefig(f"{resultsFolder}initZunger_epoch_{epoch+1}_plotPP.pdf")
+                fig.savefig(f"{resultsFolder}initZunger_epoch_{epoch+1}_plotPP.png")
         validation_cost_x.append(epoch)
         validation_cost.append(val_cost)
         torch.cuda.empty_cache()
@@ -138,11 +137,13 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
     """
     ZungerPPFunc_train = init_Zunger_data(atomPPOrder, localPotParams, train=True)
     ZungerPPFunc_val = init_Zunger_data(atomPPOrder, localPotParams, train=False)
+    PPstring = "Zunger"
     if os.path.exists(inputsFolder + 'init_qSpace_pot.par'):
         print("Reading in init_qSpace_pot.par for initialization. Not using the Zunger function for this purpose. ")
         del ZungerPPFunc_train, ZungerPPFunc_val
         ZungerPPFunc_train = load_qSpace_data(atomPPOrder, f"{inputsFolder}init_qSpace_pot.par")
         ZungerPPFunc_val = load_qSpace_data(atomPPOrder, f"{inputsFolder}init_qSpace_pot.par")
+        PPstring = "NN_ref"
 
 
     if os.path.exists(inputsFolder + 'init_PPmodel.pth'):
@@ -156,11 +157,11 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
         print("\nWARNING: Not initializing the NN to the Zunger function form. Could lead to slow convergence. \n")
         return PPmodel, ZungerPPFunc_val
 
-    print(f"\n{'#' * 40}\nInitializing the NN by training to the Zunger function form of pseudopotentials. ")
+    print(f"\n{'#' * 40}\nInitializing the NN by training to the {PPstring} function form of pseudopotentials. ")
     PPmodel.cpu()
     PPmodel.eval()
     NN_init = PPmodel(ZungerPPFunc_val.q)
-    plotPP(atomPPOrder, ZungerPPFunc_val.q, ZungerPPFunc_val.q, ZungerPPFunc_val.vq_atoms, NN_init, "ZungerForm", "NN_init", ["-",":" ]*nPseudopot, False, NNConfig['SHOWPLOTS'])
+    plotPP(atomPPOrder, ZungerPPFunc_val.q, ZungerPPFunc_val.q, ZungerPPFunc_val.vq_atoms, NN_init, PPstring, "NN_init", ["-",":" ]*nPseudopot, False, NNConfig['SHOWPLOTS'])
 
     init_Zunger_criterion = init_Zunger_weighted_mse
 
@@ -191,15 +192,20 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
     return PPmodel, ZungerPPFunc_val
 
 
-def init_optimizer(inputsFolder, model, NNConfig):
+def init_optimizer(inputsFolder, model, NNConfig, LSD_flag=False):
+    if LSD_flag:
+        optimizer_lr = 'LSD_optimizer_lr'
+    else:
+        optimizer_lr = 'optimizer_lr'
+
     if ('optimizer' not in NNConfig) or (NNConfig['optimizer']=='adam'): 
-        optimizer = torch.optim.Adam(model.parameters(), lr=NNConfig['optimizer_lr'])
+        optimizer = torch.optim.Adam(model.parameters(), lr=NNConfig[optimizer_lr])
         if os.path.exists(inputsFolder + 'init_AdamState.pth'):
             print(f"Reading in the stored Adam optimizer 1st and 2nd momentum from {inputsFolder}init_AdamState.pth to initialize the optimizer.")
             optimizer.load_state_dict(torch.load(inputsFolder + 'init_AdamState.pth'))
             print(f"We are also re-setting the learning rates as specified in the NN_config.par file. ")
             for param_group in optimizer.param_groups:
-                param_group['lr'] = NNConfig['optimizer_lr']
+                param_group['lr'] = NNConfig[optimizer_lr]
         if 'adam_beta1' in NNConfig:
             optimizer.beta1 = NNConfig['adam_beta1']
             print(f"Setting the Adam beta1 as {NNConfig['adam_beta1']}. ")
@@ -207,30 +213,30 @@ def init_optimizer(inputsFolder, model, NNConfig):
             optimizer.beta2 = NNConfig['adam_beta2']
             print(f"Setting the Adam beta2 as {NNConfig['adam_beta2']}. ")
     elif NNConfig['optimizer']=='sgd': 
-        optimizer = torch.optim.SGD(model.parameters(), lr=NNConfig['optimizer_lr'])
+        optimizer = torch.optim.SGD(model.parameters(), lr=NNConfig[optimizer_lr])
         if 'sgd_momentum' in NNConfig:
             optimizer.momentum = NNConfig['sgd_momentum']
             print(f"Setting the SGD momentum as {NNConfig['sgd_momentum']}. ")
     elif NNConfig['optimizer']=='asgd': 
-        optimizer = torch.optim.ASGD(model.parameters(), lr=NNConfig['optimizer_lr'])
+        optimizer = torch.optim.ASGD(model.parameters(), lr=NNConfig[optimizer_lr])
     elif NNConfig['optimizer']=='lbfgs': 
-        optimizer = torch.optim.LBFGS(model.parameters(), lr=NNConfig['optimizer_lr'])
+        optimizer = torch.optim.LBFGS(model.parameters(), lr=NNConfig[optimizer_lr])
     elif NNConfig['optimizer']=='adadelta': 
-        optimizer = torch.optim.Adadelta(model.parameters(), lr=NNConfig['optimizer_lr'])
+        optimizer = torch.optim.Adadelta(model.parameters(), lr=NNConfig[optimizer_lr])
     elif NNConfig['optimizer']=='adagrad': 
-        optimizer = torch.optim.Adagrad(model.parameters(), lr=NNConfig['optimizer_lr'])
+        optimizer = torch.optim.Adagrad(model.parameters(), lr=NNConfig[optimizer_lr])
     elif NNConfig['optimizer']=='adamw': 
-        optimizer = torch.optim.AdamW(model.parameters(), lr=NNConfig['optimizer_lr'])
+        optimizer = torch.optim.AdamW(model.parameters(), lr=NNConfig[optimizer_lr])
     elif NNConfig['optimizer']=='sparseadam': 
-        optimizer = torch.optim.SparseAdam(model.parameters(), lr=NNConfig['optimizer_lr'])
+        optimizer = torch.optim.SparseAdam(model.parameters(), lr=NNConfig[optimizer_lr])
     elif NNConfig['optimizer']=='adamax': 
-        optimizer = torch.optim.Adamax(model.parameters(), lr=NNConfig['optimizer_lr'])
+        optimizer = torch.optim.Adamax(model.parameters(), lr=NNConfig[optimizer_lr])
     elif NNConfig['optimizer']=='nadam': 
-        optimizer = torch.optim.NAdam(model.parameters(), lr=NNConfig['optimizer_lr'])
+        optimizer = torch.optim.NAdam(model.parameters(), lr=NNConfig[optimizer_lr])
     elif NNConfig['optimizer']=='radam': 
-        optimizer = torch.optim.RAdam(model.parameters(), lr=NNConfig['optimizer_lr'])
+        optimizer = torch.optim.RAdam(model.parameters(), lr=NNConfig[optimizer_lr])
     elif NNConfig['optimizer']=='rmsprop': 
-        optimizer = torch.optim.RMSprop(model.parameters(), lr=NNConfig['optimizer_lr'])
+        optimizer = torch.optim.RMSprop(model.parameters(), lr=NNConfig[optimizer_lr])
     else: 
         raise ValueError("We don't support the optimizer you provided in the band structure fitting. ")
     

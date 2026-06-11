@@ -11,7 +11,44 @@ from .constants import *
 
 torch.set_default_dtype(torch.float64)
 
-def pot_func(x, params): 
+def qSpacePot_ft(r, V_r, q_magnitudes):
+    """
+    Compute V(q) = 4π/q ∫ V(r) sin(qr) r dr  for each |q|
+
+    q_magnitudes: [NQGRID, 1] tensor of |q| values
+    r_max: cutoff in real space (Bohr) — make sure V(r) -> 0 before here
+    n_r: number of radial quadrature points
+    """
+    # Build a 1D radial grid (this is NOT paired with q points)
+    dr = r[1] - r[0]
+
+    # Evaluate the NN once on the r grid
+    r = r.squeeze()
+    V_r = V_r.squeeze()                            # [n_r]
+
+    # Compute the transform for all q simultaneously
+    q = q_magnitudes.squeeze()                     # [NQGRID]
+
+    # Outer product: sin(qr) for all (q, r) pairs
+    qr = torch.outer(q, r)                         # [NQGRID, n_r]
+    sin_qr = torch.sin(qr)                         # [NQGRID, n_r]
+
+    # Integrand: V(r) * sin(qr) * r, integrated over r
+    integrand = V_r * r * sin_qr                   # [NQGRID, n_r]  (broadcasts)
+    integral = torch.sum(integrand * dr, dim=-1)   # [NQGRID]
+
+    # Handle q=0 separately via L'Hopital: V(q=0) = 4π ∫ V(r) r² dr
+    V_q = 4 * torch.pi / q * integral
+
+    # Fix q=0 if present
+    q0_mask = q < 1e-10
+    if q0_mask.any():
+        V_q0 = 4 * torch.pi * torch.sum(V_r * r**2 * dr)
+        V_q[q0_mask] = V_q0
+
+    return V_q                                     # [NQGRID]
+
+def pot_func(x, params):
     pot = (params[0]*(x*x - params[1]) / (params[2] * torch.exp(params[3]*x*x) - 1.0))
     return pot
 
@@ -35,7 +72,82 @@ def pot_funcLR(x, params, gamma):
     nzid = torch.nonzero(x > 1e-4, as_tuple=True) # x is batched, but want to avoid division by 0
     pot[nzid] -= params[4] * 4 * np.pi / (x[nzid]**2) * torch.exp(-1 * x[nzid]**2 / (4*gamma**2))
     return pot
-  
+
+def build_basisLSD(q, nBasis):
+    """Construct and cache the radial basis for the local structure-dependent potentials"""
+
+    # Default centers, sigmas
+    centers = np.array([0.0] * nBasis)
+    sig_i = 0.0
+    sig_f = 1.0
+    dsig = (sig_f - sig_i) / nBasis
+    sigmas = np.linspace(sig_i + dsig, sig_f, nBasis)
+    
+    B = normalized_gaussians(q, centers, sigmas)
+    B[B < 1e-16] = 0.0
+    fig, ax = plt.subplots(figsize=(4,4))
+    
+    for m in range(nBasis):
+      ax.scatter(q, B[:, m], linewidth=1.5, label=fr"m = {m}, $\sigma$ = {sigmas[m]:.2f}")
+    ax.set_xlim(0.0, 4.0)
+    ax.set_xlabel("q")
+    ax.set_ylabel(r"$B_m(q)$")
+    ax.legend(frameon=False)
+    plt.tight_layout()
+    plt.savefig(f"lsd_basis_m_{nBasis}.pdf", format='pdf', dpi=200)
+    return B
+
+def normalized_gaussians(r_grid, center, sigma):
+    """
+    Construct normalized radial Gaussians with cutoff.
+
+    Parameters
+    ----------
+    r_grid : array, shape (nr,)
+        Radial grid from 0..Rc (in Å or Bohr).
+    centers : array-like, (M,)
+        Centers rho_m of Gaussians.
+    sigma : float
+        Width parameter of Gaussians.
+    Rc : float
+        Cutoff radius.
+
+    Returns
+    -------
+    g : (nr,) array
+        One normalized basis function B_m(r).
+    """
+    # raw Gaussian
+    g = np.exp(-0.5 * ((r_grid - center) / sigma)**2)
+    norm = 1 / (sigma * np.sqrt(2*np.pi))
+    # if norm < 1e-14:
+    #     raise ValueError(f"Gaussian at rho={rho} too narrow or cutoff too strong")
+    g = g / norm
+    return g
+    
+
+def pot_funcLSD(q, coeffs, nBasis=3):
+    """Return the local structure-dependent pseudopotential correction
+    v_\alpha^{lsd} = sum_m c^\alpha_m(N_\alpha) * B^\alpha_m
+    where 
+    N_\alpha => atomistic descriptor (symmetry function like Behler-Parrinello)
+    c^\alpha_m => coefficient determined by neural network
+    B^\alpha_m => basis of radial functions in q-space
+    """
+    # Default centers, sigmas
+    centers = np.array([0.0] * nBasis)
+    sig_i = 0.0
+    sig_f = 1.0
+    dsig = (sig_f - sig_i) / nBasis
+    sigmas = np.linspace(sig_i + dsig, sig_f, nBasis)
+
+    # radial_basis = torch.tensor(build_basisLSD(q, nBasis), dtype=q.dtype, device=q.device)
+    # print(f"Radial basis: \n{radial_basis[:,0]}")
+    pot = torch.zeros_like(q)
+    for m in range(nBasis):
+        pot += coeffs[m] * normalized_gaussians(q, centers[m], sigmas[m])
+    return pot
+
 # Vectorized version of Fourier transform - Daniel C 3/12/26
 def realSpacePot(vq, qSpacePot, nRGrid, rmax=25):
     dq = vq[1] - vq[0]
@@ -76,7 +188,7 @@ def realSpacePot(vq, qSpacePot, nRGrid, rmax=25):
 #     return (vr.view(-1,1), rSpacePot.view(-1,1))
 
 
-def plotBandStruct(bulkSystem_list, bandStruct_list, SHOWPLOTS): 
+def plotBandStruct(bulkSystem_list, bandStruct_list, SHOWPLOTS, func_label="NN prediction"): 
     # The input bandStruct_list is a list of tensors. They should be ordered as: 
     # ref_system1, predict_system1, ref_system2, predict_system2, ..., ref_systemN, predict_systemN
     systemNames = [x.systemName for x in bulkSystem_list]
@@ -106,18 +218,11 @@ def plotBandStruct(bulkSystem_list, bandStruct_list, SHOWPLOTS):
         # plot prediction
         numBands = len(bandStruct_list[2*iSystem+1][0])
         numKpts = len(bandStruct_list[2*iSystem+1])
-        if numKpts != 1: 
-            for i in range(numBands): 
-                if bulkSystem_list[iSystem].bandWeights[i]!=0:
-                    axs_flat[2*iSystem+0].plot(np.arange(numKpts), np.sort(bandStruct_list[2*iSystem+1].detach().numpy(), axis=1)[:, i], "r-", alpha=0.6)
-                    axs_flat[2*iSystem+1].plot(np.arange(numKpts), np.sort(bandStruct_list[2*iSystem+1].detach().numpy(), axis=1)[:, i], "r-", alpha=0.6)
-        else: 
-            for i in range(numBands): 
-                if bulkSystem_list[iSystem].bandWeights[i]!=0:
-                    repeat_times = 3
-                    axs_flat[2*iSystem+0].plot(np.arange(repeat_times), np.tile(np.sort(bandStruct_list[2*iSystem+1].detach().numpy(), axis=1)[:, i], repeat_times), "r-", alpha=0.6)
-                    axs_flat[2*iSystem+1].plot(np.arange(repeat_times), np.tile(np.sort(bandStruct_list[2*iSystem+1].detach().numpy(), axis=1)[:, i], repeat_times), "r-", alpha=0.6)
-        axs_flat[2*iSystem+0].plot([], [], "r-", alpha=0.6, label="NN prediction")
+        for i in range(numBands): 
+            if bulkSystem_list[iSystem].bandWeights[i]!=0:
+                axs_flat[2*iSystem+0].plot(np.arange(numKpts), np.sort(bandStruct_list[2*iSystem+1].detach().numpy(), axis=1)[:, i], "r-", alpha=0.6)
+                axs_flat[2*iSystem+1].plot(np.arange(numKpts), np.sort(bandStruct_list[2*iSystem+1].detach().numpy(), axis=1)[:, i], "r-", alpha=0.6)
+        axs_flat[2*iSystem+0].plot([], [], "r-", alpha=0.6, label=func_label)
         axs_flat[2*iSystem+0].legend(frameon=False)
         # refEList = bandStruct_list[2*iSystem][bandStruct_list[2*iSystem] > -50]
         # refEmin = torch.min(refEList).item()
@@ -205,6 +310,36 @@ def plotBandStruct_reorder(newOrderBS, bandIdx):
     return fig, ax
 
 
+def plotZungerPP(atomPPOrder, q_grid, v_qs, nRGrid, SHOWPLOTS, labelName="ZungerForm"):
+    # ref_vq_atoms and pred_vq_atoms are 2D tensors. Each tensor contains the pseudopotential (either ref or pred)
+    # for atoms in the order of atomPPOrder. 
+    # ref_labelName and pred_labelName are strings. 
+    # lineshape_array has twice the length of atomPPOrder, with: ref_atom1, pred_atom1, ref_atom2, pred_atom2, ... 
+    
+    # q_grid = q_grid.view(-1).detach().numpy()
+    # v_qs = v_qs.view(-1).detach().numpy()
+
+    fig, axs = plt.subplots(1,2, figsize=(9,4))
+    
+    for iAtom in range(len(atomPPOrder)):
+        # Plot v(q)
+        vq = v_qs[:, iAtom].clone().detach()
+        axs[0].plot(q_grid, vq, label=atomPPOrder[iAtom]+" "+labelName)
+        # Compute Fourier transform and plot v(r)
+        (r_grid, v_r) = realSpacePot(torch.tensor(q_grid), torch.tensor(vq), nRGrid)
+        axs[1].plot(r_grid.view(-1).detach().numpy(), v_r.view(-1).detach().numpy(), label=atomPPOrder[iAtom]+" "+labelName)
+
+    axs[0].set(xlabel=r"$q$", ylabel=r"$v(q)$", xlim=(0,7))
+    axs[0].legend(frameon=False)
+    axs[1].set(xlabel=r"$r$", ylabel=r"$v(r)$", xlim=(0,8))
+    axs[1].legend(frameon=False)
+    
+    fig.tight_layout()
+    if SHOWPLOTS: 
+        plt.show()
+    return fig
+
+
 def plotPP(atomPPOrder, ref_q, pred_q, ref_vq_atoms, pred_vq_atoms, ref_labelName, pred_labelName, lineshape_array, boolPlotDiff, SHOWPLOTS):
     # ref_vq_atoms and pred_vq_atoms are 2D tensors. Each tensor contains the pseudopotential (either ref or pred)
     # for atoms in the order of atomPPOrder. 
@@ -256,6 +391,38 @@ def plotPP(atomPPOrder, ref_q, pred_q, ref_vq_atoms, pred_vq_atoms, ref_labelNam
         plt.show()
     return fig
 
+def plotLSD(atom, ref_q, pred_q, ref_vq_atoms, pred_vq_atoms, ref_labelName, pred_labelName, lineshape_array, boolPlotDiff, SHOWPLOTS):
+    # ref_vq_atoms and pred_vq_atoms are 2D tensors. Each tensor contains the pseudopotential (either ref or pred)
+    # for atoms in the order of atomPPOrder. 
+    # ref_labelName and pred_labelName are strings. 
+    # lineshape_array has twice the length of atomPPOrder, with: ref_atom1, pred_atom1, ref_atom2, pred_atom2, ... 
+    
+    fig, axs = plt.subplots(1, 3, figsize=(12,4))
+    ref_q = ref_q.view(-1).detach().numpy()
+    pred_q = pred_q.view(-1).detach().numpy()
+    
+    ref_vq = ref_vq_atoms.view(-1).detach().numpy()
+    pred_vq = pred_vq_atoms.view(-1).detach().numpy()
+    axs[0].plot(ref_q, ref_vq, lineshape_array[0], label=atom+" "+ref_labelName)
+    axs[0].plot(pred_q, pred_vq, lineshape_array[1], label=atom+" "+pred_labelName)
+    axs[1].plot(ref_q, pred_vq - ref_vq, lineshape_array[0], label=atom+" diff (pred - ref)")
+    (ref_vr, ref_rSpacePot) = realSpacePot(torch.tensor(ref_q), torch.tensor(ref_vq), 3000)
+    (pred_vr, pred_rSpacePot) = realSpacePot(torch.tensor(pred_q), torch.tensor(pred_vq), 3000)
+    axs[2].plot(ref_vr.view(-1).detach().numpy(), ref_rSpacePot.view(-1).detach().numpy(), lineshape_array[0], label=atom+" "+ref_labelName)
+    axs[2].plot(pred_vr.view(-1).detach().numpy(), pred_rSpacePot.view(-1).detach().numpy(), lineshape_array[1], label=atom+" "+pred_labelName)
+    axs[0].set(xlabel=r"$q$", ylabel=r"$v(q)$", xlim=(0,9))
+    axs[0].legend(frameon=False)
+    axs[1].set(xlabel=r"$q$", ylabel=r"$v_{NN}(q) - v_{func}(q)$", xlim=(0,9))
+    axs[1].legend(frameon=False)
+    axs[2].set(xlabel=r"$r$", ylabel=r"$v(r)$", xlim=(0,12))
+    axs[2].legend(frameon=False)
+  
+    fig.tight_layout()
+    if SHOWPLOTS: 
+        plt.show()
+
+    plt.close()
+    return fig
 
 def plot_training_validation_cost(training_cost_x, training_cost, validation_cost_x=None, validation_cost=None, ylogBoolean=True, SHOWPLOTS=False): 
     fig, axs = plt.subplots(1, 1, figsize=(6, 4))
@@ -282,7 +449,7 @@ def plot_training_validation_cost(training_cost_x, training_cost, validation_cos
     return fig
 
 
-def FT_converge_and_write_pp(atomPPOrder, qmax_array, nQGrid_array, nRGrid_array, model, val_dataset, xmin, xmax, ymin, ymax, choiceQMax, choiceNQGrid, choiceNRGrid, ppPlotFilePrefix, potRAtomFilePrefix, SHOWPLOTS):
+def FT_converge_and_write_pp(atomPPOrder, qmax_array, nQGrid_array, nRGrid_array, model, val_dataset, xmin, xmax, ymin, ymax, choiceQMax, choiceNQGrid, choiceNRGrid, ppPlotFilePrefix, potRAtomFilePrefix, SHOWPLOTS, PPparams=None, Rmax=25):
     cmap = plt.get_cmap('rainbow')
     figtot, axstot = plt.subplots(1, len(atomPPOrder), figsize=(9,4))
     
@@ -299,7 +466,13 @@ def FT_converge_and_write_pp(atomPPOrder, qmax_array, nQGrid_array, nRGrid_array
         qGrid = torch.linspace(0.0, qmax, nQGrid).view(-1, 1)
         NN = model(qGrid)
         for iAtom in range(len(atomPPOrder)):
-            (vr, rSpacePot) = realSpacePot(qGrid.view(-1), NN[:, iAtom].view(-1), nRGrid)
+            # Add long range term 
+            # This is commented out because numerically FT this function is less accurate than using the analytic FT in post-processing
+            # lr_coeff = PPparams[atomPPOrder[iAtom]][4]
+            # lr_gamma = 0.2
+            # lr_pot = long_range_correction(qGrid, lr_gamma, lr_coeff)
+            qSpacePot = NN[:, iAtom].view(-1) # + lr_pot
+            (vr, rSpacePot) = realSpacePot(qGrid.view(-1), qSpacePot, nRGrid, Rmax)
             if (qmax==choiceQMax) and (nQGrid==choiceNQGrid) and (nRGrid==choiceNRGrid): 
                 axstot[iAtom].plot(vr.detach().numpy(), rSpacePot.detach().numpy(), "-", color=colors[i], label="My FT, 0<q<%d, nQGrid=%d, nRGrid=%d" % (qmax,nQGrid,nRGrid))
             else:
@@ -318,9 +491,16 @@ def FT_converge_and_write_pp(atomPPOrder, qmax_array, nQGrid_array, nRGrid_array
     fig = plotPP(atomPPOrder, val_dataset.q, choiceQGrid, val_dataset.vq_atoms, NN, "ZungerForm", "NN", ["-",":" ]*len(atomPPOrder), False, SHOWPLOTS);
     fig.savefig(ppPlotFilePrefix+".png") 
     for iAtom in range(len(atomPPOrder)):
-        (vr, rSpacePot) = realSpacePot(choiceQGrid.view(-1), NN[:, iAtom].view(-1), choiceNRGrid)
+        # lr_coeff = PPparams[atomPPOrder[iAtom]][4]
+        # print(f"Atom = {atomPPOrder[iAtom]} lr_coeff = {lr_coeff}")
+        # lr_gamma = 0.2
+        # lr_pot = long_range_correction(qGrid, lr_gamma, lr_coeff)
+        qSpacePot = NN[:, iAtom].view(-1) # + lr_pot
+        (vr, rSpacePot) = realSpacePot(choiceQGrid.view(-1), qSpacePot, choiceNRGrid, Rmax)
         pot = torch.cat((vr, rSpacePot), dim=1).detach().numpy()
+        potq = torch.cat((choiceQGrid.view(-1,1), NN[:, iAtom].view(-1,1)), dim=1).detach().numpy()
         np.savetxt(potRAtomFilePrefix+"_"+atomPPOrder[iAtom]+".dat", pot, delimiter='    ', fmt='%e')
+        np.savetxt(potRAtomFilePrefix+"_q_"+atomPPOrder[iAtom]+".dat", potq, delimiter='    ', fmt='%e')
     if SHOWPLOTS: 
         plt.show()
     return
