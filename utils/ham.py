@@ -32,7 +32,8 @@ class Hamiltonian:
         NN_locbool = False,
         model = None,
         coupling = False,
-        LSDmodels = None
+        LSDmodels = None,
+        spinModel = None
     ):
         """
         The Hamiltonian is initialized by passing it an initialized and
@@ -70,6 +71,19 @@ class Hamiltonian:
         self.model = model
         self.coupling = coupling   # fit the e-ph couplings? boolean
         self.fit_eff_masses = system.fit_eff_masses
+
+        # Spin-polarized (spin-unrestricted) local potential. When
+        # tot_magnetization != 0, the up and down spin channels feel different
+        # learned local potentials: V_up = V0 + b, V_down = V0 - b, where V0 is
+        # self.model and b is self.spinModel (a learned spin/exchange field).
+        # `spinor` is the unified flag that controls the 2*nbv matrix sizing and
+        # the eigenvalue spin-doubling: it is True whenever EITHER spin-orbit
+        # coupling (SObool) OR spin polarization (magBool) needs the two spin
+        # sectors to exist. SOC-specific physics stays gated on self.SObool.
+        self.tot_magnetization = self.NNConfig.get('tot_magnetization', 0.0)
+        self.magBool = (self.tot_magnetization != 0)
+        self.spinor = self.SObool or self.magBool
+        self.spinModel = spinModel
 
         self.LRgamma = 0.2   # erf attenuation parameter for long-range 
                              # component of potential. This is a good value
@@ -191,13 +205,13 @@ class Hamiltonian:
         SO and NL matrices (actual matrices) at the certain kidx
         """
         nbv = self.basis.shape[0]
-        if self.SObool:
+        if self.spinor:
             Htot = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
         else:
             Htot = torch.zeros([nbv, nbv], dtype=torch.complex128)
-        
-        # kinetic energy
-        if self.SObool: top = 2*nbv
+
+        # kinetic energy (spin-diagonal: identical in both spin blocks)
+        if self.spinor: top = 2*nbv
         else: top = nbv
         for i in range(top):
             Htot[i,i] = HBAR**2 / (2*MASS) * torch.norm(self.basis[i%nbv] + self.system.kpts[kidx])**2
@@ -246,9 +260,11 @@ class Hamiltonian:
         corresponding to the bandgap.
         """
         """
-        This function currently doesn't account for the shared_memory SOmats and NLmats. 
-        It might mess things up. 
+        This function currently doesn't account for the shared_memory SOmats and NLmats.
+        It might mess things up.
         """
+        # Deformation potentials with spin polarization are out of scope/untested.
+        assert not self.magBool, "buildHtot_def does not support tot_magnetization (spin-polarized) yet."
         if verbosity >= 2:
             print("***************************")
             print("You are computing deformation potentials by directly changing")
@@ -272,13 +288,13 @@ class Hamiltonian:
 
 
         nbv = self.basis.shape[0]
-        if self.SObool:
+        if self.spinor:
             Htot = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
         else:
             Htot = torch.zeros([nbv, nbv], dtype=torch.complex128)
-        
-        # kinetic energy
-        if self.SObool: top = 2*nbv
+
+        # kinetic energy (spin-diagonal: identical in both spin blocks)
+        if self.spinor: top = 2*nbv
         else: top = nbv
         for i in range(top):
             Htot[i,i] = HBAR**2 / (2*MASS) * torch.norm(self.basis[i%nbv] + self.system.kpts[kidx])**2
@@ -317,9 +333,11 @@ class Hamiltonian:
 
     def buildHtot_def_NEW(self, kidx, scale=1.01, verbosity=2, requires_grad=True):
         """
-        Just like the function above, but with the added flexibility of 
-        calculating at various k-points. 
+        Just like the function above, but with the added flexibility of
+        calculating at various k-points.
         """
+        # Deformation potentials with spin polarization are out of scope/untested.
+        assert not self.magBool, "buildHtot_def_NEW does not support tot_magnetization (spin-polarized) yet."
         if verbosity >= 3:
             print("***************************")
             print("You are computing deformation potentials by directly changing")
@@ -339,13 +357,13 @@ class Hamiltonian:
         self.system.atomPos *= (self.defscale / self.system.scale)
 
         nbv = self.basis.shape[0]
-        if self.SObool:
+        if self.spinor:
             Htot = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
         else:
             Htot = torch.zeros([nbv, nbv], dtype=torch.complex128)
-        
-        # kinetic energy
-        if self.SObool: top = 2*nbv
+
+        # kinetic energy (spin-diagonal: identical in both spin blocks)
+        if self.spinor: top = 2*nbv
         else: top = nbv
         for i in range(top):
             Htot[i,i] = HBAR**2 / (2*MASS) * torch.norm(self.basis[i%nbv] + self.system.kpts[kidx])**2
@@ -399,14 +417,18 @@ class Hamiltonian:
 
         def compute_atomFF():
             return self.model(torch.norm(gdiff, dim=2).view(-1,1))
-    
+
+        def compute_b():
+            # spin/exchange field b(q); same form-factor shape as compute_atomFF
+            return self.spinModel(torch.norm(gdiff, dim=2).view(-1,1))
+
         if addMat is not None:
-            if self.SObool:
+            if self.spinor:
                 assert addMat.shape[0] == 2*nbv
                 assert addMat.shape[1] == 2*nbv
             Vmat = addMat
         else:
-            if self.SObool:
+            if self.spinor:
                 Vmat = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
             else:
                 Vmat = torch.zeros([nbv, nbv])
@@ -451,11 +473,30 @@ class Hamiltonian:
                 # atomFF += qSpaceLSD.view(nbv, nbv)
                 # print(f"Added q LSD")
                 atomFF += self.LSDmodels[atomType](x_input).view(nbv, nbv)
-                
-            if self.SObool:
-                # local potential has delta function on spin --> block diagonal
-                Vmat[:nbv, :nbv] = Vmat[:nbv, :nbv] + atomFF * torch.complex(sfact_re, sfact_im)
-                Vmat[nbv:, nbv:] = Vmat[nbv:, nbv:] + atomFF * torch.complex(sfact_re, sfact_im)
+
+            # Spin-polarized local potential. atomFF is the spin-independent V0
+            # (incl. long-range and LSD corrections). The learned spin/exchange
+            # field b(q) splits the channels: V_up = V0 + b, V_down = V0 - b.
+            # When not magBool, atomFF_up == atomFF_dn == atomFF (identical to the
+            # unpolarized code).
+            if self.magBool:
+                if self.NNConfig['checkpoint']==0:
+                    bff = self.spinModel(torch.norm(gdiff, dim=2).view(-1,1))
+                elif self.NNConfig['checkpoint']==1:
+                    bff = checkpoint(compute_b, use_reentrant=False)
+                bff = bff[:, thisAtomIndex].view(nbv, nbv)
+                atomFF_up = atomFF + bff
+                atomFF_dn = atomFF - bff
+            else:
+                atomFF_up = atomFF
+                atomFF_dn = atomFF
+
+            if self.spinor:
+                # local potential is spin-diagonal --> block diagonal; the up and
+                # down blocks carry V_up and V_down respectively.
+                sfact = torch.complex(sfact_re, sfact_im)
+                Vmat[:nbv, :nbv] = Vmat[:nbv, :nbv] + atomFF_up * sfact
+                Vmat[nbv:, nbv:] = Vmat[nbv:, nbv:] + atomFF_dn * sfact
             else:
                 #sfact = torch.complex(sfact_re, sfact_im)
                 #print(sfact.dtype)
@@ -1181,9 +1222,12 @@ class Hamiltonian:
             if verbosity >= 3:
                 print(f"kidx={kidx}, cb_vec[0:5]= {self.cb_vecs[kidx, :5]}")
 
-        if not self.SObool:
+        if not self.spinor:
             # 2-fold degeneracy for spin. Not sure why this is necessary, but
             # it is included in Tommy's code...
+            # NOTE: gated on self.spinor (not self.SObool): when spin-polarized
+            # (magBool) the Hamiltonian is already 2*nbv and the eigensolve yields
+            # the spin-split spectrum directly, so it must NOT be doubled here.
             energiesEV = energiesEV.repeat_interleave(2)
             # dont need to interleave eigenvecs (if stored) since we only
             # store the vb and cb anyways.
@@ -2228,6 +2272,13 @@ class Hamiltonian:
         """
         self.LSDmodels = {k: v for k, v in newmodels.items()}
 
+    def set_spinModel(self, newmodel):
+        """
+        Use this to set the current spin-field model (the learned b(q) that
+        splits the up/down local potentials when tot_magnetization != 0).
+        """
+        self.spinModel = newmodel
+
     def get_PPparams(self):
         return copy.deepcopy(self.PPparams)
     
@@ -2251,7 +2302,7 @@ class Hamiltonian:
         self.system.LSDparams = newparams
 
 
-def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model=None, LSDmodels=None):
+def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model=None, LSDmodels=None, spinModel=None):
     """
     Initialize the ham class for each BulkSystem. 
     dummy_ham is used to initialize and store the cached SOmats and NLmats in dict cachedMats. 
@@ -2272,25 +2323,25 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model
         # 2. SObool = True, no parallel --> Initialize ham with cache. No storage / moving is needed.
         # 3. SObool = True, yes parallel --> Do the complicated storage / moving. 
         if not NNConfig['SObool']: 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=NNConfig['cacheSO'], LSDmodels=LSDmodels, coupling=sys.fit_eph)
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=NNConfig['cacheSO'], LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
         elif (NNConfig['SObool']) and (NNConfig['num_cores']==0):
             print(f"num_cores set to {NNConfig['num_cores']}. Initializing Hamiltonian without caching SO mats.") 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=NNConfig['cacheSO'], LSDmodels=LSDmodels, coupling=sys.fit_eph)
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=NNConfig['cacheSO'], LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
         elif (NNConfig['SObool']) and (NNConfig['cacheSO']==0):
             print(f"cacheSO set to {NNConfig['cacheSO']}. Initializing Hamiltonian without caching SO mats.") 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=False, LSDmodels=LSDmodels, coupling=sys.fit_eph)
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=False, LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
         else:
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=True, cacheSO=False, LSDmodels=LSDmodels, coupling=sys.fit_eph)
-            dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], LSDmodels=LSDmodels, coupling=sys.fit_eph)
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=True, cacheSO=False, LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
+            dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
 
             if dummy_ham.SOmats is not None: 
                 # reshape dummy_ham.SOmats has shape (nkpt)*(nAtoms)*(2*nbasis) x (2*nbasis)

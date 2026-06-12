@@ -10,6 +10,7 @@ from torch.optim.lr_scheduler import ExponentialLR
 import numpy as np
 
 from utils.read import read_NNConfigFile, setAllBulkSystems, setNN, setNN_LSD
+from utils.nn_models import zero_init_final_layer
 from utils.pp_func import FT_converge_and_write_pp
 from utils.init_NN_train import init_ZungerPP, init_optimizer
 from utils.init_LSD_train import init_LSD_PP
@@ -39,6 +40,17 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     # Set up the neural network
     PPmodel = setNN(NNConfig, nPseudopot)
 
+    # If spin-polarized (tot_magnetization != 0), set up the learned spin field
+    # b(q): same architecture/output as PPmodel, with the final layer zero-init'd
+    # so b == 0 at the start (training begins from the unpolarized solution). The
+    # up/down local potentials are then V_up = V0 + b, V_down = V0 - b.
+    if NNConfig.get('tot_magnetization', 0.0) != 0:
+        print(f"\nSpin-polarized local potential ON (tot_magnetization = {NNConfig['tot_magnetization']}).")
+        spinModel = setNN(NNConfig, nPseudopot)
+        zero_init_final_layer(spinModel)
+    else:
+        spinModel = None
+
     # If local structure-dependent (LSD) corrections are required, then set up neural networks for LSD
     if NNConfig['local_env_corr']:
         # Set up the neural network to predict the LSD potential
@@ -61,7 +73,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
         LSDschedulers = {atom: None for atom in atomPPOrder}
 
     # Initialize the ham class for each BulkSystem. Cache the SO and NL mats. 
-    hams, cachedMats_info, shm_dict_SO, shm_dict_NL = initAndCacheHams(systems, NNConfig, PPparams, atomPPOrder, device)
+    hams, cachedMats_info, shm_dict_SO, shm_dict_NL = initAndCacheHams(systems, NNConfig, PPparams, atomPPOrder, device, spinModel=spinModel)
     if NNConfig['local_env_corr']:
         # Initialize the LSD correction to the potential differences
         LSDmodels, LSD_PPFunc_val = init_LSD_PP(inputsFolder, LSDmodels, systems, atomPPOrder, NNConfig, resultsFolder, force_retrain=NNConfig["init_LSD_force_retrain"])
@@ -78,7 +90,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     
     # Evaluate the band structures and pseudopotentials for the initialized NN
     print("\nEvaluating band structures using the initialized pseudopotentials. ")
-    # init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}initZunger_plotBS.pdf', 'Init NN BS', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder)
+    init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}initZunger_plotBS.pdf', 'Init NN BS', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder, spinModel=spinModel)
 
     print("Converge the pseudopotentials in the real and reciprocal space for the initialized NN. ")
     Rmax = 300.0
@@ -90,6 +102,8 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -4.0, 4.0, 40.0, 2048, 2048, f'{resultsFolder}initZunger_plotPP', f'{resultsFolder}initZunger_pot', NNConfig['SHOWPLOTS'], PPparams, Rmax)
     write_PP_qSpace(f'{resultsFolder}initZunger_qSpace_pot.dat', PPmodel, atomPPOrder)
     torch.save(PPmodel.state_dict(), f"{resultsFolder}initZunger_PPmodel.pth")
+    if spinModel is not None:
+        torch.save(spinModel.state_dict(), f"{resultsFolder}initZunger_spinModel.pth")
 
     ############# Fit NN to band structures ############# 
     if (not NNConfig['mc_bool']): 
@@ -103,8 +117,17 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
                 LSDoptimizers[key] = init_optimizer(inputsFolder, LSDmodels[key], NNConfig, LSD_flag=True)
                 LSDschedulers[key] = ExponentialLR(LSDoptimizers[key], gamma=NNConfig['LSD_scheduler_gamma'])
 
+        # Spin-field optimizer. Use a fresh Adam state (do NOT load V0's
+        # init_AdamState.pth) since b starts at zero with its own dynamics.
+        if spinModel is not None:
+            spinOptimizer = init_optimizer(inputsFolder, spinModel, NNConfig, load_adam_state=False)
+            spinScheduler = ExponentialLR(spinOptimizer, gamma=NNConfig['scheduler_gamma'])
+        else:
+            spinOptimizer = None
+            spinScheduler = None
+
         start_time = time.time()
-        (training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, NNConfig, systems, hams, atomPPOrder, optimizer, scheduler, ZungerPPFunc_val, resultsFolder, cachedMats_info, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, LSDscheduler=LSDschedulers, LSDval_dataset=LSD_PPFunc_val)
+        (training_cost, validation_cost) = bandStruct_train_GPU(PPmodel, device, NNConfig, systems, hams, atomPPOrder, optimizer, scheduler, ZungerPPFunc_val, resultsFolder, cachedMats_info, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, LSDscheduler=LSDschedulers, LSDval_dataset=LSD_PPFunc_val, spinModel=spinModel, spinOptimizer=spinOptimizer, spinScheduler=spinScheduler)
         end_time = time.time()
         print(f"Total training + evaluation elapsed time: {end_time - start_time:.2f} seconds")
         torch.cuda.empty_cache()

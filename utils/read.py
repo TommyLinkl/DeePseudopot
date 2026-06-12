@@ -54,7 +54,7 @@ def read_NNConfigFile(filename):
                     config[key] = bool(int(value))
                 elif key in ['nSystem', 'num_cores', 'num_threads', 'pool_initSO', 'pool_initNL', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'init_LSD_num_epochs', 'init_LSD_plot_every', 'init_LSD_scheduler_step', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter', 'pre_adjust_moves', 'mc_perturb_mode', 'nQGrid', 'nRGrid']:
                     config[key] = int(value)
-                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'LSDmodel_decay_rate', 'LSDmodel_decay_center', 'LSDmodel_gaussian_std', 'LSDmodel_osc_alpha', 'init_Zunger_optimizer_lr', 'init_LSD_optimizer_lr', 'optimizer_lr', 'LSD_optimizer_lr', 'init_Zunger_scheduler_gamma', 'init_LSD_scheduler_gamma', 'scheduler_gamma', 'LSD_scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2', 'mc_percentage', 'mc_beta', 'pre_adjust_stepSize', 'pre_adjust_LSD_step_size', 'penalize_starting', 'penalize_lambda', 'penalize_mag_threshold', 'penalize_mag_lambda', 'Rmax', 'qmax', 'init_LSD_eta_min_frac']:
+                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'LSDmodel_decay_rate', 'LSDmodel_decay_center', 'LSDmodel_gaussian_std', 'LSDmodel_osc_alpha', 'init_Zunger_optimizer_lr', 'init_LSD_optimizer_lr', 'optimizer_lr', 'LSD_optimizer_lr', 'init_Zunger_scheduler_gamma', 'init_LSD_scheduler_gamma', 'scheduler_gamma', 'LSD_scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2', 'mc_percentage', 'mc_beta', 'pre_adjust_stepSize', 'pre_adjust_LSD_step_size', 'penalize_starting', 'penalize_lambda', 'penalize_mag_threshold', 'penalize_mag_lambda', 'Rmax', 'qmax', 'init_LSD_eta_min_frac', 'tot_magnetization']:
                     config[key] = float(value)
                 elif key in ['hiddenLayers', 'LSD_hiddenLayers', 'LSD_N_hiddenLayers']: 
                     config[key] = [int(x) for x in value.split()]
@@ -93,9 +93,13 @@ def read_NNConfigFile(filename):
         if ('init_Zunger_plotEvery' not in config) or ('init_Zunger_optimizer_lr' not in config) or ('init_Zunger_scheduler_gamma' not in config): 
             raise ValueError("'init_Zunger_num_epochs'>0. But some required parameters for init_Zunger are missing.")
 
-    if config['mc_bool']: 
-        if ('mc_iter' not in config) or ('mc_percentage' not in config) or ('mc_beta' not in config): 
+    if config['mc_bool']:
+        if ('mc_iter' not in config) or ('mc_percentage' not in config) or ('mc_beta' not in config):
             raise ValueError("Input error: 'mc_iter', 'mc_percentage', and 'mc_beta' must be specified when 'mc_bool' is True.")
+
+    if config.get('tot_magnetization', 0.0) != 0 and config['mc_bool']:
+        raise NotImplementedError("Spin-polarized local potential (tot_magnetization != 0) "
+                                  "is not wired through the Monte-Carlo path (mc_bool). Use gradient training.")
 
     if ('max_num_epochs' in config) and (config['max_num_epochs']>0): 
         if config['mc_bool']: 
@@ -124,6 +128,8 @@ def init_critical_NNconfig():
     config['SObool'] = False
     config['cacheSO'] = True
     config['local_env_corr'] = False
+    config['tot_magnetization'] = 0.0   # 0 -> spin-unpolarized; nonzero -> spin-polarized
+                                        # local PP (up/down feel different learned potentials)
 
     config['smooth_reorder'] = False
     config['eigvec_reorder'] = False

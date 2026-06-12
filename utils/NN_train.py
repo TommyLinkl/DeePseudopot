@@ -341,17 +341,21 @@ def compute_global_system_losses(model, bulkSystem, ham, cachedMats_info=None, r
 
     return loss_terms, None
 
-def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None, writeBS=False, LSDmodels=None, resultsFolder=""): 
-    if (model is not None): 
+def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None, writeBS=False, LSDmodels=None, resultsFolder="", spinModel=None):
+    if (model is not None):
         print(f"\t{runName}: Evaluating band structures using the NN-pp model. ")
         model.eval()
     else:
         print(f"\t{runName}: Evaluating band structures using the old Zunger function form. ")
-    
+
     if LSDmodels:
         print(f"\t{runName}: Band structures will be corrected with LSD NN potential.")
         for key in LSDmodels:
             LSDmodels[key].eval()
+
+    if spinModel is not None:
+        print(f"\t{runName}: Spin-polarized local potential (up/down feel different potentials).")
+        spinModel.eval()
 
     plot_bandStruct_list = []
     total_BS_MSE = 0
@@ -370,6 +374,9 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
 
         if (LSDmodels is not None):
             hams[iSys].set_LSDmodels(LSDmodels)
+
+        if (spinModel is not None):
+            hams[iSys].set_spinModel(spinModel)
 
         start_time = time.time()
         with torch.no_grad():
@@ -511,14 +518,15 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
     return total_BS_MSE + totalPenalty + defPot_MSE + effMass_MSE
 
 
-def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cachedMats_info=None, prevBS=None, LSDmodels=None, LSDoptimizers=None):
+def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cachedMats_info=None, prevBS=None, LSDmodels=None, LSDoptimizers=None, spinModel=None, spinOptimizer=None):
     """
     loop over kidx
     The rest of the arguments are "constants" / "constant functions" for a single kidx
-    For performance, it is recommended that the ham in the argument doesn't have SOmat and NLmat initialized. 
+    For performance, it is recommended that the ham in the argument doesn't have SOmat and NLmat initialized.
     """
     singleKptGradients = {}
     singleKptGradients_LSD = {}
+    singleKptGradients_spin = {}
 
     calcEnergies = ham.calcEigValsAtK(kidx, cachedMats_info, requires_grad=True)
     extrapolated_eigVal = calcEnergies.clone()
@@ -535,6 +543,8 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
     if LSDoptimizers is not None:
         for key in LSDoptimizers:
             LSDoptimizers[key].zero_grad()
+    if spinOptimizer is not None:
+        spinOptimizer.zero_grad()
     systemKptLoss.backward()
     end_time = time.time() if ham.NNConfig['runtime_flag'] else None
     print(f"loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if ham.NNConfig['runtime_flag'] else None
@@ -542,9 +552,17 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
         if param.grad is not None:
             if name not in singleKptGradients:
                 singleKptGradients[name] = param.grad.detach().clone() * bulkSystem.kptWeights[kidx]
-            else: 
+            else:
                 singleKptGradients[name] += param.grad.detach().clone() * bulkSystem.kptWeights[kidx]
     trainLoss_systemKpt = systemKptLoss.detach().item() * bulkSystem.kptWeights[kidx]
+
+    if spinModel is not None:
+        for name, param in spinModel.named_parameters():
+            if param.grad is not None:
+                if name not in singleKptGradients_spin:
+                    singleKptGradients_spin[name] = param.grad.detach().clone() * bulkSystem.kptWeights[kidx]
+                else:
+                    singleKptGradients_spin[name] += param.grad.detach().clone() * bulkSystem.kptWeights[kidx]
 
     if LSDmodels:
         for key in LSDmodels:
@@ -560,19 +578,21 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
 
     calcEnergies = calcEnergies.detach()
     extrapolated_eigVal = extrapolated_eigVal.detach()
-    return singleKptGradients, trainLoss_systemKpt, calcEnergies, extrapolated_eigVal, singleKptGradients_LSD
+    return singleKptGradients, trainLoss_systemKpt, calcEnergies, extrapolated_eigVal, singleKptGradients_LSD, singleKptGradients_spin
 
 
-def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, runtime_flag=False, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, LSDmodels=None, LSDoptimizers=None):
+def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, runtime_flag=False, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, LSDmodels=None, LSDoptimizers=None, spinModel=None, spinOptimizer=None):
     trainLoss = torch.tensor(0.0)
     coupling_Loss = torch.tensor(0.0)
     effMass_Loss = torch.tensor(0.0)
-    
+
     for iSys, sys in enumerate(systems):
         hams[iSys].NN_locbool = True
         hams[iSys].set_NNmodel(model)
         if LSDmodels:
             hams[iSys].set_LSDmodels(LSDmodels)
+        if spinModel is not None:
+            hams[iSys].set_spinModel(spinModel)
 
         NN_outputs = hams[iSys].calcBandStruct_withGrad(cachedMats_info)
 
@@ -689,18 +709,24 @@ def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=N
     if LSDmodels:
         for key in LSDoptimizers:
             LSDoptimizers[key].zero_grad()
+    if spinOptimizer is not None:
+        spinOptimizer.zero_grad()
 
     trainLoss.backward()
-    if preAdjustBool: 
+    if preAdjustBool:
         manual_GD_one_param(model, preAdjustStepSize)
         if LSDmodels:
             for key in LSDmodels:
                 manual_GD_one_param(LSDmodels[key], preAdjustStepSize)
+        if spinModel is not None:
+            manual_GD_one_param(spinModel, preAdjustStepSize)
     else:
         optimizer.step()
         if LSDmodels:
             for key in LSDoptimizers:
                 LSDoptimizers[key].step()
+        if spinOptimizer is not None:
+            spinOptimizer.step()
     end_time = time.time() if runtime_flag else None
     print(f"loss_backward + optimizer.step, elapsed time: {(end_time - start_time):.2f} seconds") if runtime_flag else None
 
@@ -708,7 +734,7 @@ def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=N
     return model, trainLoss
 
 
-def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, prevBS=None, LSDmodels=None, LSDoptimizers=None): 
+def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, prevBS=None, LSDmodels=None, LSDoptimizers=None, spinModel=None, spinOptimizer=None):
     def merge_dicts(dicts):
         merged_dict = {}
         for d in dicts: # extracts dict from tuple of dicts
@@ -728,12 +754,16 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
     trainLoss = 0.0
     total_gradients = {}
     total_gradients_LSD = {}
+    total_gradients_spin = {}
     for iSys, sys in enumerate(systems):
         trainLoss_system = 0.0
         gradients_system = {}
+        gradients_system_spin = {}
         hams[iSys].NN_locbool = True
         hams[iSys].set_NNmodel(model)
-        
+        if spinModel is not None:
+            hams[iSys].set_spinModel(spinModel)
+
         if LSDmodels:
             gradients_system_LSD = {}
             for key in LSDmodels:
@@ -788,6 +818,8 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                 if LSDmodels:
                     for key in LSDmodels:
                         LSDoptimizers[key].zero_grad()
+                if spinModel is not None:
+                    spinOptimizer.zero_grad()
                 systemKptLoss.backward()
                 end_time = time.time() if NNConfig['runtime_flag'] else None
                 print(f"loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
@@ -796,9 +828,17 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                     if param.grad is not None:
                         if name not in gradients_system:
                             gradients_system[name] = param.grad.detach().clone() * sys.kptWeights[kidx]
-                        else: 
+                        else:
                             gradients_system[name] += param.grad.detach().clone() * sys.kptWeights[kidx]
-                
+
+                if spinModel is not None:
+                    for name, param in spinModel.named_parameters():
+                        if param.grad is not None:
+                            if name not in gradients_system_spin:
+                                gradients_system_spin[name] = param.grad.detach().clone() * sys.kptWeights[kidx]
+                            else:
+                                gradients_system_spin[name] += param.grad.detach().clone() * sys.kptWeights[kidx]
+
                 if LSDmodels:
                     for key in LSDmodels:
                         for name, param in LSDmodels[key].named_parameters():
@@ -817,29 +857,35 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
             if LSDoptimizers is not None:
                 for key in LSDoptimizers:
                     LSDoptimizers[key].zero_grad()
-                
-            if (NNConfig['smooth_reorder']) and (prevBS is not None): 
+            if spinOptimizer is not None:
+                spinOptimizer.zero_grad()
+
+            if (NNConfig['smooth_reorder']) and (prevBS is not None):
                 print("WARNING. We are reordering the band structure according to smoothness using the previous iteration BS. ")
             prevBS = prevBS.detach() if prevBS is not None else None
-            args_list = [(kidx, hams[iSys], sys, optimizer, model, cachedMats_info, prevBS, LSDmodels, LSDoptimizers) for kidx in range(sys.getNKpts())]
+            args_list = [(kidx, hams[iSys], sys, optimizer, model, cachedMats_info, prevBS, LSDmodels, LSDoptimizers, spinModel, spinOptimizer) for kidx in range(sys.getNKpts())]
 
             # PyTorch autograd is not safe to use from forked workers.
             # Use an explicit spawn context for the per-k-point backward passes.
             ctx = mp.get_context("spawn")
             with ctx.Pool(NNConfig['num_cores']) as pool:
                 results_systemKpt = pool.starmap(calcEigValsAtK_wGrad_parallel, args_list)
-                gradients_systemKpt, trainLoss_systemKpt, eigValsList, extrapolated_eigValList, gradients_systemKpt_LSD = zip(*results_systemKpt)
+                gradients_systemKpt, trainLoss_systemKpt, eigValsList, extrapolated_eigValList, gradients_systemKpt_LSD, gradients_systemKpt_spin = zip(*results_systemKpt)
             currBS = torch.stack(eigValsList).detach()
             extrapolated_points = torch.stack(extrapolated_eigValList).detach()
 
             gc.collect()
             gradients_system = merge_dicts(gradients_systemKpt)
-            
+            if spinModel is not None:
+                gradients_system_spin = merge_dicts(gradients_systemKpt_spin)
+
             trainLoss_system = torch.sum(torch.tensor(trainLoss_systemKpt))
             if LSDmodels:
                 gradients_system_LSD = merge_dicts_LSD(gradients_systemKpt_LSD)
-                
+
         total_gradients = merge_dicts([total_gradients, gradients_system])
+        if spinModel is not None:
+            total_gradients_spin = merge_dicts([total_gradients_spin, gradients_system_spin])
         if LSDmodels:
             total_gradients_LSD = merge_dicts_LSD([total_gradients_LSD, gradients_system_LSD])
         
@@ -863,6 +909,13 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
             if name in total_gradients:
                 param.grad = total_gradients[name].detach().clone()
 
+    if spinModel is not None:
+        spinOptimizer.zero_grad()
+        with torch.no_grad():
+            for name, param in spinModel.named_parameters():
+                if name in total_gradients_spin:
+                    param.grad = total_gradients_spin[name].detach().clone()
+
     if LSDmodels:
         for key in LSDoptimizers:
             LSDoptimizers[key].zero_grad()
@@ -880,11 +933,15 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
         if LSDmodels:
             for key in LSDoptimizers:
                 manual_GD_one_param(LSDmodels[key], NNConfig['pre_adjust_LSD_step_size'])
+        if spinModel is not None:
+            manual_GD_one_param(spinModel, preAdjustStepSize)
     else:
         optimizer.step()
         if LSDmodels:
             for key in LSDoptimizers:
                 LSDoptimizers[key].step()
+        if spinModel is not None:
+            spinOptimizer.step()
     end_time = time.time() if NNConfig['runtime_flag'] else None
     print(f"optimizer step, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
 
@@ -894,7 +951,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
     return model, trainLoss, currBS
 
 
-def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, optimizer, scheduler, val_dataset, resultsFolder, cachedMats_info=None, LSDmodels=None, LSDoptimizers=None, LSDscheduler=None, LSDval_dataset=None):
+def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, optimizer, scheduler, val_dataset, resultsFolder, cachedMats_info=None, LSDmodels=None, LSDoptimizers=None, LSDscheduler=None, LSDval_dataset=None, spinModel=None, spinOptimizer=None, spinScheduler=None):
     trainingCOST_x =[]
     training_COST = []
     validationCOST_x = []
@@ -907,7 +964,9 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
         os.makedirs(f"{resultsFolder}LSD/", exist_ok=True)
         for key in LSDmodels:
             LSDmodels[key].to(device)
-    
+    if spinModel is not None:
+        spinModel.to(device)
+
     best_validation_loss = float('inf')
     no_improvement_count = 0
     prevBS = None
@@ -928,11 +987,13 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
             if LSDmodels:
                 for key in LSDmodels:
                     LSDmodels[key].train()
+            if spinModel is not None:
+                spinModel.train()
 
-            if NNConfig['separateKptGrad']==0: 
-                model, trainLoss = trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info, NNConfig['runtime_flag'], preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers)
-            else: 
-                model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, prevBS=prevBS.detach() if prevBS is not None else None)
+            if NNConfig['separateKptGrad']==0:
+                model, trainLoss = trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info, NNConfig['runtime_flag'], preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, spinModel=spinModel, spinOptimizer=spinOptimizer)
+            else:
+                model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, prevBS=prevBS.detach() if prevBS is not None else None, spinModel=spinModel, spinOptimizer=spinOptimizer)
                 
             file_trainCost.write(f"{pre_epoch-NNConfig['pre_adjust_moves']-1}  {trainLoss.item()}\n")
             file_trainCost.flush()
@@ -946,9 +1007,13 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
             if LSDmodels:
                 for key in LSDmodels:
                     LSDmodels[key].eval()
-            val_MSE = evalBS_noGrad(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_plotBS.pdf', f'preEpoch_{pre_epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True, LSDmodels=LSDmodels)
+            if spinModel is not None:
+                spinModel.eval()
+            val_MSE = evalBS_noGrad(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_plotBS.pdf', f'preEpoch_{pre_epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True, LSDmodels=LSDmodels, spinModel=spinModel)
 
             torch.save(model.state_dict(), f'{resultsFolder}preEpoch_{pre_epoch+1}_PPmodel.pth')
+            if spinModel is not None:
+                torch.save(spinModel.state_dict(), f'{resultsFolder}preEpoch_{pre_epoch+1}_spinModel.pth')
             if LSDmodels:
                 for key in LSDmodels:
                     torch.save(LSDmodels[key].state_dict(), f'{resultsFolder}preEpoch_{pre_epoch+1}_LSDmodel_{key}.pth')
@@ -974,6 +1039,9 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
         model.load_state_dict(torch.load(f'{resultsFolder}preEpoch_{pre_min_epoch+1}_PPmodel.pth'))
         print(f"We have re-loaded back to the preEpoch_{pre_min_epoch+1}, which gives the best-conditioned gradients. ")
 
+        if spinModel is not None:
+            spinModel.load_state_dict(torch.load(f'{resultsFolder}preEpoch_{pre_min_epoch+1}_spinModel.pth'))
+
         if LSDmodels:
             for key in LSDmodels:
                 LSDmodels[key].load_state_dict(torch.load(f'{resultsFolder}preEpoch_{pre_min_epoch_LSD[key]+1}_LSDmodel_{key}.pth'))
@@ -993,10 +1061,12 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
         if LSDmodels:
             for key in LSDmodels:
                 LSDmodels[key].train()
+        if spinModel is not None:
+            spinModel.train()
         if NNConfig['separateKptGrad']==0:
-            model, trainLoss = trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info, NNConfig['runtime_flag'], resultsFolder=resultsFolder, epoch=epoch, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers)
-        else: 
-            model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, resultsFolder=resultsFolder, epoch=epoch, prevBS=prevBS.detach() if prevBS is not None else None, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers)
+            model, trainLoss = trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info, NNConfig['runtime_flag'], resultsFolder=resultsFolder, epoch=epoch, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, spinModel=spinModel, spinOptimizer=spinOptimizer)
+        else:
+            model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, resultsFolder=resultsFolder, epoch=epoch, prevBS=prevBS.detach() if prevBS is not None else None, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, spinModel=spinModel, spinOptimizer=spinOptimizer)
         file_trainCost.write(f"{epoch+1}  {trainLoss.item()}\n")
         file_trainCost.flush()
         trainingCOST_x.append(epoch+1)
@@ -1026,6 +1096,8 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
             scheduler.step()
             if LSDmodels:
                 LSDscheduler.step()
+            if spinScheduler is not None:
+                spinScheduler.step()
 
         # evaluation
         if (epoch + 1) % NNConfig['plotEvery'] == 0:
@@ -1033,7 +1105,9 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
             if LSDmodels:
                 for key in LSDmodels:
                     LSDmodels[key].eval()
-            val_MSE = evalBS_noGrad(model, f'{resultsFolder}epoch_{epoch+1}_plotBS.pdf', f'epoch_{epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True, LSDmodels=LSDmodels)
+            if spinModel is not None:
+                spinModel.eval()
+            val_MSE = evalBS_noGrad(model, f'{resultsFolder}epoch_{epoch+1}_plotBS.pdf', f'epoch_{epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True, LSDmodels=LSDmodels, spinModel=spinModel)
             validationCOST_x.append(epoch+1)
             validation_COST.append(val_MSE)
             print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], validation cost (including penalty): {val_MSE:.4f}")
@@ -1050,6 +1124,9 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
 
             torch.save(model.state_dict(), f'{resultsFolder}epoch_{epoch+1}_PPmodel.pth')
             torch.save(optimizer.state_dict(), f'{resultsFolder}epoch_{epoch+1}_AdamState.pth')
+            if spinModel is not None:
+                torch.save(spinModel.state_dict(), f'{resultsFolder}epoch_{epoch+1}_spinModel.pth')
+                torch.save(spinOptimizer.state_dict(), f'{resultsFolder}epoch_{epoch+1}_spin_AdamState.pth')
             torch.cuda.empty_cache()
 
             if LSDmodels:
@@ -1084,6 +1161,10 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
             torch.save(LSDoptimizers[key].state_dict(), f'{resultsFolder}final_{key}_LSD_AdamState.pth')
     else:
         print(f"WARNING: LSDmodels is empty")
+
+    if spinModel is not None:
+        torch.save(spinModel.state_dict(), f'{resultsFolder}final_spinModel.pth')
+        torch.save(spinOptimizer.state_dict(), f'{resultsFolder}final_spin_AdamState.pth')
     
     fig_cost = plot_training_validation_cost(trainingCOST_x, training_COST, validation_cost_x=validationCOST_x, validation_cost=validation_COST, ylogBoolean=True, SHOWPLOTS=NNConfig['SHOWPLOTS']);
     fig_cost.savefig(resultsFolder + 'final_train_cost.pdf')

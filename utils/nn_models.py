@@ -5,6 +5,27 @@ import numpy as np
 
 torch.set_default_dtype(torch.float64)
 
+
+def zero_init_final_layer(model):
+    """Zero the weight and bias of the final linear layer of `model`.
+
+    Works for the bare MLP classes (which store layers in `.hidden_l` or
+    `.hidden`) and for the decay-Gaussian wrappers (which hold the MLP in
+    `.neural_network`). Used to initialize the spin-field net so the spin
+    splitting b(q) == 0 at the start of training (the spin-polarized local
+    potential then begins exactly from the unpolarized solution).
+    """
+    sub = getattr(model, 'neural_network', model)
+    for attr in ('hidden_l', 'hidden'):
+        if hasattr(sub, attr):
+            last = getattr(sub, attr)[-1]
+            nn.init.zeros_(last.weight)
+            nn.init.zeros_(last.bias)
+            return
+    raise ValueError("zero_init_final_layer: could not locate the final linear layer "
+                     f"of model type {type(model).__name__}")
+
+
 # this model accepts a vector for the layers, i.e. [inp, hidden1, hidden2,...hiddenM,out]
 # with sigmoid activation
 class Net_sig(nn.Module):

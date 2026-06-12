@@ -192,15 +192,15 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
     return PPmodel, ZungerPPFunc_val
 
 
-def init_optimizer(inputsFolder, model, NNConfig, LSD_flag=False):
+def init_optimizer(inputsFolder, model, NNConfig, LSD_flag=False, load_adam_state=True):
     if LSD_flag:
         optimizer_lr = 'LSD_optimizer_lr'
     else:
         optimizer_lr = 'optimizer_lr'
 
-    if ('optimizer' not in NNConfig) or (NNConfig['optimizer']=='adam'): 
+    if ('optimizer' not in NNConfig) or (NNConfig['optimizer']=='adam'):
         optimizer = torch.optim.Adam(model.parameters(), lr=NNConfig[optimizer_lr])
-        if os.path.exists(inputsFolder + 'init_AdamState.pth'):
+        if load_adam_state and os.path.exists(inputsFolder + 'init_AdamState.pth'):
             print(f"Reading in the stored Adam optimizer 1st and 2nd momentum from {inputsFolder}init_AdamState.pth to initialize the optimizer.")
             optimizer.load_state_dict(torch.load(inputsFolder + 'init_AdamState.pth'))
             print(f"We are also re-setting the learning rates as specified in the NN_config.par file. ")
