@@ -69,9 +69,10 @@ Regardless of whether the local piece is NN-based or analytic-form-based, the re
 | --- | --- | --- | --- | --- |
 | `ppParams[4]` (long-range) | float per species (N-1 independent) | Polar materials | Optional | Enables the Gaussian-screened Fröhlich tail with attenuation `LRgamma`. Leave it as zero for non-polar systems. |
 | `ppParams[5]` (spin–orbit) | float per species | When `SObool = 1` | Optional | Set `SObool = 1` to include SO; you may still zero `ppParams[5]` to keep only nonlocal terms active. |
-| `ppParams[6-7]` (nonlocal) | float per species and non-local channel | When `SObool = 1` | Optional | Set the strength of the projectors used for the nonlocal part. |
+| `ppParams[6-7]` (nonlocal) | float per species and non-local channel | When `NLbool = 1` | Optional | Set the strength of the projectors used for the nonlocal part. Active whenever `NLbool = 1` (which defaults to `SObool` if unset). |
 | `ppParams[8]` (strain) | float per species | Strain workflows | Optional | Controls deformation-potential responses when fitting strain-dependent observables. |
-| `SObool` | int (0/1) | Any run | Optional | Turns SO projectors on/off. With `SObool = 1` and `ppParams[5] = 0`, you effectively reuse the NL blocks while keeping SO inactive. |
+| `SObool` | int (0/1) | Any run | Optional | Turns SO projectors on/off. |
+| `NLbool` | int (0/1) | Any run | Optional | Turns the non-local (l=1 projector) potential on/off **independently of `SObool`**. Defaults to `SObool` if unset (legacy behavior). Use `NLbool = 1, SObool = 0` for a scalar-relativistic run with the nonlocal term but no SOC, or `NLbool = 0, SObool = 1` for SOC without the nonlocal term. This supersedes the old trick of setting `SObool = 1` with `ppParams[5] = 0` to keep only the NL blocks. |
 | `cacheSO` | int (0/1) | Runs with heavy SO/NL reuse | Optional | Caches SO/NL matrices in shared memory. **This is highly recommended when training pseudopotentials with SOC terms but it also increases RAM usage.** |
 
 

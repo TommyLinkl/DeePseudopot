@@ -50,7 +50,7 @@ def read_NNConfigFile(filename):
                 key, value = stripped.split('=', 1) # split on first '=' only
                 key = key.strip()
                 value = value.strip()
-                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'cacheSO', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'init_LSD_force_retrain', 'printGrad', 'mc_bool', 'smooth_reorder', 'eigvec_reorder', 'local_env_corr', 'init_LSD_parallel_atoms', 'init_LSD_normalize']:
+                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'NLbool', 'cacheSO', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'init_LSD_force_retrain', 'printGrad', 'mc_bool', 'smooth_reorder', 'eigvec_reorder', 'local_env_corr', 'init_LSD_parallel_atoms', 'init_LSD_normalize']:
                     config[key] = bool(int(value))
                 elif key in ['nSystem', 'num_cores', 'num_threads', 'pool_initSO', 'pool_initNL', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'init_LSD_num_epochs', 'init_LSD_plot_every', 'init_LSD_scheduler_step', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter', 'pre_adjust_moves', 'mc_perturb_mode', 'nQGrid', 'nRGrid']:
                     config[key] = int(value)
@@ -63,7 +63,15 @@ def read_NNConfigFile(filename):
                 else:
                     config[key] = value
 
-    # Warning messages to address 1) input conflicts, 2) missing inputs, before running into errors. 
+    # The non-local potential (l=1 projector) can be evaluated independently of
+    # the spin-orbit potential via 'NLbool'. For backward compatibility, if the
+    # user does not specify 'NLbool', it defaults to the value of 'SObool' (the
+    # legacy behavior, where the non-local potential was only ever built when
+    # spin-orbit coupling was enabled).
+    if 'NLbool' not in config:
+        config['NLbool'] = config.get('SObool', False)
+
+    # Warning messages to address 1) input conflicts, 2) missing inputs, before running into errors.
     print("All settings: ")
 
     if ('PPmodel' not in config) or ('nSystem' not in config) or ('hiddenLayers' not in config): 
@@ -126,6 +134,8 @@ def init_critical_NNconfig():
     config['SHOWPLOTS'] = False
     config['separateKptGrad'] = True
     config['SObool'] = False
+    config['NLbool'] = False   # independent switch for the non-local (l=1) potential;
+                               # defaults to SObool's value (here False) for legacy behavior
     config['cacheSO'] = True
     config['local_env_corr'] = False
     config['tot_magnetization'] = 0.0   # 0 -> spin-unpolarized; nonzero -> spin-polarized

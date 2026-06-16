@@ -31,7 +31,8 @@ See [Long-range (LR), spin-orbit coupling (SOC), nonlocal (NL), and strain terms
 | Key | Type | Effect / Options |
 | --- | --- | --- |
 | `SObool` | bool (0/1) | Toggle for the spin-orbit coupling matrices. Only enable when the bundle includes SO information in `init_<atom>Params.par` and the training data expects SOC splittings, as constructing the SOC Hamiltonian drastically increases runtime and memory. |
-| `cacheSO` | bool (0/1) | Valid only when `SObool = 1`. Caches SO/NL matrices in shared memory for faster repeated access, but slightly memory hungry. `0` recomputes the matrices each epoch (slower but safer on limited RAM). <br>Strongly recommended to turn on when training with SO/NL parameters. |
+| `NLbool` | bool (0/1) | Toggle for the non-local (l=1 projector) potential, **independent of `SObool`**. The non-local potential is block-diagonal in spin, so it can be evaluated with or without spin-orbit. If omitted, `NLbool` defaults to the value of `SObool`, which reproduces the legacy behavior (the non-local potential was only ever built when SOC was on). Set `NLbool = 1` with `SObool = 0` to include the non-local potential in a scalar-relativistic (no SOC) calculation; set `NLbool = 0` with `SObool = 1` to run SOC without the non-local term. The non-local coefficients are `ppParams[6-7]`. |
+| `cacheSO` | bool (0/1) | Applies when `SObool = 1` and/or `NLbool = 1`. Caches SO/NL matrices in shared memory for faster repeated access, but slightly memory hungry. `0` recomputes the matrices each epoch (slower but safer on limited RAM). <br>Strongly recommended to turn on when training with SO/NL parameters. |
 
 
 ## Model Architecture Details

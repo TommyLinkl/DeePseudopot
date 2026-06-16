@@ -25,9 +25,10 @@ class Hamiltonian:
         PPparams,
         atomPPorder,
         device, 
-        NNConfig = None, 
-        iSystem = 0, 
+        NNConfig = None,
+        iSystem = 0,
         SObool = False,
+        NLbool = None,
         cacheSO = True,
         NN_locbool = False,
         model = None,
@@ -48,8 +49,14 @@ class Hamiltonian:
         "iSystem" is the global (static) index of the system that gives this 
         hamiltonian instance. 
         "coupling" should be True if you want to also fit e-ph coupling matrix
-        elements. 
-        The other kwargs are specified for using a NN, currently only for 
+        elements.
+        "SObool" enables the spin-orbit potential. "NLbool" independently enables
+        the non-local (l=1 projector) potential; the non-local potential is
+        block-diagonal in spin, so it can be evaluated with or without the
+        spin-orbit term. If "NLbool" is left as None it defaults to "SObool",
+        which reproduces the legacy behavior in which the non-local potential was
+        only ever built when spin-orbit coupling was enabled.
+        The other kwargs are specified for using a NN, currently only for
         the local potential.
         """
 
@@ -66,6 +73,10 @@ class Hamiltonian:
             self.NNConfig = NNConfig
         self.iSystem = iSystem
         self.SObool = SObool
+        # Non-local potential switch, decoupled from spin-orbit. Defaults to
+        # SObool when not given, preserving the legacy behavior where the
+        # non-local potential rode along with the spin-orbit potential.
+        self.NLbool = SObool if NLbool is None else NLbool
         self.cacheSO = cacheSO
         self.NN_locbool = NN_locbool
         self.model = model
@@ -77,12 +88,18 @@ class Hamiltonian:
         # learned local potentials: V_up = V0 + b, V_down = V0 - b, where V0 is
         # self.model and b is self.spinModel (a learned spin/exchange field).
         # `spinor` is the unified flag that controls the 2*nbv matrix sizing and
-        # the eigenvalue spin-doubling: it is True whenever EITHER spin-orbit
-        # coupling (SObool) OR spin polarization (magBool) needs the two spin
-        # sectors to exist. SOC-specific physics stays gated on self.SObool.
+        # the eigenvalue spin-doubling: it is True whenever ANY of spin-orbit
+        # coupling (SObool), spin polarization (magBool), or the non-local
+        # potential (NLbool) needs the two spin sectors to exist. The non-local
+        # potential is block-diagonal in spin, so an NL-only Hamiltonian is the
+        # 2*nbv block-diagonal matrix whose spectrum is the correct
+        # doubly-degenerate band structure (identical in structure to the
+        # repeat_interleave spin-doubling used on the non-spinor path).
+        # SOC-specific physics stays gated on self.SObool; non-local physics is
+        # gated on self.NLbool.
         self.tot_magnetization = self.NNConfig.get('tot_magnetization', 0.0)
         self.magBool = (self.tot_magnetization != 0)
-        self.spinor = self.SObool or self.magBool
+        self.spinor = self.SObool or self.magBool or self.NLbool
         self.spinModel = spinModel
 
         self.LRgamma = 0.2   # erf attenuation parameter for long-range 
@@ -96,30 +113,10 @@ class Hamiltonian:
         self.NLmats = None
         self.SOmats_def = {}
         self.NLmats_def = {}
-        if SObool and cacheSO:
-            print("Caching SO mats.", flush=True)
-            sys.stdout.flush()
-            self.SOmats = self.initSOmat_fast()
-            self.SOmats_def = {}
-            # check if nonlocal potentials are included, if so, cache them
-            self.checknl = False
-            for atom in self.atomPPorder:
-                if abs(self.PPparams[atom][6]) > 1e-8:
-                    self.checknl = True
-                    break
-                elif abs(self.PPparams[atom][7]) > 1e-8:
-                    self.checknl = True
-                    break
-            if self.checknl:
-                print("Caching NL mats.", flush=True)
-                sys.stdout.flush()
-                self.NLmats = self.initNLmat_fast()
-                self.NLmats_def = {}
-       
-        elif (SObool) and (not cacheSO) and (NNConfig['num_cores']==0):
-            print("WARNING: Calculation requires SObool, but we are not cache-ing the SOmats and NLmats. Without multiprocessing parallelization. This is not recommended. ")
 
-        
+        # Detect whether any atom actually carries non-local potential
+        # coefficients (PPparams indices 6 and 7). This guards the (otherwise
+        # wasteful) construction of NL matrices that would be identically zero.
         self.checknl = False
         for atom in self.atomPPorder:
             if abs(self.PPparams[atom][6]) > 1e-8:
@@ -128,7 +125,28 @@ class Hamiltonian:
             elif abs(self.PPparams[atom][7]) > 1e-8:
                 self.checknl = True
                 break
-        
+
+        # The SO and NL potentials are cached independently: the SO matrices are
+        # built whenever SObool is on, and the NL matrices whenever NLbool is on
+        # (and there are actually non-local coefficients to include). This lets
+        # the non-local potential be evaluated with or without spin-orbit.
+        if SObool and cacheSO:
+            print("Caching SO mats.", flush=True)
+            sys.stdout.flush()
+            self.SOmats = self.initSOmat_fast()
+            self.SOmats_def = {}
+        elif SObool and (not cacheSO) and (NNConfig['num_cores']==0):
+            print("WARNING: Calculation requires SObool, but we are not cache-ing the SOmats. Without multiprocessing parallelization. This is not recommended. ")
+
+        if self.NLbool and self.checknl and cacheSO:
+            print("Caching NL mats.", flush=True)
+            sys.stdout.flush()
+            self.NLmats = self.initNLmat_fast()
+            self.NLmats_def = {}
+        elif self.NLbool and self.checknl and (not cacheSO) and (NNConfig['num_cores']==0):
+            print("WARNING: Calculation requires NLbool, but we are not cache-ing the NLmats. Without multiprocessing parallelization. This is not recommended. ")
+
+
         if self.coupling or self.fit_eff_masses:
             if not isinstance(self.system.idxVB, int):
                 raise ValueError("need to specify vb, cb indices for coupling")
@@ -160,10 +178,12 @@ class Hamiltonian:
                 self.idx_vb = self.system.idxVB
                 self.idx_cb = self.system.idxCB
                 self.idx_gap = self.system.idxGap
-                if not SObool:
-                    print("NOTE: SOC is off. idxVB and idxCB are zero-indexed band indices without 2x interleaving for spin. Please double check to ensure your inputs of idxVB and idxCB correspond to your intended bands. ")
+                if not self.spinor:
+                    print("NOTE: spinor sector is off (no SOC, no NL, no magnetization). idxVB and idxCB are zero-indexed band indices without 2x interleaving for spin. Please double check to ensure your inputs of idxVB and idxCB correspond to your intended bands. ")
 
-            if SObool:
+            # The coupling SO and NL derivative matrices are needed whenever
+            # spin-orbit OR the non-local potential contributes to the coupling.
+            if self.SObool or (self.NLbool and self.checknl):
                 self.SOmats_couple, self.NLmats_couple = self.initCouplingMats()
 
         if self.NNConfig['local_env_corr']:
@@ -185,12 +205,17 @@ class Hamiltonian:
     def _get_deformed_cached_mats(self, kidx, scale):
         cache_key = self._deformed_cache_key(kidx, scale)
 
-        if cache_key not in self.SOmats_def:
-            self.SOmats_def[cache_key] = self.initSOmat_fast(defbool=True, idxGap=kidx)
+        # Build the deformed SO matrices only when spin-orbit is active, and the
+        # deformed NL matrices only when the non-local potential is active. This
+        # mirrors the independent SObool / NLbool gating of the undeformed path.
+        so_mats = None
+        if self.SObool:
+            if cache_key not in self.SOmats_def:
+                self.SOmats_def[cache_key] = self.initSOmat_fast(defbool=True, idxGap=kidx)
+            so_mats = self.SOmats_def[cache_key]
 
-        so_mats = self.SOmats_def[cache_key]
         nl_mats = None
-        if self.checknl:
+        if self.NLbool and self.checknl:
             if cache_key not in self.NLmats_def:
                 self.NLmats_def[cache_key] = self.initNLmat_fast(defbool=True, idxGap=kidx)
             nl_mats = self.NLmats_def[cache_key]
@@ -230,11 +255,13 @@ class Hamiltonian:
             end_time = time.time() if self.NNConfig['runtime_flag'] else None
             print(f"Building SOmat, elapsed time: {(end_time - start_time):.2f} seconds", flush=True) if self.NNConfig['runtime_flag'] else None
 
-            if self.checknl: 
-                start_time = time.time() if self.NNConfig['runtime_flag'] else None
-                Htot = self.buildNLmat(kidx, preComp_NLmats_kidx, addMat=Htot)
-                end_time = time.time() if self.NNConfig['runtime_flag'] else None
-                print(f"Building NLmat, elapsed time: {(end_time - start_time):.2f} seconds", flush=True) if self.NNConfig['runtime_flag'] else None
+        # The non-local potential is added independently of spin-orbit, gated on
+        # NLbool (and the presence of non-local coefficients).
+        if self.NLbool and self.checknl:
+            start_time = time.time() if self.NNConfig['runtime_flag'] else None
+            Htot = self.buildNLmat(kidx, preComp_NLmats_kidx, addMat=Htot)
+            end_time = time.time() if self.NNConfig['runtime_flag'] else None
+            print(f"Building NLmat, elapsed time: {(end_time - start_time):.2f} seconds", flush=True) if self.NNConfig['runtime_flag'] else None
 
         if self.device.type == "cuda":
             # !!! is this sufficient to match previous performance?
@@ -302,18 +329,22 @@ class Hamiltonian:
         # local potential
         Htot = self.buildVlocMat(addMat=Htot)
 
-        if self.SObool:
+        # The SO and NL terms are deformed/added independently. We need the
+        # deformed cached matrices whenever either spin-orbit or the non-local
+        # potential is active.
+        need_def_mats = self.SObool or (self.NLbool and self.checknl)
+        if need_def_mats:
             store_SOmats = self.SOmats
-            if self.checknl:
-                store_NLmats = self.NLmats
+            store_NLmats = self.NLmats
             self.SOmats, self.NLmats = self._get_deformed_cached_mats(kidx, scale)
 
             # the below calls are kidx=0 because they index into the SOmats and NLmats
             # arrays, for which there is only a single kpoint. There are no calls
             # self.system.kpts[kidx] in these functions, so it does not cause any
             # issues.
-            Htot = self.buildSOmat(0, addMat=Htot)
-            if self.checknl:
+            if self.SObool:
+                Htot = self.buildSOmat(0, addMat=Htot)
+            if self.NLbool and self.checknl:
                 Htot = self.buildNLmat(0, addMat=Htot)
 
         
@@ -323,10 +354,9 @@ class Hamiltonian:
         self.system.kpts *= (self.defscale / self.system.scale)
         self.system.unitCellVectors *= (self.system.scale / self.defscale)
         self.system.atomPos *= (self.system.scale / self.defscale)
-        if self.SObool:
+        if need_def_mats:
             self.SOmats = store_SOmats
-            if self.checknl:
-                self.NLmats = store_NLmats
+            self.NLmats = store_NLmats
 
         return Htot
 
@@ -371,18 +401,22 @@ class Hamiltonian:
         # local potential
         Htot = self.buildVlocMat(addMat=Htot)
 
-        if self.SObool:
+        # The SO and NL terms are deformed/added independently. We need the
+        # deformed cached matrices whenever either spin-orbit or the non-local
+        # potential is active.
+        need_def_mats = self.SObool or (self.NLbool and self.checknl)
+        if need_def_mats:
             store_SOmats = self.SOmats
-            if self.checknl:
-                store_NLmats = self.NLmats
+            store_NLmats = self.NLmats
             self.SOmats, self.NLmats = self._get_deformed_cached_mats(kidx, scale)
 
             # the below calls are kidx=0 because they index into the SOmats and NLmats
             # arrays, for which there is only a single kpoint. There are no calls
             # self.system.kpts[kidx] in these functions, so it does not cause any
             # issues.
-            Htot = self.buildSOmat(0, addMat=Htot)
-            if self.checknl:
+            if self.SObool:
+                Htot = self.buildSOmat(0, addMat=Htot)
+            if self.NLbool and self.checknl:
                 Htot = self.buildNLmat(0, addMat=Htot)
 
         
@@ -392,10 +426,9 @@ class Hamiltonian:
         self.system.kpts *= (self.defscale / self.system.scale)
         self.system.unitCellVectors *= (self.system.scale / self.defscale)
         self.system.atomPos *= (self.system.scale / self.defscale)
-        if self.SObool:
+        if need_def_mats:
             self.SOmats = store_SOmats
-            if self.checknl:
-                self.NLmats = store_NLmats
+            self.NLmats = store_NLmats
 
         if not requires_grad: 
             Htot = Htot.detach()
@@ -1132,20 +1165,25 @@ class Hamiltonian:
         nbands = self.system.nBands
         eigVals = torch.zeros(nbands)
 
-        if (cachedMats_info is None) and (self.SObool==False):    # proceed as normal. Won't even go into buildSO or buildNL. Need to pass None into buildSO and buildNL
+        if (cachedMats_info is None):
+            # No cached matrices in shared memory. buildSOmat / buildNLmat handle
+            # the SObool==False / NLbool==False cases by simply not being called.
             preComp_SOmats_kidx = None
             preComp_NLmats_kidx = None
-        elif (cachedMats_info is None) and (self.SObool==True):   # no cached matrices in the shared memory
-            preComp_SOmats_kidx = None
-            preComp_NLmats_kidx = None     # functions buildSOmat and buildNLmat will handle these cases
-        elif (cachedMats_info is not None): 
+        elif (cachedMats_info is not None):
+            # The SO and NL matrices live in shared memory independently: load the
+            # SO matrices only when spin-orbit is active, and the NL matrices only
+            # when the non-local potential is active.
             start_time = time.time() if self.NNConfig['runtime_flag'] else None
-            shm_SOmats = shared_memory.SharedMemory(name=f"SOmats_{self.iSystem}_{kidx}")
-            preComp_SOmats_kidx = np.ndarray(cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_SOmats.buf)
-            if self.checknl:
+            if self.SObool:
+                shm_SOmats = shared_memory.SharedMemory(name=f"SOmats_{self.iSystem}_{kidx}")
+                preComp_SOmats_kidx = np.ndarray(cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_SOmats.buf)
+            else:
+                preComp_SOmats_kidx = None
+            if self.NLbool and self.checknl:
                 shm_NLmats = shared_memory.SharedMemory(name=f"NLmats_{self.iSystem}_{kidx}")
                 preComp_NLmats_kidx = np.ndarray(cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_NLmats.buf)
-            else: 
+            else:
                 preComp_NLmats_kidx = None
             end_time = time.time() if self.NNConfig['runtime_flag'] else None
             print(f"Loading shared memory, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
@@ -1585,7 +1623,7 @@ class Hamiltonian:
         for alpha, gamma in atomgammaidxs:
             atomType = self.system.atomTypes[alpha]
 
-            if self.SObool:
+            if self.spinor:
                 dV = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
             else:
                 dV = torch.zeros([nbv, nbv], dtype=torch.complex128)
@@ -1681,10 +1719,13 @@ class Hamiltonian:
 
             dV[:nbv, :nbv] = prefactor * (atomFF + atomFF_LSD)
 
-            if self.SObool:
-                # local potential has delta function on spin --> block diagonal
+            if self.spinor:
+                # local potential has delta function on spin --> block diagonal.
+                # The down block carries the same local form factor as the up
+                # block (no spin splitting in the coupling derivative here).
                 dV[nbv:, nbv:] = prefactor * (atomFF + atomFF_LSD)
 
+            if self.SObool:
                 # SOC part
                 if isinstance(self.SOmats_couple[qidx, alpha, gamma], torch.Tensor):
                     tmp = self.SOmats_couple[qidx, alpha, gamma]
@@ -1692,9 +1733,9 @@ class Hamiltonian:
                     tmp = torch.tensor(self.SOmats_couple[qidx, alpha, gamma])
 
                 dV = dV + tmp * self.PPparams[self.system.atomTypes[alpha]][5]
-            
 
-                # NL part
+            if self.NLbool and self.checknl:
+                # NL part (independent of spin-orbit)
                 if isinstance(self.NLmats_couple[qidx,alpha,gamma,0], torch.Tensor):
                     tmp1 = self.NLmats_couple[qidx,alpha,gamma,0]
                 else:
@@ -1706,7 +1747,7 @@ class Hamiltonian:
 
                 dV = (dV + tmp1 * self.PPparams[self.system.atomTypes[alpha]][6]
                                 + tmp2 * self.PPparams[self.system.atomTypes[alpha]][7] )
-                
+
             ret_dict[(alpha,gamma)] = dV
         
         return ret_dict
@@ -2022,7 +2063,7 @@ class Hamiltonian:
             print("Coupling units: eV/Bohr")
             print(f"delta (Bohr): {delta}, gap kidx: {kidx_gap}, Gamma qidx: {qidx_gamma}")
             print(f"Inputs of idxVB: {self.system.idxVB}, idxCB: {self.system.idxCB}")
-            if not self.SObool: 
+            if not self.spinor:
                 print(f"True idxVB (without 2x interleaving): {int((self.system.idxVB-1)/2)}, idxCB: {int(self.system.idxCB/2)}")
             print(f"VB degenerate indices: {vb_degen}. Energies ({unit_label}): " + ", ".join([f"{base_vals_out[i].item():.5e}" for i in vb_degen]))
             print(f"CB degenerate indices: {cb_degen}. Energies ({unit_label}): " + ", ".join([f"{base_vals_out[i].item():.5e}" for i in cb_degen]))
@@ -2063,6 +2104,7 @@ class Hamiltonian:
                     NNConfig=self.NNConfig,
                     iSystem=self.iSystem,
                     SObool=self.SObool,
+                    NLbool=self.NLbool,
                     cacheSO=self.cacheSO,
                     NN_locbool=self.NN_locbool,
                     model=self.model,
@@ -2338,30 +2380,38 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model
     for iSys, sys in enumerate(systemsList):
         start_time = time.time()
 
-        # Here I separate: 
-        # 1. SObool = False --> Just initialize ham. No storage / moving is needed. 
-        # 2. SObool = True, no parallel --> Initialize ham with cache. No storage / moving is needed.
-        # 3. SObool = True, yes parallel --> Do the complicated storage / moving. 
-        if not NNConfig['SObool']: 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=NNConfig['cacheSO'], LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
+        # The SO and NL potentials are both cached as precomputed matrices, and
+        # caching/sharing is needed whenever EITHER spin-orbit (SObool) or the
+        # non-local potential (NLbool) is active. NLbool defaults to SObool when
+        # absent, preserving the legacy behavior.
+        SObool = NNConfig['SObool']
+        NLbool = NNConfig.get('NLbool', NNConfig['SObool'])
+        cacheNeeded = SObool or NLbool
+
+        # Here I separate:
+        # 1. Neither SO nor NL --> Just initialize ham. No storage / moving is needed.
+        # 2. SO and/or NL, no parallel --> Initialize ham with cache. No storage / moving is needed.
+        # 3. SO and/or NL, yes parallel --> Do the complicated storage / moving.
+        if not cacheNeeded:
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=SObool, NLbool=NLbool, cacheSO=NNConfig['cacheSO'], LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
-        elif (NNConfig['SObool']) and (NNConfig['num_cores']==0):
-            print(f"num_cores set to {NNConfig['num_cores']}. Initializing Hamiltonian without caching SO mats.") 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=NNConfig['cacheSO'], LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
+        elif cacheNeeded and (NNConfig['num_cores']==0):
+            print(f"num_cores set to {NNConfig['num_cores']}. Initializing Hamiltonian by caching SO/NL mats in the ham class (no shared memory).")
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=SObool, NLbool=NLbool, cacheSO=NNConfig['cacheSO'], LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
-        elif (NNConfig['SObool']) and (NNConfig['cacheSO']==0):
-            print(f"cacheSO set to {NNConfig['cacheSO']}. Initializing Hamiltonian without caching SO mats.") 
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], cacheSO=False, LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
+        elif cacheNeeded and (NNConfig['cacheSO']==0):
+            print(f"cacheSO set to {NNConfig['cacheSO']}. Initializing Hamiltonian without caching SO/NL mats.")
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=SObool, NLbool=NLbool, cacheSO=False, LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
             cachedMats_info = None
             shm_dict_SO = None
             shm_dict_NL = None
         else:
-            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=True, cacheSO=False, LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
-            dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=NNConfig['SObool'], LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
+            ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=SObool, NLbool=NLbool, cacheSO=False, LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
+            dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=SObool, NLbool=NLbool, LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
 
             if dummy_ham.SOmats is not None: 
                 # reshape dummy_ham.SOmats has shape (nkpt)*(nAtoms)*(2*nbasis) x (2*nbasis)

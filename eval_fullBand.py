@@ -43,7 +43,7 @@ def eval_fullBand(inputsFolder = 'inputs_evalFullBand/', resultsFolder = 'result
     hams = []
     for iSys, sys in enumerate(systems):
         start_time = time.time()
-        ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, iSys, SObool=NNConfig['SObool'], cacheSO=False)
+        ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig, iSys, SObool=NNConfig['SObool'], NLbool=NNConfig.get('NLbool', NNConfig['SObool']), cacheSO=False)
         hams.append(ham)
         end_time = time.time()
         print(f"Elapsed time: {(end_time - start_time):.2f} seconds\n")
