@@ -391,6 +391,60 @@ def plotPP(atomPPOrder, ref_q, pred_q, ref_vq_atoms, pred_vq_atoms, ref_labelNam
         plt.show()
     return fig
 
+def plotPP_spin(atomPPOrder, q, V0_atoms, b_atoms, labelName, SHOWPLOTS):
+    """
+    Plot the spin-resolved local pseudopotentials for a spin-polarized run.
+    For each atom type the channels are V_up = V0 + b and V_down = V0 - b,
+    where V0 (=V0_atoms) is the spin-independent local potential and b
+    (=b_atoms) is the learned spin/exchange field. V0_atoms and b_atoms are
+    2D tensors of shape (nQ, nAtom), columns ordered as atomPPOrder.
+
+    Three panels:
+      [0] q-space V0, V_up, V_down
+      [1] q-space spin field b(q)
+      [2] real-space V_up(r), V_down(r)
+    """
+    fig, axs = plt.subplots(1, 3, figsize=(13, 4))
+    q_np = q.view(-1).detach().numpy()
+
+    # distinct base color per atom; spin channels distinguished by linestyle
+    colors = plt.rcParams['axes.prop_cycle'].by_key().get('color', None)
+
+    for iAtom in range(len(atomPPOrder)):
+        atom = atomPPOrder[iAtom]
+        c = colors[iAtom % len(colors)] if colors else None
+        V0 = V0_atoms[:, iAtom].view(-1).detach().numpy()
+        b = b_atoms[:, iAtom].view(-1).detach().numpy()
+        Vup = V0 + b
+        Vdn = V0 - b
+
+        # panel 0: q-space V0, V_up, V_down
+        axs[0].plot(q_np, V0, "-", color=c, alpha=0.4, label=f"{atom} V0 {labelName}")
+        axs[0].plot(q_np, Vup, "-", color=c, label=f"{atom} V_up")
+        axs[0].plot(q_np, Vdn, "--", color=c, label=f"{atom} V_down")
+
+        # panel 1: q-space spin field b(q)
+        axs[1].plot(q_np, b, "-", color=c, label=f"{atom} b(q)")
+
+        # panel 2: real-space V_up(r), V_down(r)
+        (vr_up, rPot_up) = realSpacePot(torch.tensor(q_np), torch.tensor(Vup), 3000)
+        (vr_dn, rPot_dn) = realSpacePot(torch.tensor(q_np), torch.tensor(Vdn), 3000)
+        axs[2].plot(vr_up.view(-1).detach().numpy(), rPot_up.view(-1).detach().numpy(), "-", color=c, label=f"{atom} V_up")
+        axs[2].plot(vr_dn.view(-1).detach().numpy(), rPot_dn.view(-1).detach().numpy(), "--", color=c, label=f"{atom} V_down")
+
+    axs[0].set(xlabel=r"$q$", ylabel=r"$v(q)$", xlim=(0, 7))
+    axs[0].legend(frameon=False, fontsize=8)
+    axs[1].set(xlabel=r"$q$", ylabel=r"$b(q)$ (spin field)", xlim=(0, 7))
+    axs[1].legend(frameon=False, fontsize=8)
+    axs[2].set(xlabel=r"$r$", ylabel=r"$v(r)$", xlim=(0, 8))
+    axs[2].legend(frameon=False, fontsize=8)
+
+    fig.tight_layout()
+    if SHOWPLOTS:
+        plt.show()
+    return fig
+
+
 def plotLSD(atom, ref_q, pred_q, ref_vq_atoms, pred_vq_atoms, ref_labelName, pred_labelName, lineshape_array, boolPlotDiff, SHOWPLOTS):
     # ref_vq_atoms and pred_vq_atoms are 2D tensors. Each tensor contains the pseudopotential (either ref or pred)
     # for atoms in the order of atomPPOrder. 

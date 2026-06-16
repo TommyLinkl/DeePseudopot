@@ -18,7 +18,7 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 
 from .constants import *
-from .pp_func import plotPP, plotLSD, plot_training_validation_cost, plotBandStruct, plot_mc_cost, plotBandStruct_reorder
+from .pp_func import plotPP, plotPP_spin, plotLSD, plot_training_validation_cost, plotBandStruct, plot_mc_cost, plotBandStruct_reorder
 from .smooth_order import reorder_smoothness_deg2_tensors, reorder_kpt_smoothness_deg2_tensors
 
 def print_and_inspect_gradients(model, filename=None, show=False): 
@@ -84,6 +84,38 @@ def write_PP_qSpace(writeFileName, model, atomPPOrder, qmax=40.0, nQGrid=4096):
                 file.write(f"{NN[i,iAtom]:.8f}          ")
             file.write("\n")
     return
+
+def write_PP_qSpace_spin(writeFileName, model, spinModel, atomPPOrder, qmax=40.0, nQGrid=4096):
+    """
+    Write the spin-resolved local pseudopotentials in q-space for a
+    spin-polarized (tot_magnetization != 0) run. For each atom type we dump:
+        V0(q)    : the spin-independent local potential (model)
+        b(q)     : the learned spin/exchange field (spinModel)
+        V_up(q)  = V0(q) + b(q)
+        V_dn(q)  = V0(q) - b(q)
+    The q grid matches write_PP_qSpace so columns line up across files.
+    """
+    qGrid = torch.linspace(0.0, qmax, int(nQGrid)).view(-1, 1)
+    V0 = model(qGrid)
+    b = spinModel(qGrid)
+    Vup = V0 + b
+    Vdn = V0 - b
+
+    with open(writeFileName, 'w') as file:
+        file.write("# q          ")
+        for iAtom in range(len(atomPPOrder)):
+            a = atomPPOrder[iAtom]
+            file.write(f"V0(q)_{a}          b(q)_{a}          Vup(q)_{a}          Vdn(q)_{a}          ")
+        file.write("\n")
+
+        for i in range(len(qGrid)):
+            file.write(f"{qGrid[i,0]:.8f}          ")
+            for iAtom in range(len(atomPPOrder)):
+                file.write(f"{V0[i,iAtom]:.8f}          {b[i,iAtom]:.8f}          "
+                           f"{Vup[i,iAtom]:.8f}          {Vdn[i,iAtom]:.8f}          ")
+            file.write("\n")
+    return
+
 
 def write_LSD_qSpace(writeFileName, LSDmodel, N_alpha):
     qGrid = torch.linspace(0.0, 30.0, 4096).view(-1, 1)
@@ -540,7 +572,7 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
 
     start_time = time.time() if ham.NNConfig['runtime_flag'] else None
     optimizer.zero_grad()
-    if LSDoptimizers is not None:
+    if LSDmodels:
         for key in LSDoptimizers:
             LSDoptimizers[key].zero_grad()
     if spinOptimizer is not None:
@@ -854,7 +886,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
 
         else: # multiprocessing
             optimizer.zero_grad()
-            if LSDoptimizers is not None:
+            if LSDmodels:
                 for key in LSDoptimizers:
                     LSDoptimizers[key].zero_grad()
             if spinOptimizer is not None:
@@ -1118,9 +1150,20 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
             fig = plotPP(atomPPOrder, val_dataset.q, val_dataset.q, val_dataset.vq_atoms, model(val_dataset.q), "ZungerForm", f"NN_{epoch+1}", ["-",":" ]*len(atomPPOrder), True, NNConfig['SHOWPLOTS']);
             fig.savefig(f'{resultsFolder}epoch_{epoch+1}_plotPP.pdf')
             fig.savefig(f'{resultsFolder}epoch_{epoch+1}_plotPP.png')
+            if spinModel is not None:
+                spinModel.cpu()
+                fig_spin = plotPP_spin(atomPPOrder, val_dataset.q, model(val_dataset.q), spinModel(val_dataset.q), f"NN_{epoch+1}", NNConfig['SHOWPLOTS'])
+                fig_spin.savefig(f'{resultsFolder}epoch_{epoch+1}_plotPP_spin.pdf')
+                fig_spin.savefig(f'{resultsFolder}epoch_{epoch+1}_plotPP_spin.png')
+                plt.close(fig_spin)
+                spinModel.to(device)
             model.to(device)
 
             write_PP_qSpace(f'{resultsFolder}epoch_{epoch+1}_qSpace_pot.dat', model, atomPPOrder, qmax=NNConfig['qmax'], nQGrid=NNConfig['nQGrid'])
+            if spinModel is not None:
+                spinModel.cpu()
+                write_PP_qSpace_spin(f'{resultsFolder}epoch_{epoch+1}_qSpace_pot_spin.dat', model, spinModel, atomPPOrder, qmax=NNConfig['qmax'], nQGrid=NNConfig['nQGrid'])
+                spinModel.to(device)
 
             torch.save(model.state_dict(), f'{resultsFolder}epoch_{epoch+1}_PPmodel.pth')
             torch.save(optimizer.state_dict(), f'{resultsFolder}epoch_{epoch+1}_AdamState.pth')

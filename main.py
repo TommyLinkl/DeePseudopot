@@ -11,10 +11,10 @@ import numpy as np
 
 from utils.read import read_NNConfigFile, setAllBulkSystems, setNN, setNN_LSD
 from utils.nn_models import zero_init_final_layer
-from utils.pp_func import FT_converge_and_write_pp
+from utils.pp_func import FT_converge_and_write_pp, plotPP_spin
 from utils.init_NN_train import init_ZungerPP, init_optimizer
 from utils.init_LSD_train import init_LSD_PP
-from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, weighted_relative_mse_bandStruct, weighted_relative_mse_energiesAtKpt, bandStruct_train_GPU, evalBS_noGrad, runMC_NN, write_PP_qSpace
+from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, weighted_relative_mse_bandStruct, weighted_relative_mse_energiesAtKpt, bandStruct_train_GPU, evalBS_noGrad, runMC_NN, write_PP_qSpace, write_PP_qSpace_spin
 from utils.ham import initAndCacheHams, set_LSDModels
 from utils.genMovie import genMovie
 
@@ -103,6 +103,10 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     write_PP_qSpace(f'{resultsFolder}initZunger_qSpace_pot.dat', PPmodel, atomPPOrder)
     torch.save(PPmodel.state_dict(), f"{resultsFolder}initZunger_PPmodel.pth")
     if spinModel is not None:
+        write_PP_qSpace_spin(f'{resultsFolder}initZunger_qSpace_pot_spin.dat', PPmodel, spinModel, atomPPOrder)
+        fig_spin = plotPP_spin(atomPPOrder, ZungerPPFunc_val.q, PPmodel(ZungerPPFunc_val.q), spinModel(ZungerPPFunc_val.q), "initZunger", NNConfig['SHOWPLOTS'])
+        fig_spin.savefig(f'{resultsFolder}initZunger_plotPP_spin.pdf')
+        fig_spin.savefig(f'{resultsFolder}initZunger_plotPP_spin.png')
         torch.save(spinModel.state_dict(), f"{resultsFolder}initZunger_spinModel.pth")
 
     ############# Fit NN to band structures ############# 

@@ -1165,8 +1165,28 @@ class Hamiltonian:
 
         start_time = time.time() if self.NNConfig['runtime_flag'] else None
         if not self.coupling:
-            energies = torch.linalg.eigvalsh(H)
-            energiesEV = energies * AUTOEV
+            if self.magBool and not self.SObool:
+                # Spin-polarized, no SOC: H is block-diagonal in spin, with the
+                # up block H[:nbv,:nbv] carrying V_up = V0 + b and the down block
+                # H[nbv:,nbv:] carrying V_down = V0 - b (there is no SO/NL term to
+                # couple the blocks). Diagonalize each spin channel SEPARATELY so
+                # that each channel's eigenvalues are sorted ascending WITHIN that
+                # channel. A single eigvalsh on the full 2*nbv matrix would merge
+                # and globally sort both channels together, which swaps band
+                # identity wherever an up band crosses a down band (the bug where
+                # BS_up[N] ends up equal to BS_down[N-1]).
+                nbv = self.basis.shape[0]
+                e_up = torch.linalg.eigvalsh(H[:nbv, :nbv]) * AUTOEV
+                e_dn = torch.linalg.eigvalsh(H[nbv:, nbv:]) * AUTOEV
+                # Interleave the channels: [up0, dn0, up1, dn1, ...]. At the start
+                # of training b(q)=0, so e_up==e_dn and this reproduces exactly the
+                # unpolarized, spin-doubled spectrum (matching the repeat_interleave
+                # convention of the non-spin-polarized path). Even output columns
+                # are spin-up, odd columns are spin-down.
+                energiesEV = torch.stack([e_up, e_dn], dim=1).reshape(-1)
+            else:
+                energies = torch.linalg.eigvalsh(H)
+                energiesEV = energies * AUTOEV
 
             # reorder the energies according to the manual input in self.system.bandOrderMatrix
             energiesEV = energiesEV[self.system.bandOrderMatrix[kidx, :]]
