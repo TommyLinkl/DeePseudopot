@@ -120,8 +120,63 @@ def read_NNConfigFile(filename):
         if ('perturbEvery' not in config): 
             config['perturbEvery'] = -1
             
+    print_job_settings(config)
+
     print()
     return config
+
+
+def print_job_settings(config):
+    """
+    Print a concise, human-readable summary of the job settings to stdout so that
+    it is easy to see, for each run, which flags are on. Called at the end of
+    read_NNConfigFile() once every input has been parsed (and defaults filled in).
+
+    The Hamiltonian section reports the spin-orbit (SObool) and non-local (NLbool)
+    switches independently, along with the derived `spinor` state: spinors are
+    required only by spin-orbit coupling OR a finite total magnetization, NOT by
+    the (block-diagonal) non-local potential. See Hamiltonian.__init__ in ham.py.
+    """
+    def onoff(x):
+        return "ON " if x else "off"
+
+    SObool = bool(config.get('SObool', False))
+    NLbool = bool(config.get('NLbool', False))
+    tot_mag = config.get('tot_magnetization', 0.0)
+    magBool = (tot_mag != 0)
+    spinor = SObool or magBool
+
+    line = "=" * 60
+    print(f"\n{line}")
+    print("JOB SETTINGS")
+    print(line)
+
+    print("Hamiltonian / physics:")
+    print(f"\tspin-orbit (SObool)           : {onoff(SObool)}")
+    print(f"\tnon-local l=1 (NLbool)        : {onoff(NLbool)}")
+    print(f"\ttot_magnetization             : {tot_mag}  ({onoff(magBool)})")
+    print(f"\t-> spinor Hamiltonian (2*nbv) : {onoff(spinor)}"
+          f"  [from SObool or tot_magnetization != 0]")
+    print(f"\tlocal env. corr. (local_env_corr): {onoff(config.get('local_env_corr', False))}")
+    print(f"\tcacheSO                       : {onoff(config.get('cacheSO', True))}")
+
+    print("Run mode:")
+    print(f"\tinit_Zunger_num_epochs        : {config.get('init_Zunger_num_epochs', 0)}")
+    print(f"\tinit_LSD_num_epochs           : {config.get('init_LSD_num_epochs', 0)}")
+    print(f"\tmax_num_epochs (NN training)  : {config.get('max_num_epochs', 0)}")
+    print(f"\tmonte carlo (mc_bool)         : {onoff(config.get('mc_bool', False))}")
+    print(f"\tperturbEvery                  : {config.get('perturbEvery', -1)}")
+
+    print("Parallelization:")
+    print(f"\tnum_cores                     : {config.get('num_cores', 0)}")
+    print(f"\tnum_threads                   : {config.get('num_threads', 1)}")
+    print(f"\tpool_initSO / pool_initNL     : {config.get('pool_initSO', 0)} / {config.get('pool_initNL', 0)}")
+
+    print("Misc:")
+    print(f"\tcheckpoint                    : {onoff(config.get('checkpoint', False))}")
+    print(f"\tseparateKptGrad               : {onoff(config.get('separateKptGrad', False))}")
+    print(f"\truntime_flag / memory_flag    : {onoff(config.get('runtime_flag', False))} / {onoff(config.get('memory_flag', False))}")
+    print(line)
 
 
 def init_critical_NNconfig():

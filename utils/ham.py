@@ -52,8 +52,12 @@ class Hamiltonian:
         elements.
         "SObool" enables the spin-orbit potential. "NLbool" independently enables
         the non-local (l=1 projector) potential; the non-local potential is
-        block-diagonal in spin, so it can be evaluated with or without the
-        spin-orbit term. If "NLbool" is left as None it defaults to "SObool",
+        block-diagonal in spin (and identical in both spin blocks), so it can be
+        evaluated with or without the spin-orbit term and does NOT by itself
+        require a spinor (2*nbv) Hamiltonian. The spinor representation is turned
+        on only by spin-orbit coupling (SObool) or finite total magnetization
+        (tot_magnetization != 0); an NL-only Hamiltonian is built on the smaller
+        nbv x nbv block. If "NLbool" is left as None it defaults to "SObool",
         which reproduces the legacy behavior in which the non-local potential was
         only ever built when spin-orbit coupling was enabled.
         The other kwargs are specified for using a NN, currently only for
@@ -87,19 +91,24 @@ class Hamiltonian:
         # tot_magnetization != 0, the up and down spin channels feel different
         # learned local potentials: V_up = V0 + b, V_down = V0 - b, where V0 is
         # self.model and b is self.spinModel (a learned spin/exchange field).
-        # `spinor` is the unified flag that controls the 2*nbv matrix sizing and
-        # the eigenvalue spin-doubling: it is True whenever ANY of spin-orbit
-        # coupling (SObool), spin polarization (magBool), or the non-local
-        # potential (NLbool) needs the two spin sectors to exist. The non-local
-        # potential is block-diagonal in spin, so an NL-only Hamiltonian is the
-        # 2*nbv block-diagonal matrix whose spectrum is the correct
-        # doubly-degenerate band structure (identical in structure to the
-        # repeat_interleave spin-doubling used on the non-spinor path).
+        # `spinor` is the unified flag that controls the 2*nbv matrix sizing: it is
+        # True whenever the two spin sectors must explicitly coexist in a single
+        # Hamiltonian, i.e. whenever spin-orbit coupling (SObool) mixes the sectors,
+        # or spin polarization (magBool) gives them different local potentials. It
+        # is NOT turned on by the non-local potential: the NL potential is block-
+        # diagonal in spin AND identical in both spin blocks, so an NL-only
+        # Hamiltonian is built on the smaller nbv x nbv block, which already holds
+        # every distinct spatial band exactly once. Its eigenvalues are returned
+        # directly (no artificial spin-degeneracy doubling), so the spectrum matches
+        # reference band structures that list each band once. Building NL without
+        # spinors halves the matrix dimension (and ~4x the eigensolve cost) relative
+        # to the redundant 2*nbv block-diagonal form.
         # SOC-specific physics stays gated on self.SObool; non-local physics is
-        # gated on self.NLbool.
+        # gated on self.NLbool. The matrices that NL contributes to are sized to
+        # match the Hamiltonian: 2*nbv when self.spinor, nbv otherwise.
         self.tot_magnetization = self.NNConfig.get('tot_magnetization', 0.0)
         self.magBool = (self.tot_magnetization != 0)
-        self.spinor = self.SObool or self.magBool or self.NLbool
+        self.spinor = self.SObool or self.magBool
         self.spinModel = spinModel
 
         self.LRgamma = 0.2   # erf attenuation parameter for long-range 
@@ -179,7 +188,7 @@ class Hamiltonian:
                 self.idx_cb = self.system.idxCB
                 self.idx_gap = self.system.idxGap
                 if not self.spinor:
-                    print("NOTE: spinor sector is off (no SOC, no NL, no magnetization). idxVB and idxCB are zero-indexed band indices without 2x interleaving for spin. Please double check to ensure your inputs of idxVB and idxCB correspond to your intended bands. ")
+                    print("NOTE: spinor sector is off (no SOC, no magnetization; the non-local potential does NOT require spinors). idxVB and idxCB are zero-indexed band indices into the distinct (un-doubled) spectrum, without any 2x interleaving for spin. Please double check to ensure your inputs of idxVB and idxCB correspond to your intended bands. ")
 
             # The coupling SO and NL derivative matrices are needed whenever
             # spin-orbit OR the non-local potential contributes to the coupling.
@@ -828,11 +837,14 @@ class Hamiltonian:
         else:
             nkp = self.system.getNKpts()
         
+        # NL matrices match the Hamiltonian dimension: 2*nbv with spinors, nbv
+        # otherwise (block-diagonal, identical in both spin blocks).
+        ndim = 2*nbv if self.spinor else nbv
         NLmats = np.empty([nkp, self.system.getNAtoms(), 2], dtype=object)
         for id1 in range(nkp):
             for id2 in range(self.system.getNAtoms()):
                 for id3 in [0,1]:
-                    NLmats[id1,id2,id3] = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
+                    NLmats[id1,id2,id3] = torch.zeros([ndim, ndim], dtype=torch.complex128)
 
         # this can be parallelized over kpoints, but it's not critical since
         # this is only done once during initialization
@@ -883,7 +895,10 @@ class Hamiltonian:
                             sfact_re = 1 / self.system.getCellVolumeDef() * torch.cos(gdiffDotTau)
                             sfact_im = 1 / self.system.getCellVolumeDef() * torch.sin(gdiffDotTau)
                     
-                        # This potential is block diagonal on spin
+                        # This potential is block diagonal on spin AND identical
+                        # in both spin blocks. Fill the dn-dn block only when the
+                        # Hamiltonian is a spinor (2*nbv); otherwise the single
+                        # up-up block is all that is needed.
                         # up up, 1st integral
                         real_part = prefactor * isum1 * gdot * sfact_re
                         im_part = prefactor * isum1 * gdot * sfact_im
@@ -893,14 +908,15 @@ class Hamiltonian:
                         im_part = prefactor * isum2 * gdot * sfact_im
                         NLmats[kidx,alpha,1][i,j] = torch.complex(real_part, im_part)
 
-                        # dn dn, 1st integral
-                        real_part = prefactor * isum1 * gdot * sfact_re
-                        im_part = prefactor * isum1 * gdot * sfact_im
-                        NLmats[kidx,alpha,0][i+nbv, j+nbv] = torch.complex(real_part, im_part)
-                        # 2nd integral
-                        real_part = prefactor * isum2 * gdot * sfact_re
-                        im_part = prefactor * isum2 * gdot * sfact_im
-                        NLmats[kidx,alpha,1][i+nbv, j+nbv] = torch.complex(real_part, im_part)
+                        if self.spinor:
+                            # dn dn, 1st integral
+                            real_part = prefactor * isum1 * gdot * sfact_re
+                            im_part = prefactor * isum1 * gdot * sfact_im
+                            NLmats[kidx,alpha,0][i+nbv, j+nbv] = torch.complex(real_part, im_part)
+                            # 2nd integral
+                            real_part = prefactor * isum2 * gdot * sfact_re
+                            im_part = prefactor * isum2 * gdot * sfact_im
+                            NLmats[kidx,alpha,1][i+nbv, j+nbv] = torch.complex(real_part, im_part)
 
         return NLmats
 
@@ -908,8 +924,11 @@ class Hamiltonian:
     def _wrap_initNLmat(self, args):
         nbv = self.basis.shape[0]
         kidx, width1, width2, shift, defbool, idxGap = args
-        # Allocate a local matrix for this k-point
-        mat = np.zeros((self.system.getNAtoms(), 2, 2*nbv, 2*nbv), dtype=np.complex128)
+        # Allocate a local matrix for this k-point. Dimension matches the
+        # Hamiltonian: 2*nbv with spinors, nbv otherwise (NL is block-diagonal
+        # and identical in both spin blocks, so the single block suffices).
+        ndim = 2*nbv if self.spinor else nbv
+        mat = np.zeros((self.system.getNAtoms(), 2, ndim, ndim), dtype=np.complex128)
         self.initNLmat_fast_oneKpt(kidx, mat, width1, width2, shift, defbool, idxGap)
         gc.collect()
         return (kidx, mat)
@@ -949,10 +968,15 @@ class Hamiltonian:
         else:
             nkp = self.system.getNKpts()
         
+        # NL matrices are sized to match the Hamiltonian: 2*nbv with spinors,
+        # nbv otherwise (the NL potential is block-diagonal and identical across
+        # spin blocks, so the single block is sufficient when spinors are off).
+        ndim = 2*nbv if self.spinor else nbv
+
         # this can be parallelized over kpoints, but it's not critical since
         # this is only done once during initialization
         if (self.NNConfig["num_cores"] == 0) or (self.NNConfig["pool_initNL"] == 0):
-          NLmats_5d = np.zeros((nkp, self.system.getNAtoms(), 2, 2*nbv, 2*nbv), dtype=np.complex128)
+          NLmats_5d = np.zeros((nkp, self.system.getNAtoms(), 2, ndim, ndim), dtype=np.complex128)
           for kidx in range(nkp):
               self.initNLmat_fast_oneKpt(kidx, NLmats_5d[kidx], width1, width2, shift, defbool, idxGap)
               gc.collect()
@@ -963,7 +987,7 @@ class Hamiltonian:
                 results = pool.map(self._wrap_initNLmat, args_list)
 
             # collect into big array
-            NLmats_5d = np.zeros((nkp, self.system.getNAtoms(), 2, 2*nbv, 2*nbv), dtype=np.complex128)
+            NLmats_5d = np.zeros((nkp, self.system.getNAtoms(), 2, ndim, ndim), dtype=np.complex128)
             for kidx, mat in results:
                 NLmats_5d[kidx] = mat
 
@@ -1050,7 +1074,11 @@ class Hamiltonian:
             sfact_im = 1 / self.system.getCellVolume() * np.sin(gdiffDotTau)
             
         
-            # This potential is block diagonal on spin
+            # This potential is block diagonal on spin AND identical in both spin
+            # blocks. The destination array is sized 2*nbv when self.spinor (fill
+            # both the up-up and dn-dn blocks) and nbv otherwise (fill the single
+            # block; its eigenvalues are the distinct spatial bands, returned
+            # directly without spin doubling in calcEigValsAtK).
             # up up, 1st integral
             real_part = prefactor * isum1 * gdot * sfact_re
             im_part = prefactor * isum1 * gdot * sfact_im
@@ -1060,14 +1088,15 @@ class Hamiltonian:
             im_part = prefactor * isum2 * gdot * sfact_im
             NLmats_oneKpt_toFill[alpha,1, :nbv, :nbv] = real_part + 1j * im_part
 
-            # dn dn, 1st integral
-            real_part = prefactor * isum1 * gdot * sfact_re
-            im_part = prefactor * isum1 * gdot * sfact_im
-            NLmats_oneKpt_toFill[alpha,0, nbv:, nbv:] = real_part + 1j * im_part
-            # 2nd integral
-            real_part = prefactor * isum2 * gdot * sfact_re
-            im_part = prefactor * isum2 * gdot * sfact_im
-            NLmats_oneKpt_toFill[alpha,1, nbv:, nbv:] = real_part + 1j * im_part
+            if self.spinor:
+                # dn dn, 1st integral
+                real_part = prefactor * isum1 * gdot * sfact_re
+                im_part = prefactor * isum1 * gdot * sfact_im
+                NLmats_oneKpt_toFill[alpha,0, nbv:, nbv:] = real_part + 1j * im_part
+                # 2nd integral
+                real_part = prefactor * isum2 * gdot * sfact_re
+                im_part = prefactor * isum2 * gdot * sfact_im
+                NLmats_oneKpt_toFill[alpha,1, nbv:, nbv:] = real_part + 1j * im_part
         return
     
     
@@ -1123,22 +1152,26 @@ class Hamiltonian:
         if preComp_NLmats_kidx is None: 
             if self.NNConfig['num_cores'] != 0:
                 print("WARNING: Didn't find precomputed NLmats stored in shared memory. This buildNLmat could drastically slow down multiprocessing parallelization.")
-            if self.NLmats is None: 
+            if self.NLmats is None:
                 print("WARNING. THIS WILL BE SLOW. Attempting to build the NLmat, but 1) no precomputed NLmats are stored in shared memory, 2) no cached NL matrices in the ham class. \nCalculating the NLmats on the fly. ")
-                NLmats_kidx = np.zeros((self.system.getNAtoms(), 2, 2*self.basis.shape[0], 2*self.basis.shape[0]), dtype=np.complex128)
+                ndim = 2*self.basis.shape[0] if self.spinor else self.basis.shape[0]
+                NLmats_kidx = np.zeros((self.system.getNAtoms(), 2, ndim, ndim), dtype=np.complex128)
                 self.initNLmat_fast_oneKpt(kidx, NLmats_kidx)
-            else: 
+            else:
                 NLmats_kidx = self.NLmats[kidx]
-        else: 
+        else:
             NLmats_kidx = preComp_NLmats_kidx
-        
+
         nbv = self.basis.shape[0]
+        # The NL matrix matches the Hamiltonian dimension: 2*nbv with spinors,
+        # nbv otherwise.
+        ndim = 2*nbv if self.spinor else nbv
         if addMat is not None:
-            assert addMat.shape[0] == 2*nbv
-            assert addMat.shape[1] == 2*nbv
+            assert addMat.shape[0] == ndim
+            assert addMat.shape[1] == ndim
             NLmatf = addMat
         else:
-            NLmatf = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
+            NLmatf = torch.zeros([ndim, ndim], dtype=torch.complex128)
         
         for alpha in range(self.system.getNAtoms()):
             if isinstance(NLmats_kidx[alpha,0], torch.Tensor):
@@ -1280,15 +1313,19 @@ class Hamiltonian:
             if verbosity >= 3:
                 print(f"kidx={kidx}, cb_vec[0:5]= {self.cb_vecs[kidx, :5]}")
 
-        if not self.spinor:
-            # 2-fold degeneracy for spin. Not sure why this is necessary, but
-            # it is included in Tommy's code...
-            # NOTE: gated on self.spinor (not self.SObool): when spin-polarized
-            # (magBool) the Hamiltonian is already 2*nbv and the eigensolve yields
-            # the spin-split spectrum directly, so it must NOT be doubled here.
-            energiesEV = energiesEV.repeat_interleave(2)
-            # dont need to interleave eigenvecs (if stored) since we only
-            # store the vb and cb anyways.
+        # No artificial spin-degeneracy doubling of the spectrum. When spinors are
+        # off, the local + non-local potential is identical in both spin channels,
+        # so the nbv x nbv Hamiltonian already contains every DISTINCT spatial band
+        # exactly once. We return those bands directly (the lowest nBands, selected
+        # by bandOrderMatrix), so that nBands counts distinct bands and the output
+        # matches reference band structures that list each band once (NOT spin-
+        # doubled). When spinors are on (SObool or magBool) the 2*nbv eigensolve
+        # already yields the full spin-resolved spectrum. In neither case do we pad.
+        #
+        # (Legacy behavior applied energiesEV.repeat_interleave(2) on the non-spinor
+        # path, padding the spectrum to a doubly-degenerate [e0,e0,e1,e1,...] form.
+        # That has been removed: it assumed spin-doubled reference data, whereas the
+        # reference band structures here list each band once.)
         eigVals[:] = energiesEV[:nbands]
         end_time = time.time() if self.NNConfig['runtime_flag'] else None
         print(f"eigvalsh and storing energies, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
@@ -1467,12 +1504,17 @@ class Hamiltonian:
                 for id3 in range(3):
                     SOmats[id1,id2,id3] = np.zeros([2*nbv, 2*nbv], dtype=np.complex128)
 
+        # The NL coupling derivative matrices match the Hamiltonian dimension:
+        # 2*nbv with spinors, nbv otherwise (block-diagonal, identical in both
+        # spin blocks). The SO matrices above are only consumed when self.SObool,
+        # which implies spinors, so they stay 2*nbv.
+        ndim_nl = 2*nbv if self.spinor else nbv
         NLmats = np.empty([nqp, self.system.getNAtoms(), 3, 2], dtype=object)
         for id1 in range(nqp):
             for id2 in range(self.system.getNAtoms()):
                 for id3 in range(3):
                     for id4 in range(2):
-                        NLmats[id1,id2,id3, id4] = np.zeros([2*nbv, 2*nbv], dtype=np.complex128)
+                        NLmats[id1,id2,id3, id4] = np.zeros([ndim_nl, ndim_nl], dtype=np.complex128)
 
         for qidx in range(nqp):
             print(f"\tinitializing coupling SO + NL: qpt {qidx+1}/{nqp}")
@@ -1550,17 +1592,19 @@ class Hamiltonian:
 
 
                     # build NL matrix. It has the same deriv factor as SOC part.
-                    # this potential is block diagonal on spin.
-                    # It doesn't have the global factor of -i in front, like SOC does.
+                    # this potential is block diagonal on spin AND identical in
+                    # both spin blocks. It doesn't have the global factor of -i in
+                    # front, like SOC does.
                     # up up, 1st integral
                     common = SOprefactor * derivFact * structFact * gdot
                     NLmats[qidx, alpha, gamma, 0][:nbv, :nbv] = isum2 * common
                     # 2nd integral
                     NLmats[qidx, alpha, gamma, 1][:nbv, :nbv] = isum3 * common
 
-                    # dn dn
-                    NLmats[qidx, alpha, gamma, 0][nbv:, nbv:] = isum2 * common
-                    NLmats[qidx, alpha, gamma, 1][nbv:, nbv:] = isum3 * common
+                    if self.spinor:
+                        # dn dn (only present when the Hamiltonian is a spinor)
+                        NLmats[qidx, alpha, gamma, 0][nbv:, nbv:] = isum2 * common
+                        NLmats[qidx, alpha, gamma, 1][nbv:, nbv:] = isum3 * common
 
 
         return SOmats, NLmats
@@ -2063,8 +2107,10 @@ class Hamiltonian:
             print("Coupling units: eV/Bohr")
             print(f"delta (Bohr): {delta}, gap kidx: {kidx_gap}, Gamma qidx: {qidx_gamma}")
             print(f"Inputs of idxVB: {self.system.idxVB}, idxCB: {self.system.idxCB}")
-            if not self.spinor:
-                print(f"True idxVB (without 2x interleaving): {int((self.system.idxVB-1)/2)}, idxCB: {int(self.system.idxCB/2)}")
+            # idxVB/idxCB index the raw (eigvalsh-sorted) eigenvalues directly.
+            # There is no artificial 2x spin-interleaving to undo: the spectrum is
+            # never doubled (spinors off -> distinct bands; spinors on -> the 2*nbv
+            # eigensolve gives the spin-resolved bands directly).
             print(f"VB degenerate indices: {vb_degen}. Energies ({unit_label}): " + ", ".join([f"{base_vals_out[i].item():.5e}" for i in vb_degen]))
             print(f"CB degenerate indices: {cb_degen}. Energies ({unit_label}): " + ", ".join([f"{base_vals_out[i].item():.5e}" for i in cb_degen]))
             print(f"Gap k-point (Bohr^-1): {self.system.kpts[kidx_gap]}")

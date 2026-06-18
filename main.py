@@ -93,7 +93,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}initZunger_plotBS.pdf', 'Init NN BS', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder, spinModel=spinModel)
 
     print("Converge the pseudopotentials in the real and reciprocal space for the initialized NN. ")
-    Rmax = 300.0
+    Rmax = 30.0
     qmax = np.array([40.0])
     nQGrid = np.array([4096, 8192])
     nRGrid = np.array([4096, 8192])

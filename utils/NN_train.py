@@ -1361,6 +1361,22 @@ def perturb_model(model, hams, percentage=0.0, mode=1):
                         if atomType in ham.PPparams:
                             ham.PPparams[atomType][p] += step
 
+    if mode == 8:
+        print(f"Perturbing the model by absolute steps: {percentage}. Perturbing only the NL parameters by absolute steps: {percentage}")
+        for param in new_model.parameters():
+            if (np.random.random() <= 0.6):
+                random_sign = torch.randint(0, 2, param.shape, dtype=torch.float64) * 2 - 1
+                param.data += percentage/1 * random_sign
+
+        for atomType in atomPPOrder:
+            # perturb NL constants
+            for p in [6, 7]: # NL
+                step = percentage/1 * np.random.choice([-1, 1])
+                if (np.random.random() <= 0.6):
+                    for ham in hams:
+                        if atomType in ham.PPparams:
+                            ham.PPparams[atomType][p] += step
+
     return new_model, old_hams_PPparams
 
 
