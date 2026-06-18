@@ -1,4 +1,5 @@
 import sys, os
+import uuid
 import torch
 import numpy as np
 from scipy.special import erf
@@ -122,6 +123,13 @@ class Hamiltonian:
         self.NLmats = None
         self.SOmats_def = {}
         self.NLmats_def = {}
+
+        # Per-job tag embedded in the POSIX shared-memory segment names so that
+        # segments leaked by a crashed job never collide with this job's (the
+        # /dev/shm namespace is global per user). Populated by initAndCacheHams
+        # with f"{os.getpid()}_{uuid.uuid4().hex}"; the worker-side reattach code
+        # in calcEigValsAtK reconstructs the exact same names from this tag.
+        self.shm_tag = None
 
         # Detect whether any atom actually carries non-local potential
         # coefficients (PPparams indices 6 and 7). This guards the (otherwise
@@ -1209,12 +1217,12 @@ class Hamiltonian:
             # when the non-local potential is active.
             start_time = time.time() if self.NNConfig['runtime_flag'] else None
             if self.SObool:
-                shm_SOmats = shared_memory.SharedMemory(name=f"SOmats_{self.iSystem}_{kidx}")
+                shm_SOmats = shared_memory.SharedMemory(name=f"SOmats_{self.shm_tag}_{self.iSystem}_{kidx}")
                 preComp_SOmats_kidx = np.ndarray(cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_SOmats.buf)
             else:
                 preComp_SOmats_kidx = None
             if self.NLbool and self.checknl:
-                shm_NLmats = shared_memory.SharedMemory(name=f"NLmats_{self.iSystem}_{kidx}")
+                shm_NLmats = shared_memory.SharedMemory(name=f"NLmats_{self.shm_tag}_{self.iSystem}_{kidx}")
                 preComp_NLmats_kidx = np.ndarray(cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_NLmats.buf)
             else:
                 preComp_NLmats_kidx = None
@@ -2410,6 +2418,104 @@ class Hamiltonian:
         self.system.LSDparams = newparams
 
 
+def _parse_shm_pid(name):
+    """
+    Parse the owning PID out of a tagged shared-memory segment name of the form
+    SOmats_{pid}_{uuidhex}_{iSys}_{kidx} (or the NLmats_ analogue). Returns the
+    PID as an int, or None if the name carries no recognizable per-job tag, e.g.
+    a legacy untagged name SOmats_{iSys}_{kidx}. The tag is recognized by its
+    32-character uuid4 hex field, which distinguishes it from the small integer
+    indices of the legacy scheme.
+    """
+    for prefix in ("SOmats_", "NLmats_"):
+        if name.startswith(prefix):
+            parts = name[len(prefix):].split("_")
+            # tagged layout: pid, 32-char uuid hex, iSys, kidx
+            if (len(parts) >= 4 and len(parts[1]) == 32
+                    and all(c in "0123456789abcdef" for c in parts[1])):
+                try:
+                    return int(parts[0])
+                except ValueError:
+                    return None
+            return None
+    return None
+
+
+def _pid_is_running(pid):
+    """Return True if a process with this PID currently exists."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # The process exists but is owned by someone else (shouldn't happen for
+        # our own segments); treat it as alive so we never disturb it.
+        return True
+    return True
+
+
+def sweep_stale_shared_memory(max_age_hours=6.0):
+    """
+    Remove orphaned SOmats_/NLmats_ POSIX shared-memory segments left behind by
+    crashed jobs. Only the current user's segments are touched. For tagged names
+    the owning PID is parsed out of the name and the segment is removed only when
+    that PID is no longer running, so segments belonging to other live jobs are
+    never disturbed. Legacy untagged names (which carry no PID) fall back to an
+    age-based cutoff of max_age_hours.
+    """
+    shm_dir = "/dev/shm"
+    if not os.path.isdir(shm_dir):
+        return
+    try:
+        my_uid = os.getuid()
+    except AttributeError:
+        # Non-POSIX platform; nothing to sweep.
+        return
+
+    now = time.time()
+    max_age_sec = max_age_hours * 3600.0
+    removed = 0
+    for entry in os.listdir(shm_dir):
+        if not (entry.startswith("SOmats_") or entry.startswith("NLmats_")):
+            continue
+        path = os.path.join(shm_dir, entry)
+        try:
+            st = os.stat(path)
+        except FileNotFoundError:
+            continue
+        # Only touch this user's own segments.
+        if st.st_uid != my_uid:
+            continue
+
+        pid = _parse_shm_pid(entry)
+        if pid is not None:
+            # Tagged name: remove only if the owning job is gone.
+            stale = not _pid_is_running(pid)
+        else:
+            # Legacy untagged name: fall back to an age-based cutoff.
+            stale = (now - st.st_mtime) > max_age_sec
+
+        if not stale:
+            continue
+        try:
+            shm = shared_memory.SharedMemory(name=entry)
+            shm.close()
+            shm.unlink()
+            removed += 1
+        except FileNotFoundError:
+            pass
+        except Exception:
+            # Best-effort: fall back to removing the backing file directly.
+            try:
+                os.unlink(path)
+                removed += 1
+            except OSError:
+                pass
+
+    if removed:
+        print(f"sweep_stale_shared_memory: removed {removed} orphaned SO/NL shared-memory segment(s).")
+
+
 def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model=None, LSDmodels=None, spinModel=None):
     """
     Initialize the ham class for each BulkSystem. 
@@ -2419,6 +2525,18 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model
     Then remove dummy_ham, and any intermediate variables
     """
     print("\nInitializing the ham class for each BulkSystem. Cache-ing the SOmats, NLmats, and putting them into shared memeory. ")
+
+    # Clean up shared-memory segments orphaned by crashed jobs before we create
+    # our own. Only this user's segments are touched; tagged segments owned by a
+    # still-running job are left alone (see sweep_stale_shared_memory).
+    sweep_stale_shared_memory()
+
+    # Unique per-job tag embedded in every shared-memory segment name so that
+    # segments leaked by a crashed job can never collide with this job's (the
+    # /dev/shm namespace is global per user). The PID prefix lets a later sweep
+    # tell whether the owning job is still alive.
+    shm_tag = f"{os.getpid()}_{uuid.uuid4().hex}"
+
     hams = []
     cachedMats_info = {}
     shm_dict_SO = {}
@@ -2457,6 +2575,9 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model
             shm_dict_NL = None
         else:
             ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=SObool, NLbool=NLbool, cacheSO=False, LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
+            # Stamp the per-job tag onto the worker-facing ham so its reattach
+            # code in calcEigValsAtK reconstructs the exact segment names below.
+            ham.shm_tag = shm_tag
             dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=SObool, NLbool=NLbool, LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
 
             if dummy_ham.SOmats is not None: 
@@ -2470,7 +2591,7 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model
                     cachedMats_info[SOkey] = SOvalue
 
                     # Move the SOmats to shared memory
-                    shm_dict_SO[f"shm_SO_{iSys}_{kidx}"] = shared_memory.SharedMemory(create=True, size=dummy_ham.SOmats[kidx].nbytes, name=f"SOmats_{iSys}_{kidx}")
+                    shm_dict_SO[f"shm_SO_{iSys}_{kidx}"] = shared_memory.SharedMemory(create=True, size=dummy_ham.SOmats[kidx].nbytes, name=f"SOmats_{shm_tag}_{iSys}_{kidx}")
                     tmp_arr = np.ndarray(cachedMats_info[f"SO_{iSys}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{iSys}_{kidx}"]['dtype'], buffer=shm_dict_SO[f"shm_SO_{iSys}_{kidx}"].buf)  # Create a NumPy array backed by shared memory
                     tmp_arr[:] = dummy_ham.SOmats[kidx][:]   # Copy the cached SOmat into shared memory
 
@@ -2485,7 +2606,7 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model
                     cachedMats_info[NLkey] = NLvalue
 
                     # Move the NLmats to shared memory
-                    shm_dict_NL[f"shm_NL_{iSys}_{kidx}"] = shared_memory.SharedMemory(create=True, size=dummy_ham.NLmats[kidx].nbytes, name=f"NLmats_{iSys}_{kidx}")
+                    shm_dict_NL[f"shm_NL_{iSys}_{kidx}"] = shared_memory.SharedMemory(create=True, size=dummy_ham.NLmats[kidx].nbytes, name=f"NLmats_{shm_tag}_{iSys}_{kidx}")
                     tmp_arr = np.ndarray(cachedMats_info[f"NL_{iSys}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{iSys}_{kidx}"]['dtype'], buffer=shm_dict_NL[f"shm_NL_{iSys}_{kidx}"].buf) 
                     tmp_arr[:] = dummy_ham.NLmats[kidx][:] 
 
