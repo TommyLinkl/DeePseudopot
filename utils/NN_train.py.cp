@@ -295,15 +295,14 @@ def penalty_loss(f_x, x, penalize_start=4.5, lambda_penalty=1.0, penalize=True):
 
     return penalty
 
-# Change by Helen for penalty q^2*V(G)
-def mag_penalty_loss(f_x, x, f_x_max, lambda_penalty=1.0, penalize=True):
+def mag_penalty_loss(f_x, f_x_max, lambda_penalty=1.0, penalize=True):
     if (not penalize) or (lambda_penalty <= 0):
         return torch.tensor(0.0)
 
     k = 10.0   # Sharpness of ramp (higher = steeper transition)
     abs_f_x = torch.abs(f_x)
     S_x = 1 / (1 + torch.exp(-k * (abs_f_x - f_x_max)))
-    excess = torch.relu(x**2*(abs_f_x - f_x_max))
+    excess = torch.relu(abs_f_x - f_x_max)
     mag_penalty = lambda_penalty * torch.mean(S_x * excess)
     return mag_penalty
 
@@ -330,7 +329,7 @@ def compute_global_system_losses(model, bulkSystem, ham, cachedMats_info=None, r
             ham.NNConfig["penalize_starting"],
             ham.NNConfig["penalize_lambda"] * bulkSystem.getNKpts(),
         )
-#Changes by Helen, note here I haven't implemented for spin up and spin down because I wasn't sure how to
+
     if ("penalize_mag_threshold" in ham.NNConfig) and ("penalize_mag_lambda" in ham.NNConfig) and (ham.NNConfig["penalize_mag_lambda"] > 0) and (model is not None):
         q = torch.linspace(0.0, 12.0, 240, dtype=torch.float64, device=device).view(-1, 1)
         v_q = model(q)
@@ -660,25 +659,12 @@ def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=N
             trainLoss += penalty
             # print(f"Done penalizing the non-decaying pp by {penalty}")
 
-    #Change by Helen
         if ("penalize_mag_threshold" in hams[iSys].NNConfig) and ("penalize_mag_lambda" in hams[iSys].NNConfig) and (hams[iSys].NNConfig["penalize_mag_lambda"] > 0) and (model is not None):
             q = torch.linspace(0.0, 12.0, 240, dtype=torch.float64).view(-1, 1)
-            #calculate for spin up
-            v_q = model(q)+spinModel(q)
+            v_q = model(q)
             # Keep the historical regularization scale, but evaluate it once per system.
-            mag_penalty = 0.5*mag_penalty_loss(
+            mag_penalty = mag_penalty_loss(
                 v_q,
-                q,
-                hams[iSys].NNConfig["penalize_mag_threshold"],
-                hams[iSys].NNConfig["penalize_mag_lambda"] * sys.getNKpts()
-            )
-            trainLoss += mag_penalty
-            #calculate for spin down
-            v_q = model(q)-spinModel(q)
-            # Keep the historical regularization scale, but evaluate it once per system.
-            mag_penalty = 0.5*mag_penalty_loss(
-                v_q,
-                q,
                 hams[iSys].NNConfig["penalize_mag_threshold"],
                 hams[iSys].NNConfig["penalize_mag_lambda"] * sys.getNKpts()
             )
@@ -841,23 +827,13 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                     penalty = penalty_loss(v_q, q, hams[iSys].NNConfig["penalize_starting"], hams[iSys].NNConfig["penalize_lambda"])
                     systemKptLoss += penalty
                     # print(f"Done penalizing the non-decaying pp by {penalty}")
-#Changes by Helen
+
                 if ("penalize_mag_threshold" in hams[iSys].NNConfig) and ("penalize_mag_lambda" in hams[iSys].NNConfig) and (hams[iSys].NNConfig["penalize_mag_lambda"] > 0) and (model is not None):
                     q = torch.linspace(0.0, 12.0, 240, dtype=torch.float64).view(-1, 1)
-                    v_q = model(q)+spinModel(q)
+                    v_q = model(q)
                     # Keep the historical regularization scale, but evaluate it once per system.
-                    mag_penalty = 0.5*mag_penalty_loss(
+                    mag_penalty = mag_penalty_loss(
                         v_q,
-                        q,
-                        hams[iSys].NNConfig["penalize_mag_threshold"],
-                        hams[iSys].NNConfig["penalize_mag_lambda"]
-                    )
-                    systemKptLoss += mag_penalty
-                    v_q = model(q)-spinModel(q)
-                    # Keep the historical regularization scale, but evaluate it once per system.
-                    mag_penalty = 0.5*mag_penalty_loss(
-                        v_q,
-                        q,
                         hams[iSys].NNConfig["penalize_mag_threshold"],
                         hams[iSys].NNConfig["penalize_mag_lambda"]
                     )
