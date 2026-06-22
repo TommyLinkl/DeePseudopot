@@ -12,7 +12,7 @@ import numpy as np
 from utils.read import read_NNConfigFile, setAllBulkSystems, setNN, setNN_LSD
 from utils.nn_models import zero_init_final_layer
 from utils.pp_func import FT_converge_and_write_pp, plotPP_spin
-from utils.init_NN_train import init_ZungerPP, init_ZungerPP_spin, init_optimizer
+from utils.init_NN_train import init_ZungerPP, init_optimizer
 from utils.init_LSD_train import init_LSD_PP
 from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, weighted_relative_mse_bandStruct, weighted_relative_mse_energiesAtKpt, bandStruct_train_GPU, evalBS_noGrad, runMC_NN, write_PP_qSpace, write_PP_qSpace_spin
 from utils.ham import initAndCacheHams, set_LSDModels
@@ -86,20 +86,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     # oldFunc_totalMSE = evalBS_noGrad(None, f'{resultsFolder}oldFunc_plotBS.pdf', 'Old Zunger BS', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder)
 
     # Initialize the NN to the local pot function form
-
-#Change by Helen
-    if os.path.exists(inputsFolder + 'init_PPmodel.pth'):
-        if os.path.exists(inputsFolder + 'init_spinModel.pth'):
-            print("init_PPmodel.pth and init_spinModel.pth exist calling init_Zunger_PPspin")
-            PPmodel, spinModel, ZungerPPFunc_val = init_ZungerPP_spin(inputsFolder, PPmodel, spinModel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder, force_retrain=NNConfig["force_retrain"])
-        else:
-            print("Calling init_ZungerPP")
-            PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder, force_retrain=NNConfig["force_retrain"])
-    else:
-        print("Calling init_ZungerPP")
-        PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder, force_retrain=NNConfig["force_retrain"])
-
-#    PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder, force_retrain=NNConfig["force_retrain"])
+    PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder, force_retrain=NNConfig["force_retrain"])
     
     # Evaluate the band structures and pseudopotentials for the initialized NN
     print("\nEvaluating band structures using the initialized pseudopotentials. ")
