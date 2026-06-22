@@ -140,7 +140,7 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     else: 
         print(f"\n{'#' * 40}\nRunning Monte Carlo on the NN model. ")
         start_time = time.time()
-        (trial_COST, accepted_COST, bestModel, currModel) = runMC_NN(PPmodel, NNConfig, systems, hams, atomPPOrder, ZungerPPFunc_val, resultsFolder, cachedMats_info)
+        (trial_COST, accepted_COST, bestModel, currModel, bestSpinModel, currSpinModel) = runMC_NN(PPmodel, NNConfig, systems, hams, atomPPOrder, ZungerPPFunc_val, resultsFolder, cachedMats_info, spinModel=spinModel)
         end_time = time.time()
         print(f"Monte Carlo elapsed time: {end_time - start_time:.2f} seconds")
         torch.cuda.empty_cache()
@@ -149,13 +149,32 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
         PPmodel.eval()
         FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -4.0, 4.0, 40.0, 2048, 2048, resultsFolder + 'best_plotPP', resultsFolder + 'best_pot', NNConfig['SHOWPLOTS'], PPparams, Rmax)
 
+        # spin-polarized run: write the best spin field b(q) and up/down potentials.
+        if bestSpinModel is not None:
+            bestSpinModel.eval()
+            write_PP_qSpace_spin(f'{resultsFolder}best_qSpace_pot_spin.dat', bestModel, bestSpinModel, atomPPOrder, qmax=NNConfig.get('qmax', 40.0), nQGrid=NNConfig.get('nQGrid', 4096))
+            fig_spin = plotPP_spin(atomPPOrder, ZungerPPFunc_val.q, bestModel(ZungerPPFunc_val.q), bestSpinModel(ZungerPPFunc_val.q), "best", NNConfig['SHOWPLOTS'])
+            fig_spin.savefig(f'{resultsFolder}best_plotPP_spin.pdf')
+            fig_spin.savefig(f'{resultsFolder}best_plotPP_spin.png')
+            torch.save(bestSpinModel.state_dict(), f'{resultsFolder}best_spinModel.pth')
+
         PPmodel = currModel
+        spinModel = currSpinModel
 
 
-    ############# Writing the trained NN PP ############# 
+    ############# Writing the trained NN PP #############
     print(f"\n{'#' * 40}\nWriting the NN pseudopotentials")
     PPmodel.eval()
     FT_converge_and_write_pp(atomPPOrder, qmax, nQGrid, nRGrid, PPmodel, ZungerPPFunc_val, 0.0, 8.0, -4.0, 4.0, 40.0, 4096, 4096, resultsFolder + 'final_plotPP', resultsFolder + 'final_pot', NNConfig['SHOWPLOTS'], PPparams, Rmax)
+
+    # spin-polarized run: write the final spin field b(q) and up/down potentials.
+    if spinModel is not None:
+        spinModel.eval()
+        write_PP_qSpace_spin(f'{resultsFolder}final_qSpace_pot_spin.dat', PPmodel, spinModel, atomPPOrder, qmax=NNConfig.get('qmax', 40.0), nQGrid=NNConfig.get('nQGrid', 4096))
+        fig_spin = plotPP_spin(atomPPOrder, ZungerPPFunc_val.q, PPmodel(ZungerPPFunc_val.q), spinModel(ZungerPPFunc_val.q), "final", NNConfig['SHOWPLOTS'])
+        fig_spin.savefig(f'{resultsFolder}final_plotPP_spin.pdf')
+        fig_spin.savefig(f'{resultsFolder}final_plotPP_spin.png')
+        torch.save(spinModel.state_dict(), f'{resultsFolder}final_spinModel.pth')
 
     ############# Creating animation ############# 
     start_time = time.time()

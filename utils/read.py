@@ -40,6 +40,10 @@ def read_NNConfigFile(filename):
     config['pool_initSO'] = 0
     config['pool_initNL'] = 0
     config['force_retrain'] = 0
+    # Gradient-based training of the spin-orbit / non-local prefactors stored in
+    # PPparams (indices 5=SOC, 6=NL1, 7=NL2). When 'nonlocal_grad' is on, these
+    # scalars are made autograd leaves and optimized alongside the local NN.
+    config['nonlocal_grad'] = False
 
     with open(filename, 'r') as file:
         for line in file:
@@ -50,13 +54,13 @@ def read_NNConfigFile(filename):
                 key, value = stripped.split('=', 1) # split on first '=' only
                 key = key.strip()
                 value = value.strip()
-                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'NLbool', 'cacheSO', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'init_LSD_force_retrain', 'printGrad', 'mc_bool', 'smooth_reorder', 'eigvec_reorder', 'local_env_corr', 'init_LSD_parallel_atoms', 'init_LSD_normalize']:
+                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'NLbool', 'cacheSO', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'init_LSD_force_retrain', 'printGrad', 'mc_bool', 'smooth_reorder', 'eigvec_reorder', 'local_env_corr', 'init_LSD_parallel_atoms', 'init_LSD_normalize', 'nonlocal_grad']:
                     config[key] = bool(int(value))
                 elif key in ['nSystem', 'num_cores', 'num_threads', 'pool_initSO', 'pool_initNL', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'init_LSD_num_epochs', 'init_LSD_plot_every', 'init_LSD_scheduler_step', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter', 'pre_adjust_moves', 'mc_perturb_mode', 'nQGrid', 'nRGrid']:
                     config[key] = int(value)
-                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'LSDmodel_decay_rate', 'LSDmodel_decay_center', 'LSDmodel_gaussian_std', 'LSDmodel_osc_alpha', 'init_Zunger_optimizer_lr', 'init_LSD_optimizer_lr', 'optimizer_lr', 'LSD_optimizer_lr', 'init_Zunger_scheduler_gamma', 'init_LSD_scheduler_gamma', 'scheduler_gamma', 'LSD_scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2', 'mc_percentage', 'mc_beta', 'pre_adjust_stepSize', 'pre_adjust_LSD_step_size', 'penalize_starting', 'penalize_lambda', 'penalize_mag_threshold', 'penalize_mag_lambda', 'Rmax', 'qmax', 'init_LSD_eta_min_frac', 'tot_magnetization']:
+                elif key in ['PPmodel_decay_rate', 'PPmodel_decay_center', 'PPmodel_gaussian_std', 'LSDmodel_decay_rate', 'LSDmodel_decay_center', 'LSDmodel_gaussian_std', 'LSDmodel_osc_alpha', 'init_Zunger_optimizer_lr', 'init_LSD_optimizer_lr', 'optimizer_lr', 'LSD_optimizer_lr', 'init_Zunger_scheduler_gamma', 'init_LSD_scheduler_gamma', 'scheduler_gamma', 'LSD_scheduler_gamma', 'sgd_momentum', 'adam_beta1', 'adam_beta2', 'mc_percentage', 'mc_beta', 'pre_adjust_stepSize', 'pre_adjust_LSD_step_size', 'penalize_starting', 'penalize_lambda', 'penalize_mag_threshold', 'penalize_mag_lambda', 'Rmax', 'qmax', 'init_LSD_eta_min_frac', 'tot_magnetization', 'nonlocal_grad_lr', 'nonlocal_grad_scheduler_gamma']:
                     config[key] = float(value)
-                elif key in ['hiddenLayers', 'LSD_hiddenLayers', 'LSD_N_hiddenLayers']: 
+                elif key in ['hiddenLayers', 'LSD_hiddenLayers', 'LSD_N_hiddenLayers', 'nonlocal_grad_indices']:
                     config[key] = [int(x) for x in value.split()]
                 elif key in ['PPmodel_scale']: 
                     config[key] = [float(x) for x in value.split()]

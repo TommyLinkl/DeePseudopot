@@ -133,7 +133,7 @@ def norm_retrain_func(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     else: 
         print(f"\n{'#' * 40}\nRunning Monte Carlo on the NN model. ")
         start_time = time.time()
-        (trial_COST, accepted_COST, bestModel, currModel) = runMC_NN(PPmodel, NNConfig, systems, hams, atomPPOrder, ZungerPPFunc_val, resultsFolder, cachedMats_info)
+        (trial_COST, accepted_COST, bestModel, currModel, bestSpinModel, currSpinModel) = runMC_NN(PPmodel, NNConfig, systems, hams, atomPPOrder, ZungerPPFunc_val, resultsFolder, cachedMats_info)
         end_time = time.time()
         print(f"Monte Carlo elapsed time: {end_time - start_time:.2f} seconds")
         torch.cuda.empty_cache()
