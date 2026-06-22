@@ -21,95 +21,7 @@ from .constants import *
 from .pp_func import plotPP, plotPP_spin, plotLSD, plot_training_validation_cost, plotBandStruct, plot_mc_cost, plotBandStruct_reorder
 from .smooth_order import reorder_smoothness_deg2_tensors, reorder_kpt_smoothness_deg2_tensors
 
-
-# ---------------------------------------------------------------------------
-# Gradient-based optimization of the spin-orbit / non-local prefactors.
-#
-# The SO and NL contributions to H are  sum_alpha (cached_projector_matrix) *
-# PPparams[atom][idx], where the cached projector matrices are fixed constants
-# (built once, detached) and only the scalar prefactor is variable. So the
-# prefactors can be trained by gradient descent at essentially no extra cost:
-# they ride the same eigvalsh backward already paid for by the local NN.
-#
-# All Hamiltonians share ONE PPparams dict (the same object is handed to every
-# Hamiltonian in initAndCacheHams), so flipping requires_grad on each atom's
-# parameter tensor once is enough for every system. We only want to move a
-# subset of indices (default [5,6,7] = SOC, NL1, NL2), so after backward we zero
-# the gradient on all other indices before stepping; because those indices carry
-# exactly-zero grad from the very first step, Adam never accumulates momentum on
-# them and they stay frozen.
-# ---------------------------------------------------------------------------
-def setup_nonlocal_grad(hams, atomPPOrder, NNConfig):
-    """Enable gradient training of the SOC/NL prefactors in ham.PPparams.
-
-    Returns a context dict {optimizer, scheduler, params, indices} or None if
-    'nonlocal_grad' is not enabled in NNConfig.
-    """
-    if not NNConfig.get('nonlocal_grad', False):
-        return None
-
-    train_indices = NNConfig.get('nonlocal_grad_indices', [5, 6, 7])
-    PPparams = hams[0].PPparams  # shared across all hams
-
-    nl_params = {}
-    for atom in dict.fromkeys(atomPPOrder):   # dedup, preserve order
-        if atom not in PPparams:
-            continue
-        p = PPparams[atom]
-        p.requires_grad_(True)
-        nl_params[atom] = p
-
-    if not nl_params:
-        print("WARNING: nonlocal_grad is ON but no PPparams were found to train. Disabling.")
-        return None
-
-    lr = NNConfig.get('nonlocal_grad_lr', NNConfig['optimizer_lr'])
-    nl_optimizer = torch.optim.Adam(list(nl_params.values()), lr=lr)
-    nl_scheduler = ExponentialLR(nl_optimizer, gamma=NNConfig.get('nonlocal_grad_scheduler_gamma', NNConfig['scheduler_gamma']))
-
-    print(f"\nNon-local/SOC gradient training ON. Optimizing PPparams indices {train_indices} "
-          f"for atoms {[str(a) for a in nl_params]} at lr={lr}.")
-    for atom, p in nl_params.items():
-        vals = p.detach()
-        print(f"    initial {atom} PPparams[{train_indices}] = {[round(float(vals[i]), 6) for i in train_indices]}")
-
-    return {'optimizer': nl_optimizer, 'scheduler': nl_scheduler,
-            'params': nl_params, 'indices': train_indices}
-
-
-def _zero_nonlocal_grad(nl_ctx):
-    if nl_ctx is not None:
-        nl_ctx['optimizer'].zero_grad()
-
-
-def _step_nonlocal_grad(nl_ctx):
-    """Mask gradients to the trained indices, then take an optimizer step."""
-    if nl_ctx is None:
-        return
-    train_indices = nl_ctx['indices']
-    with torch.no_grad():
-        for atom, p in nl_ctx['params'].items():
-            if p.grad is None:
-                continue
-            keep = torch.zeros_like(p.grad)
-            keep[train_indices] = p.grad[train_indices]
-            p.grad.copy_(keep)
-    nl_ctx['optimizer'].step()
-
-
-def write_nonlocal_params(filename, nl_ctx):
-    """Dump the current full 9-entry PPparams for each trained atom."""
-    if nl_ctx is None:
-        return
-    with open(filename, 'w') as f:
-        for atom, p in nl_ctx['params'].items():
-            vals = p.detach()
-            f.write(f"# {atom}  (trained indices = {nl_ctx['indices']})\n")
-            for i in range(vals.shape[0]):
-                f.write(f"{float(vals[i]):.8f}\n")
-
-
-def print_and_inspect_gradients(model, filename=None, show=False):
+def print_and_inspect_gradients(model, filename=None, show=False): 
     """
     Prints and/or saves the gradients of the model parameters.
 
@@ -423,11 +335,8 @@ def compute_global_system_losses(model, bulkSystem, ham, cachedMats_info=None, r
         q = torch.linspace(0.0, 12.0, 240, dtype=torch.float64, device=device).view(-1, 1)
         v_q = model(q)
         # Keep the historical regularization scale, but evaluate it once per system.
-        # NOTE: mag_penalty_loss signature is (f_x, x, f_x_max, lambda_penalty);
-        # pass q as the x argument to match the trainIter call sites.
         loss_terms["mag_penalty"] = mag_penalty_loss(
             v_q,
-            q,
             ham.NNConfig["penalize_mag_threshold"],
             ham.NNConfig["penalize_mag_lambda"] * bulkSystem.getNKpts()
         )
@@ -642,23 +551,15 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
     return total_BS_MSE + totalPenalty + defPot_MSE + effMass_MSE
 
 
-def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cachedMats_info=None, prevBS=None, LSDmodels=None, LSDoptimizers=None, spinModel=None, spinOptimizer=None, collect_nl=False):
+def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cachedMats_info=None, prevBS=None, LSDmodels=None, LSDoptimizers=None, spinModel=None, spinOptimizer=None):
     """
     loop over kidx
     The rest of the arguments are "constants" / "constant functions" for a single kidx
     For performance, it is recommended that the ham in the argument doesn't have SOmat and NLmat initialized.
-
-    collect_nl: when True, the SOC/NL prefactors in ham.PPparams are autograd
-    leaves (set by setup_nonlocal_grad in the parent; the requires_grad flag is
-    preserved through pickling). After backward we read ham.PPparams[atom].grad,
-    weight it by this kpt's weight, and return it so the parent can accumulate
-    and step the dedicated optimizer. The grad is the full 9-vector; the parent
-    masks it to the trained indices.
     """
     singleKptGradients = {}
     singleKptGradients_LSD = {}
     singleKptGradients_spin = {}
-    singleKptGradients_nl = {}
 
     calcEnergies = ham.calcEigValsAtK(kidx, cachedMats_info, requires_grad=True)
     extrapolated_eigVal = calcEnergies.clone()
@@ -705,20 +606,15 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
                         singleKptGradients_LSD[key][name] = param.grad.detach().clone() * bulkSystem.kptWeights[kidx]
                     else:
                         singleKptGradients_LSD[key][name] += param.grad.detach().clone() * bulkSystem.kptWeights[kidx]
-    if collect_nl:
-        for atom, p in ham.PPparams.items():
-            if getattr(p, 'grad', None) is not None:
-                singleKptGradients_nl[atom] = p.grad.detach().clone() * bulkSystem.kptWeights[kidx]
-
     del systemKptLoss
     gc.collect()
 
     calcEnergies = calcEnergies.detach()
     extrapolated_eigVal = extrapolated_eigVal.detach()
-    return singleKptGradients, trainLoss_systemKpt, calcEnergies, extrapolated_eigVal, singleKptGradients_LSD, singleKptGradients_spin, singleKptGradients_nl
+    return singleKptGradients, trainLoss_systemKpt, calcEnergies, extrapolated_eigVal, singleKptGradients_LSD, singleKptGradients_spin
 
 
-def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, runtime_flag=False, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, LSDmodels=None, LSDoptimizers=None, spinModel=None, spinOptimizer=None, nl_ctx=None):
+def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, runtime_flag=False, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, LSDmodels=None, LSDoptimizers=None, spinModel=None, spinOptimizer=None):
     trainLoss = torch.tensor(0.0)
     coupling_Loss = torch.tensor(0.0)
     effMass_Loss = torch.tensor(0.0)
@@ -765,7 +661,7 @@ def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=N
             # print(f"Done penalizing the non-decaying pp by {penalty}")
 
     #Change by Helen
-        if ("penalize_mag_threshold" in hams[iSys].NNConfig) and ("penalize_mag_lambda" in hams[iSys].NNConfig) and (hams[iSys].NNConfig["penalize_mag_lambda"] > 0) and (model is not None) and (spinModel is not None):
+        if ("penalize_mag_threshold" in hams[iSys].NNConfig) and ("penalize_mag_lambda" in hams[iSys].NNConfig) and (hams[iSys].NNConfig["penalize_mag_lambda"] > 0) and (model is not None):
             q = torch.linspace(0.0, 12.0, 240, dtype=torch.float64).view(-1, 1)
             #calculate for spin up
             v_q = model(q)+spinModel(q)
@@ -861,7 +757,6 @@ def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=N
             LSDoptimizers[key].zero_grad()
     if spinOptimizer is not None:
         spinOptimizer.zero_grad()
-    _zero_nonlocal_grad(nl_ctx)
 
     trainLoss.backward()
     if preAdjustBool:
@@ -878,9 +773,6 @@ def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=N
                 LSDoptimizers[key].step()
         if spinOptimizer is not None:
             spinOptimizer.step()
-        # SOC/NL prefactors share the same backward as the local NN; just mask
-        # to the trained indices and step their dedicated optimizer.
-        _step_nonlocal_grad(nl_ctx)
     end_time = time.time() if runtime_flag else None
     print(f"loss_backward + optimizer.step, elapsed time: {(end_time - start_time):.2f} seconds") if runtime_flag else None
 
@@ -888,7 +780,7 @@ def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=N
     return model, trainLoss
 
 
-def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, prevBS=None, LSDmodels=None, LSDoptimizers=None, spinModel=None, spinOptimizer=None, nl_ctx=None):
+def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, prevBS=None, LSDmodels=None, LSDoptimizers=None, spinModel=None, spinOptimizer=None):
     def merge_dicts(dicts):
         merged_dict = {}
         for d in dicts: # extracts dict from tuple of dicts
@@ -909,13 +801,6 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
     total_gradients = {}
     total_gradients_LSD = {}
     total_gradients_spin = {}
-    # Manually accumulate the kpt-weighted SOC/NL prefactor gradients, mirroring
-    # how the NN-model gradients are accumulated below. (The shared PPparams
-    # leaves would otherwise accumulate an UN-weighted sum across kpts.) This is
-    # used by both the serial (num_cores==0) and multiprocessing paths; in the
-    # mp path the per-kpt grads are computed in spawned workers and returned.
-    if nl_ctx is not None:
-        nl_grad_accum = {atom: torch.zeros_like(p) for atom, p in nl_ctx['params'].items()}
     for iSys, sys in enumerate(systems):
         trainLoss_system = 0.0
         gradients_system = {}
@@ -957,7 +842,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                     systemKptLoss += penalty
                     # print(f"Done penalizing the non-decaying pp by {penalty}")
 #Changes by Helen
-                if ("penalize_mag_threshold" in hams[iSys].NNConfig) and ("penalize_mag_lambda" in hams[iSys].NNConfig) and (hams[iSys].NNConfig["penalize_mag_lambda"] > 0) and (model is not None) and (spinModel is not None):
+                if ("penalize_mag_threshold" in hams[iSys].NNConfig) and ("penalize_mag_lambda" in hams[iSys].NNConfig) and (hams[iSys].NNConfig["penalize_mag_lambda"] > 0) and (model is not None):
                     q = torch.linspace(0.0, 12.0, 240, dtype=torch.float64).view(-1, 1)
                     v_q = model(q)+spinModel(q)
                     # Keep the historical regularization scale, but evaluate it once per system.
@@ -991,7 +876,6 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                         LSDoptimizers[key].zero_grad()
                 if spinModel is not None:
                     spinOptimizer.zero_grad()
-                _zero_nonlocal_grad(nl_ctx)
                 systemKptLoss.backward()
                 end_time = time.time() if NNConfig['runtime_flag'] else None
                 print(f"loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
@@ -1020,11 +904,6 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                                 else: 
                                     gradients_system_LSD[key][name] += param.grad.detach().clone() * sys.kptWeights[kidx]
 
-                if nl_ctx is not None:
-                    for atom, p in nl_ctx['params'].items():
-                        if p.grad is not None:
-                            nl_grad_accum[atom] += p.grad.detach().clone() * sys.kptWeights[kidx]
-
                 trainLoss_system += systemKptLoss.detach().item() * sys.kptWeights[kidx]
                 del systemKptLoss
                 gc.collect()
@@ -1036,22 +915,18 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                     LSDoptimizers[key].zero_grad()
             if spinOptimizer is not None:
                 spinOptimizer.zero_grad()
-            # Clear any stale PPparams grad (sets it to None) before pickling the
-            # ham to workers, so each worker's backward starts from a clean slate.
-            _zero_nonlocal_grad(nl_ctx)
 
             if (NNConfig['smooth_reorder']) and (prevBS is not None):
                 print("WARNING. We are reordering the band structure according to smoothness using the previous iteration BS. ")
             prevBS = prevBS.detach() if prevBS is not None else None
-            collect_nl = nl_ctx is not None
-            args_list = [(kidx, hams[iSys], sys, optimizer, model, cachedMats_info, prevBS, LSDmodels, LSDoptimizers, spinModel, spinOptimizer, collect_nl) for kidx in range(sys.getNKpts())]
+            args_list = [(kidx, hams[iSys], sys, optimizer, model, cachedMats_info, prevBS, LSDmodels, LSDoptimizers, spinModel, spinOptimizer) for kidx in range(sys.getNKpts())]
 
             # PyTorch autograd is not safe to use from forked workers.
             # Use an explicit spawn context for the per-k-point backward passes.
             ctx = mp.get_context("spawn")
             with ctx.Pool(NNConfig['num_cores']) as pool:
                 results_systemKpt = pool.starmap(calcEigValsAtK_wGrad_parallel, args_list)
-                gradients_systemKpt, trainLoss_systemKpt, eigValsList, extrapolated_eigValList, gradients_systemKpt_LSD, gradients_systemKpt_spin, gradients_systemKpt_nl = zip(*results_systemKpt)
+                gradients_systemKpt, trainLoss_systemKpt, eigValsList, extrapolated_eigValList, gradients_systemKpt_LSD, gradients_systemKpt_spin = zip(*results_systemKpt)
             currBS = torch.stack(eigValsList).detach()
             extrapolated_points = torch.stack(extrapolated_eigValList).detach()
 
@@ -1063,14 +938,6 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
             trainLoss_system = torch.sum(torch.tensor(trainLoss_systemKpt))
             if LSDmodels:
                 gradients_system_LSD = merge_dicts_LSD(gradients_systemKpt_LSD)
-
-            # Accumulate the kpt-summed (already kpt-weighted) SOC/NL prefactor
-            # grads from the workers into the running cross-system accumulator.
-            if nl_ctx is not None:
-                gradients_system_nl = merge_dicts(gradients_systemKpt_nl)
-                for atom in nl_grad_accum:
-                    if atom in gradients_system_nl:
-                        nl_grad_accum[atom] = nl_grad_accum[atom] + gradients_system_nl[atom]
 
         total_gradients = merge_dicts([total_gradients, gradients_system])
         if spinModel is not None:
@@ -1131,14 +998,6 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                 LSDoptimizers[key].step()
         if spinModel is not None:
             spinOptimizer.step()
-        # Write the manually kpt-weighted SOC/NL prefactor gradients back onto the
-        # shared PPparams leaves, then mask + step their optimizer.
-        if nl_ctx is not None:
-            nl_ctx['optimizer'].zero_grad()
-            with torch.no_grad():
-                for atom, p in nl_ctx['params'].items():
-                    p.grad = nl_grad_accum[atom].detach().clone()
-            _step_nonlocal_grad(nl_ctx)
     end_time = time.time() if NNConfig['runtime_flag'] else None
     print(f"optimizer step, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
 
@@ -1164,15 +1023,6 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
     if spinModel is not None:
         spinModel.to(device)
 
-    # Enable gradient training of the SOC/NL prefactors (PPparams idx 5,6,7) if
-    # requested. All hams share one PPparams dict, so this flips requires_grad
-    # once for every system.
-    nl_ctx = setup_nonlocal_grad(hams, atomPPOrder, NNConfig)
-    if (nl_ctx is not None) and (NNConfig.get('perturbEvery', 0) > 0):
-        raise NotImplementedError(
-            "nonlocal_grad is incompatible with perturbEvery>0: perturb_model modifies "
-            "PPparams in place, which is illegal on an autograd leaf. Set perturbEvery=0.")
-
     best_validation_loss = float('inf')
     no_improvement_count = 0
     prevBS = None
@@ -1197,9 +1047,9 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
                 spinModel.train()
 
             if NNConfig['separateKptGrad']==0:
-                model, trainLoss = trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info, NNConfig['runtime_flag'], preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, spinModel=spinModel, spinOptimizer=spinOptimizer, nl_ctx=nl_ctx)
+                model, trainLoss = trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info, NNConfig['runtime_flag'], preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, spinModel=spinModel, spinOptimizer=spinOptimizer)
             else:
-                model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, prevBS=prevBS.detach() if prevBS is not None else None, spinModel=spinModel, spinOptimizer=spinOptimizer, nl_ctx=nl_ctx)
+                model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, prevBS=prevBS.detach() if prevBS is not None else None, spinModel=spinModel, spinOptimizer=spinOptimizer)
                 
             file_trainCost.write(f"{pre_epoch-NNConfig['pre_adjust_moves']-1}  {trainLoss.item()}\n")
             file_trainCost.flush()
@@ -1270,21 +1120,14 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
         if spinModel is not None:
             spinModel.train()
         if NNConfig['separateKptGrad']==0:
-            model, trainLoss = trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info, NNConfig['runtime_flag'], resultsFolder=resultsFolder, epoch=epoch, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, spinModel=spinModel, spinOptimizer=spinOptimizer, nl_ctx=nl_ctx)
+            model, trainLoss = trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info, NNConfig['runtime_flag'], resultsFolder=resultsFolder, epoch=epoch, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, spinModel=spinModel, spinOptimizer=spinOptimizer)
         else:
-            model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, resultsFolder=resultsFolder, epoch=epoch, prevBS=prevBS.detach() if prevBS is not None else None, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, spinModel=spinModel, spinOptimizer=spinOptimizer, nl_ctx=nl_ctx)
+            model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, resultsFolder=resultsFolder, epoch=epoch, prevBS=prevBS.detach() if prevBS is not None else None, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, spinModel=spinModel, spinOptimizer=spinOptimizer)
         file_trainCost.write(f"{epoch+1}  {trainLoss.item()}\n")
         file_trainCost.flush()
         trainingCOST_x.append(epoch+1)
         training_COST.append(trainLoss.item())
         print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], training cost (including penalty): {trainLoss.item():.4f}")
-        if nl_ctx is not None:
-            for atom, p in nl_ctx['params'].items():
-                vals = p.detach()
-                grad_vals = None if p.grad is None else [round(float(p.grad[i]), 6) for i in nl_ctx['indices']]
-                print(f"    SOC/NL[{atom}] PPparams[{nl_ctx['indices']}] = "
-                      f"{[round(float(vals[i]), 6) for i in nl_ctx['indices']]}  grad = {grad_vals}")
-            write_nonlocal_params(f'{resultsFolder}epoch_{epoch+1}_nonlocalParams.dat', nl_ctx)
         if (epoch<=9) or ((epoch + 1) % NNConfig['plotEvery'] == 0):
             print_and_inspect_gradients(model, f'{resultsFolder}epoch_{epoch+1}_gradients.dat', show=True)
             print_and_inspect_NNParams(model, f'{resultsFolder}epoch_{epoch+1}_params.dat', show=True)
@@ -1301,7 +1144,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
 
         # perturb the model
         if (NNConfig['perturbEvery']>0) and (epoch>0) and (epoch % NNConfig['perturbEvery']==0): 
-            model, _, _ = perturb_model(model, hams, 0.10)
+            model, _ = perturb_model(model, hams, 0.10)
             print("WARNING: We have randomly perturbed all the params of the model by 10%. \n")
 
         # scheduler of learning rate
@@ -1311,8 +1154,6 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
                 LSDscheduler.step()
             if spinScheduler is not None:
                 spinScheduler.step()
-            if nl_ctx is not None:
-                nl_ctx['scheduler'].step()
 
         # evaluation
         if (epoch + 1) % NNConfig['plotEvery'] == 0:
@@ -1391,89 +1232,14 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
     if spinModel is not None:
         torch.save(spinModel.state_dict(), f'{resultsFolder}final_spinModel.pth')
         torch.save(spinOptimizer.state_dict(), f'{resultsFolder}final_spin_AdamState.pth')
-
-    if nl_ctx is not None:
-        write_nonlocal_params(f'{resultsFolder}final_nonlocalParams.dat', nl_ctx)
-        print("\nFinal trained SOC/NL prefactors:")
-        for atom, p in nl_ctx['params'].items():
-            vals = p.detach()
-            print(f"    {atom} PPparams[{nl_ctx['indices']}] = {[round(float(vals[i]), 6) for i in nl_ctx['indices']]}")
-
+    
     fig_cost = plot_training_validation_cost(trainingCOST_x, training_COST, validation_cost_x=validationCOST_x, validation_cost=validation_COST, ylogBoolean=True, SHOWPLOTS=NNConfig['SHOWPLOTS']);
     fig_cost.savefig(resultsFolder + 'final_train_cost.pdf')
     torch.cuda.empty_cache()
     return (training_COST, validation_COST)
 
 
-def _perturb_nn_params(new_model, mode, percentage):
-    """Apply the mode-dependent perturbation to an NN model's parameters in place.
-
-    Mirrors the per-mode perturbation that perturb_model() applies to the
-    local-potential `new_model`, so the spin-field model b(q) can be perturbed
-    the same way in spin-polarized MC runs. Modes 6 and 7 don't perturb any NN
-    parameters (they only touch SOC/NL ham params), so this is a no-op there.
-
-    NOTE: b(q) is zero-initialized (final layer = 0). The multiplicative /
-    normalization modes (1, 2, 3) leave zeros at zero and can never move b away
-    from the unpolarized solution; use an additive mode (4, 5, or 8) to actually
-    explore spin polarization.
-    """
-    if mode == 1:
-        for param in new_model.parameters():
-            perturbation = 1 + torch.rand_like(param) * (2 * percentage) - percentage
-            param.data *= perturbation
-    elif mode == 2:
-        for param in new_model.parameters():
-            perturbation = torch.zeros_like(param)
-            with torch.no_grad():
-                for idx in range(param.numel()):
-                    value = param.view(-1)[idx]
-                    if value > 20.0:
-                        perturbation.view(-1)[idx] = -torch.rand(1) * percentage * value
-                    elif value < -20.0:
-                        perturbation.view(-1)[idx] = torch.rand(1) * percentage * value
-                    elif -0.01 < value < 0.01:
-                        random_sign = torch.randint(0, 2, (1,)) * 2 - 1
-                        perturbation.view(-1)[idx] = random_sign * torch.rand(1) * 10 * percentage * value
-                    else:
-                        random_sign = torch.randint(0, 2, (1,)) * 2 - 1
-                        perturbation.view(-1)[idx] = random_sign * torch.rand(1) * percentage * value
-                param += perturbation
-    elif mode == 3:
-        original_params = {}
-        for name, param in new_model.named_parameters():
-            mean = param.data.mean()
-            std = param.data.std()
-            original_params[name] = (mean, std)
-            param.data = (param.data - mean) / (std + 1e-8)
-        with torch.no_grad():
-            for name, param in new_model.named_parameters():
-                num_params = param.data.numel()
-                num_to_move = int(0.5 * num_params)
-                indices = np.random.choice(num_params, num_to_move, replace=False)
-                perturbations = torch.randn(num_params) * percentage
-                param.data.view(-1)[indices] += perturbations[indices]
-        for name, param in new_model.named_parameters():
-            mean, std = original_params[name]
-            param.data = param.data * std + mean
-    elif mode == 4:
-        for param in new_model.parameters():
-            if (np.random.random() <= 0.6):
-                random_sign = torch.randint(0, 2, param.shape, dtype=torch.float64) * 2 - 1
-                param.data += percentage * random_sign
-    elif mode == 5:
-        for param in new_model.parameters():
-            if (np.random.random() <= 0.6):
-                random_sign = torch.randint(0, 2, param.shape, dtype=torch.float64) * 2 - 1
-                param.data += percentage/10 * random_sign
-    elif mode == 8:
-        for param in new_model.parameters():
-            if (np.random.random() <= 0.6):
-                random_sign = torch.randint(0, 2, param.shape, dtype=torch.float64) * 2 - 1
-                param.data += percentage/1 * random_sign
-
-
-def perturb_model(model, hams, percentage=0.0, mode=1, spinModel=None):
+def perturb_model(model, hams, percentage=0.0, mode=1): 
     def check_atomPPOrder():
         atomPPOrder = getattr(hams[0], 'atomPPorder', None)  # This should be consistent across all hams
         if atomPPOrder is None:
@@ -1494,8 +1260,6 @@ def perturb_model(model, hams, percentage=0.0, mode=1, spinModel=None):
 
     # copy to new_model. Make changes on the new ones
     new_model = copy.deepcopy(model)
-    # In spin-polarized runs, perturb the spin field b(q) alongside the local pot.
-    new_spinModel = copy.deepcopy(spinModel) if spinModel is not None else None
 
     # Make a copy of the old ham_PPparams. Make changes in place on the hams.
     old_hams_PPparams = [copy.deepcopy(ham.PPparams) for ham in hams]
@@ -1637,45 +1401,26 @@ def perturb_model(model, hams, percentage=0.0, mode=1, spinModel=None):
                         if atomType in ham.PPparams:
                             ham.PPparams[atomType][p] += step
 
-    # Perturb the spin field b(q) with the same per-mode rule as the local pot.
-    # (The additive-mode caveat for b(q) is documented in _perturb_nn_params and
-    # warned about once up front in runMC_NN.)
-    if new_spinModel is not None:
-        _perturb_nn_params(new_spinModel, mode, percentage)
-
-    return new_model, new_spinModel, old_hams_PPparams
+    return new_model, old_hams_PPparams
 
 
-def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFolder, cachedMats_info=None, spinModel=None):
+def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFolder, cachedMats_info=None):
     file_trainCost = open(f'{resultsFolder}final_mc_cost.dat', "w")
     file_trainCost.write("# iter      newLoss      accept?      bestLoss      currLoss\n")
     
-    if spinModel is not None:
-        print(f"Monte Carlo on a spin-polarized run (tot_magnetization != 0): "
-              f"perturbing the spin field b(q) alongside the local potential.")
-        mc_mode = NNConfig['mc_perturb_mode'] if 'mc_perturb_mode' in NNConfig else 1
-        if mc_mode not in (4, 5, 8):
-            print(f"WARNING: perturb mode {mc_mode} leaves the zero-initialized spin field b(q) "
-                  f"at zero. Use an additive mode (4, 5, or 8) to explore spin polarization in MC.")
-
     bestModel = model
-    bestSpinModel = spinModel
-    bestLoss = evalBS_noGrad(bestModel, f'{resultsFolder}mc_iter_0_plotBS.pdf', f'mc_iter_0', NNConfig, hams, systems, cachedMats_info, resultsFolder=resultsFolder, spinModel=spinModel)
+    bestLoss = evalBS_noGrad(bestModel, f'{resultsFolder}mc_iter_0_plotBS.pdf', f'mc_iter_0', NNConfig, hams, systems, cachedMats_info, resultsFolder=resultsFolder)
     print_and_inspect_NNParams(bestModel, f'{resultsFolder}best_params.dat', show=True)
     shutil.copy(f'{resultsFolder}mc_iter_0_plotBS.pdf', f'{resultsFolder}best_plotBS.pdf')
     currModel = model
-    currSpinModel = spinModel
     currLoss = bestLoss
     trial_COST = [currLoss]
     accepted_COST = [currLoss]
 
     for iter in range(NNConfig['mc_iter']):
         print(f"\nIteration [{iter+1}/{NNConfig['mc_iter']}]: ")
-        newModel, newSpinModel, old_PPparams = perturb_model(currModel, hams, percentage=NNConfig['mc_percentage'], mode=NNConfig['mc_perturb_mode'] if 'mc_perturb_mode' in NNConfig else 1, spinModel=currSpinModel)
-        # writeBS=True dumps the band structures to mc_iter_{iter+1}_BS_sys{iSys}.dat
-        # for this trial model. They are kept only when the step is accepted (see
-        # below); rejected trials delete them to save storage.
-        newLoss = evalBS_noGrad(newModel, f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf', f'mc_iter_{iter+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder, spinModel=newSpinModel)
+        newModel, old_PPparams = perturb_model(currModel, hams, percentage=NNConfig['mc_percentage'], mode=NNConfig['mc_perturb_mode'] if 'mc_perturb_mode' in NNConfig else 1)
+        newLoss = evalBS_noGrad(newModel, f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf', f'mc_iter_{iter+1}', NNConfig, hams, systems, cachedMats_info, resultsFolder=resultsFolder)
         print(f"newLoss={newLoss.item():.4f}. ")
 
         mc_rand = np.exp(-1 * NNConfig['mc_beta'] * (np.sqrt(newLoss) - np.sqrt(currLoss)))
@@ -1684,10 +1429,8 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
         if newLoss < bestLoss:   # accept
             bestLoss = newLoss
             bestModel = newModel
-            bestSpinModel = newSpinModel
             currLoss = newLoss
             currModel = newModel
-            currSpinModel = newSpinModel
             file_trainCost.write(f"{iter+1}    {newLoss.item():.4f}    {1}    {bestLoss.item():.4f}    {currLoss.item():.4f}\n")
             file_trainCost.flush()
             print(f"Accepted. currLoss={currLoss.item():.4f}")
@@ -1701,32 +1444,12 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             write_PP_qSpace(f'{resultsFolder}final_qSpace_pot.dat', newModel, atomPPOrder, qmax=NNConfig['qmax'], nQGrid=NNConfig['nQGrid'])
             shutil.copy(f'{resultsFolder}final_qSpace_pot.dat', f'{resultsFolder}best_qSpace_pot.dat')
 
-            # spin-polarized run: save the accepted spin field b(q) and the
-            # up/down-resolved potentials for both best_ and final_.
-            if newSpinModel is not None:
-                write_PP_qSpace_spin(f'{resultsFolder}final_qSpace_pot_spin.dat', newModel, newSpinModel, atomPPOrder, qmax=NNConfig['qmax'], nQGrid=NNConfig['nQGrid'])
-                shutil.copy(f'{resultsFolder}final_qSpace_pot_spin.dat', f'{resultsFolder}best_qSpace_pot_spin.dat')
-                torch.save(newSpinModel.state_dict(), f'{resultsFolder}final_spinModel.pth')
-                shutil.copy(f'{resultsFolder}final_spinModel.pth', f'{resultsFolder}best_spinModel.pth')
-                fig_spin = plotPP_spin(atomPPOrder, val_dataset.q, newModel(val_dataset.q), newSpinModel(val_dataset.q), f"mc_iter_{iter+1}", NNConfig['SHOWPLOTS'])
-                fig_spin.savefig(f'{resultsFolder}final_plotPP_spin.pdf')
-                fig_spin.savefig(f'{resultsFolder}best_plotPP_spin.pdf')
-                plt.close(fig_spin)
-
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth', f'{resultsFolder}final_PPmodel.pth')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf', f'{resultsFolder}final_plotPP.pdf')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf', f'{resultsFolder}final_plotBS.pdf')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth', f'{resultsFolder}best_PPmodel.pth')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf', f'{resultsFolder}best_plotPP.pdf')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf', f'{resultsFolder}best_plotBS.pdf')
-
-            # keep the accepted band structures; mirror them to best_/final_
-            for iSys in range(len(systems)):
-                for suffix in ['', '_trueE', '_relative']:
-                    src = f'{resultsFolder}mc_iter_{iter+1}_BS_sys{iSys}{suffix}.dat'
-                    if os.path.exists(src):
-                        shutil.copy(src, f'{resultsFolder}final_BS_sys{iSys}{suffix}.dat')
-                        shutil.copy(src, f'{resultsFolder}best_BS_sys{iSys}{suffix}.dat')
 
             # remove iteration files to save storage
             os.remove(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf')
@@ -1745,7 +1468,6 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
         elif mc_accept_bool:   # new loss is higher, but we still accept.
             currLoss = newLoss
             currModel = newModel
-            currSpinModel = newSpinModel
             file_trainCost.write(f"{iter+1}    {newLoss.item():.4f}    {1}    {bestLoss.item():.4f}    {currLoss.item():.4f}\n")
             file_trainCost.flush()
             print(f"Accepted. currLoss={currLoss.item():.4f}")
@@ -1757,29 +1479,14 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             torch.save(currModel.state_dict(), f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth')
             write_PP_qSpace(f'{resultsFolder}final_qSpace_pot.dat', newModel, atomPPOrder, qmax=NNConfig['qmax'], nQGrid=NNConfig['nQGrid'])
 
-            # spin-polarized run: save the accepted spin field b(q) to final_.
-            if newSpinModel is not None:
-                write_PP_qSpace_spin(f'{resultsFolder}final_qSpace_pot_spin.dat', newModel, newSpinModel, atomPPOrder, qmax=NNConfig['qmax'], nQGrid=NNConfig['nQGrid'])
-                torch.save(newSpinModel.state_dict(), f'{resultsFolder}final_spinModel.pth')
-                fig_spin = plotPP_spin(atomPPOrder, val_dataset.q, newModel(val_dataset.q), newSpinModel(val_dataset.q), f"mc_iter_{iter+1}", NNConfig['SHOWPLOTS'])
-                fig_spin.savefig(f'{resultsFolder}final_plotPP_spin.pdf')
-                plt.close(fig_spin)
-
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_PPmodel.pth', f'{resultsFolder}final_PPmodel.pth')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf', f'{resultsFolder}final_plotPP.pdf')
             shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf', f'{resultsFolder}final_plotBS.pdf')
 
-            # keep the accepted band structures; mirror them to final_
-            for iSys in range(len(systems)):
-                for suffix in ['', '_trueE', '_relative']:
-                    src = f'{resultsFolder}mc_iter_{iter+1}_BS_sys{iSys}{suffix}.dat'
-                    if os.path.exists(src):
-                        shutil.copy(src, f'{resultsFolder}final_BS_sys{iSys}{suffix}.dat')
-
-            for ham in hams:
+            for ham in hams: 
                 for atomType in ham.PPparams:
                     f = open(f'{resultsFolder}mc_iter_{iter+1}_{atomType}Params.dat', "w")
-                    for i in range(9):
+                    for i in range(9): 
                         f.write(f"{ham.PPparams[atomType][i]:.8f}\n")
                     f.close()
                     shutil.copy(f'{resultsFolder}mc_iter_{iter+1}_{atomType}Params.dat', f'{resultsFolder}final_{atomType}Params.dat')
@@ -1799,13 +1506,6 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
             # fig.savefig(f'{resultsFolder}mc_iter_{iter+1}_plotPP.pdf')
             os.remove(f'{resultsFolder}mc_iter_{iter+1}_plotBS.pdf')
             os.remove(f'{resultsFolder}mc_iter_{iter+1}_plotBS.png')
-
-            # rejected trial: discard its band structures to save storage
-            for iSys in range(len(systems)):
-                for suffix in ['', '_trueE', '_relative']:
-                    src = f'{resultsFolder}mc_iter_{iter+1}_BS_sys{iSys}{suffix}.dat'
-                    if os.path.exists(src):
-                        os.remove(src)
         
         trial_COST.append(newLoss.item())
         accepted_COST.append(currLoss.item())
@@ -1818,4 +1518,4 @@ def runMC_NN(model, NNConfig, systems, hams, atomPPOrder, val_dataset, resultsFo
     fig_cost = plot_mc_cost(trial_COST, accepted_COST, False, NNConfig['SHOWPLOTS']);
     fig_cost.savefig(f'{resultsFolder}final_mc_cost.pdf')
     file_trainCost.close()
-    return (trial_COST, accepted_COST, bestModel, currModel, bestSpinModel, currSpinModel)
+    return (trial_COST, accepted_COST, bestModel, currModel)

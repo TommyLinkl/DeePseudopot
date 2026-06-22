@@ -128,40 +128,12 @@ def init_Zunger_train_GPU(model, device, train_loader, val_loader, criterion, op
     return (training_cost, validation_cost)
 
 #Change by Helen
-def init_ZungerPP_spin(inputsFolder, PPmodel, spinModel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder, force_retrain=False):
-    """
-    Spin-polarized initialization. The local-potential NN (PPmodel) is
-    initialized EXACTLY as in init_ZungerPP (load init_PPmodel.pth, otherwise
-    train to the Zunger / NN_ref function form). The spin-field NN (spinModel) is
-    handled symmetrically to init_PPmodel.pth: it is loaded from
-    init_spinModel.pth when that file is present.
-
-    Note: spinModel is zero-initialized by the caller (b(q)=0, the unpolarized
-    starting point) and has NO Zunger reference to train against, so it is only
-    ever loaded from file here; if init_spinModel.pth is absent it is left at its
-    zero initialization.
-
-    Always returns (PPmodel, spinModel, ZungerPPFunc_val).
-    """
-    # Load the spin field from file if available, mirroring how init_PPmodel.pth
-    # is read for PPmodel inside init_ZungerPP.
-    if os.path.exists(inputsFolder + 'init_spinModel.pth'):
-        print(f"\n{'#' * 40}\nInitializing the spin field with file {inputsFolder}init_spinModel.pth.")
-        spinModel.load_state_dict(torch.load(inputsFolder + 'init_spinModel.pth'))
-    else:
-        print(f"\nNo {inputsFolder}init_spinModel.pth found; leaving the spin field at its zero initialization.")
-
-    # Initialize the local potential exactly as the non-spin path does.
-    PPmodel, ZungerPPFunc_val = init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder, force_retrain=force_retrain)
-
-    return PPmodel, spinModel, ZungerPPFunc_val
-
-def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder, force_retrain=False):
+def init_ZungerPP(inputsFolder, PPmodel, spinModel, atomPPOrder, localPotParams, nPseudopot, NNConfig, device, resultsFolder, force_retrain=False):
     """
     Initializes the neural network pseudopotentials by either
     1. getting the NN parameters from {inputsFolder}init_PPmodel.pth
     OR
-    2. trainining to the existing Zunger function form pseudopotential.
+    2. trainining to the existing Zunger function form pseudopotential. 
     """
     ZungerPPFunc_train = init_Zunger_data(atomPPOrder, localPotParams, train=True)
     ZungerPPFunc_val = init_Zunger_data(atomPPOrder, localPotParams, train=False)
@@ -173,15 +145,18 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
         ZungerPPFunc_val = load_qSpace_data(atomPPOrder, f"{inputsFolder}init_qSpace_pot.par")
         PPstring = "NN_ref"
 
-
+#Change by Helen
     if os.path.exists(inputsFolder + 'init_PPmodel.pth'):
         print(f"\n{'#' * 40}\nInitializing the NN with file {inputsFolder}init_PPmodel.pth.")
         PPmodel.load_state_dict(torch.load(inputsFolder + 'init_PPmodel.pth'))
-        if not force_retrain:
-            print(f"Done with NN initialization to the file {inputsFolder}init_PPmodel.pth.")
-            return PPmodel, ZungerPPFunc_val
-
-    if ('init_Zunger_num_epochs' not in NNConfig) or (NNConfig['init_Zunger_num_epochs']==0):
+        if os.path.exists(inputsFolder + 'init_spinModel.pth'):
+            print(f"\n{'#' * 40}\nInitializing the NN with file {inputsFolder}init_spinModel.pth.")
+            spinModel.load_state_dict(torch.load(inputsFolder + 'init_spinModel.pth'))
+            if not force_retrain: 
+                print(f"Done with NN initialization to the filei {inputsFolder}init_PPmodel.pth and {inputsFolder}init_spinModel.pth.")
+                return PPmodel, spinModel, ZungerPPFunc_val
+    
+    if ('init_Zunger_num_epochs' not in NNConfig) or (NNConfig['init_Zunger_num_epochs']==0): 
         print("\nWARNING: Not initializing the NN to the Zunger function form. Could lead to slow convergence. \n")
         return PPmodel, ZungerPPFunc_val
 
@@ -193,11 +168,11 @@ def init_ZungerPP(inputsFolder, PPmodel, atomPPOrder, localPotParams, nPseudopot
 
     init_Zunger_criterion = init_Zunger_weighted_mse
 
-    if ('init_Zunger_optimizer' not in NNConfig) or (NNConfig['init_Zunger_optimizer']=='adam'):
+    if ('init_Zunger_optimizer' not in NNConfig) or (NNConfig['init_Zunger_optimizer']=='adam'): 
         init_Zunger_optimizer = torch.optim.Adam(PPmodel.parameters(), lr=NNConfig['init_Zunger_optimizer_lr'])
-    elif NNConfig['init_Zunger_optimizer']=='sgd':
+    elif NNConfig['init_Zunger_optimizer']=='sgd': 
         init_Zunger_optimizer = torch.optim.SGD(PPmodel.parameters(), lr=NNConfig['init_Zunger_optimizer_lr'])
-    else:
+    else: 
         raise ValueError("We only support 'adam' and 'sgd' for the init_Zunger fitting. ")
 
     init_Zunger_optimizer = torch.optim.Adam(PPmodel.parameters(), lr=NNConfig['init_Zunger_optimizer_lr'])
