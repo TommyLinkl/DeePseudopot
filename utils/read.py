@@ -44,6 +44,9 @@ def read_NNConfigFile(filename):
     # PPparams (indices 5=SOC, 6=NL1, 7=NL2). When 'nonlocal_grad' is on, these
     # scalars are made autograd leaves and optimized alongside the local NN.
     config['nonlocal_grad'] = False
+    # Low-memory mode: cache the SO/NL matrices grouped by atom TYPE rather than
+    # per atom (exactly equivalent result; far less RAM when atoms share a type).
+    config['low_mem'] = False
 
     with open(filename, 'r') as file:
         for line in file:
@@ -54,7 +57,7 @@ def read_NNConfigFile(filename):
                 key, value = stripped.split('=', 1) # split on first '=' only
                 key = key.strip()
                 value = value.strip()
-                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'NLbool', 'cacheSO', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'init_LSD_force_retrain', 'printGrad', 'mc_bool', 'smooth_reorder', 'eigvec_reorder', 'local_env_corr', 'init_LSD_parallel_atoms', 'init_LSD_normalize', 'nonlocal_grad']:
+                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'NLbool', 'cacheSO', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'init_LSD_force_retrain', 'printGrad', 'mc_bool', 'smooth_reorder', 'eigvec_reorder', 'local_env_corr', 'init_LSD_parallel_atoms', 'init_LSD_normalize', 'nonlocal_grad', 'low_mem']:
                     config[key] = bool(int(value))
                 elif key in ['nSystem', 'num_cores', 'num_threads', 'pool_initSO', 'pool_initNL', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'init_LSD_num_epochs', 'init_LSD_plot_every', 'init_LSD_scheduler_step', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter', 'pre_adjust_moves', 'mc_perturb_mode', 'nQGrid', 'nRGrid']:
                     config[key] = int(value)

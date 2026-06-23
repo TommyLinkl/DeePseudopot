@@ -131,6 +131,27 @@ class Hamiltonian:
         # in calcEigValsAtK reconstructs the exact same names from this tag.
         self.shm_tag = None
 
+        # Memory option (low_mem): cache the SO/NL matrices grouped by atom TYPE
+        # rather than per atom. Atoms of the same type share the same PPparams
+        # prefactor, so summing their (constant) projector matrices into one slot
+        # per type is exactly equivalent to summing them in buildSOmat/buildNLmat
+        # (associativity of the Hamiltonian sum), but stores nTypes matrices
+        # instead of nAtoms. For supercells with many same-type atoms (e.g.
+        # graphene) this is a large RAM saving in the SO/NL cache + shared memory.
+        # When low_mem is off, every atom is its own group (legacy behavior).
+        #
+        # "matGroupTypes[g]" is the atom type whose prefactor multiplies group g's
+        # matrix; "atomToGroup[alpha]" maps an atom to the matrix slot it fills.
+        self.low_mem = bool(self.NNConfig.get('low_mem', False))
+        atomTypesList = list(self.system.atomTypes)
+        if self.low_mem:
+            self.matGroupTypes = list(dict.fromkeys(atomTypesList))  # distinct types, first-appearance order
+            self.atomToGroup = [self.matGroupTypes.index(t) for t in atomTypesList]
+        else:
+            self.matGroupTypes = atomTypesList                       # one group per atom
+            self.atomToGroup = list(range(len(atomTypesList)))
+        self.nMatGroups = len(self.matGroupTypes)
+
         # Detect whether any atom actually carries non-local potential
         # coefficients (PPparams indices 6 and 7). This guards the (otherwise
         # wasteful) construction of NL matrices that would be identically zero.
@@ -660,7 +681,7 @@ class Hamiltonian:
         nbv = self.basis.shape[0]
         kidx, SOwidth, defbool, idxGap = args
         # Allocate a local matrix for this k-point
-        mat = np.zeros((self.system.getNAtoms(), 2*nbv, 2*nbv), dtype=np.complex128)
+        mat = np.zeros((self.nMatGroups, 2*nbv, 2*nbv), dtype=np.complex128)
         self.initSOmat_fast_oneKpt(kidx, mat, SOwidth, defbool, idxGap)
         gc.collect()
         return (kidx, mat)
@@ -699,7 +720,7 @@ class Hamiltonian:
         
         if (self.NNConfig["num_cores"] == 0) or (self.NNConfig["pool_initSO"] == 0):
             # serial path
-            SOmats_4d = np.zeros((nkp, self.system.getNAtoms(), 2*nbv, 2*nbv), dtype=np.complex128)
+            SOmats_4d = np.zeros((nkp, self.nMatGroups, 2*nbv, 2*nbv), dtype=np.complex128)
             for kidx in range(nkp):
                 self.initSOmat_fast_oneKpt(kidx, SOmats_4d[kidx], SOwidth, defbool, idxGap)
                 gc.collect()
@@ -711,7 +732,7 @@ class Hamiltonian:
                 results = pool.map(self._wrap_initSOmat, args_list)
 
             # collect into big array
-            SOmats_4d = np.zeros((nkp, self.system.getNAtoms(), 2*nbv, 2*nbv), dtype=np.complex128)
+            SOmats_4d = np.zeros((nkp, self.nMatGroups, 2*nbv, 2*nbv), dtype=np.complex128)
             for kidx, mat in results:
                 SOmats_4d[kidx] = mat
 
@@ -796,25 +817,25 @@ class Hamiltonian:
             # -i * gcp dot S_up,up is pure imag: -i/2 * (gcp.z)
             real_part = prefactor * isum * 0.5 * gcross[:,:, 2] * sfact_im
             im_part = prefactor * isum * -0.5 * gcross[:,:, 2] * sfact_re
-            SOmats_oneKpt_toFill[alpha, :nbv, :nbv] = real_part + 1j * im_part
+            SOmats_oneKpt_toFill[self.atomToGroup[alpha], :nbv, :nbv] += real_part + 1j * im_part
 
             # dn dn
             # -i * gcp dot S_dn,dn is pure imag: i/2 * (gcp.z)
             real_part = prefactor * isum * -0.5 * gcross[:,:, 2] * sfact_im
             im_part = prefactor * isum * 0.5 * gcross[:,:, 2] * sfact_re
-            SOmats_oneKpt_toFill[alpha, nbv:, nbv:] = real_part + 1j * im_part
+            SOmats_oneKpt_toFill[self.atomToGroup[alpha], nbv:, nbv:] += real_part + 1j * im_part
 
             # up dn
             # -i * gcp dot S_up,dn is: -i/2 * (gcp.x) - 1/2 * (gcp.y)
             real_part = prefactor * isum * (0.5 * gcross[:,:, 0] * sfact_im -0.5 * gcross[:,:, 1] * sfact_re)
             im_part = prefactor * isum * (-0.5 * gcross[:,:, 0] * sfact_re -0.5 * gcross[:,:, 1] * sfact_im)
-            SOmats_oneKpt_toFill[alpha, :nbv, nbv:] = real_part + 1j * im_part
+            SOmats_oneKpt_toFill[self.atomToGroup[alpha], :nbv, nbv:] += real_part + 1j * im_part
 
             # dn up
             # -i * gcp dot S_dn,up is: -i/2 * (gcp.x) + 1/2 * (gcp.y)
             real_part = prefactor * isum * (0.5 * gcross[:,:, 0] * sfact_im + 0.5 * gcross[:,:, 1] * sfact_re)
             im_part = prefactor * isum * (-0.5 * gcross[:,:, 0] * sfact_re + 0.5 * gcross[:,:, 1] * sfact_im)
-            SOmats_oneKpt_toFill[alpha, nbv:, :nbv] = real_part + 1j * im_part
+            SOmats_oneKpt_toFill[self.atomToGroup[alpha], nbv:, :nbv] += real_part + 1j * im_part
         return
 
 
@@ -936,7 +957,7 @@ class Hamiltonian:
         # Hamiltonian: 2*nbv with spinors, nbv otherwise (NL is block-diagonal
         # and identical in both spin blocks, so the single block suffices).
         ndim = 2*nbv if self.spinor else nbv
-        mat = np.zeros((self.system.getNAtoms(), 2, ndim, ndim), dtype=np.complex128)
+        mat = np.zeros((self.nMatGroups, 2, ndim, ndim), dtype=np.complex128)
         self.initNLmat_fast_oneKpt(kidx, mat, width1, width2, shift, defbool, idxGap)
         gc.collect()
         return (kidx, mat)
@@ -984,7 +1005,7 @@ class Hamiltonian:
         # this can be parallelized over kpoints, but it's not critical since
         # this is only done once during initialization
         if (self.NNConfig["num_cores"] == 0) or (self.NNConfig["pool_initNL"] == 0):
-          NLmats_5d = np.zeros((nkp, self.system.getNAtoms(), 2, ndim, ndim), dtype=np.complex128)
+          NLmats_5d = np.zeros((nkp, self.nMatGroups, 2, ndim, ndim), dtype=np.complex128)
           for kidx in range(nkp):
               self.initNLmat_fast_oneKpt(kidx, NLmats_5d[kidx], width1, width2, shift, defbool, idxGap)
               gc.collect()
@@ -995,7 +1016,7 @@ class Hamiltonian:
                 results = pool.map(self._wrap_initNLmat, args_list)
 
             # collect into big array
-            NLmats_5d = np.zeros((nkp, self.system.getNAtoms(), 2, ndim, ndim), dtype=np.complex128)
+            NLmats_5d = np.zeros((nkp, self.nMatGroups, 2, ndim, ndim), dtype=np.complex128)
             for kidx, mat in results:
                 NLmats_5d[kidx] = mat
 
@@ -1090,21 +1111,21 @@ class Hamiltonian:
             # up up, 1st integral
             real_part = prefactor * isum1 * gdot * sfact_re
             im_part = prefactor * isum1 * gdot * sfact_im
-            NLmats_oneKpt_toFill[alpha,0, :nbv, :nbv] = real_part + 1j* im_part
+            NLmats_oneKpt_toFill[self.atomToGroup[alpha],0, :nbv, :nbv] += real_part + 1j* im_part
             # 2nd integral
             real_part = prefactor * isum2 * gdot * sfact_re
             im_part = prefactor * isum2 * gdot * sfact_im
-            NLmats_oneKpt_toFill[alpha,1, :nbv, :nbv] = real_part + 1j * im_part
+            NLmats_oneKpt_toFill[self.atomToGroup[alpha],1, :nbv, :nbv] += real_part + 1j * im_part
 
             if self.spinor:
                 # dn dn, 1st integral
                 real_part = prefactor * isum1 * gdot * sfact_re
                 im_part = prefactor * isum1 * gdot * sfact_im
-                NLmats_oneKpt_toFill[alpha,0, nbv:, nbv:] = real_part + 1j * im_part
+                NLmats_oneKpt_toFill[self.atomToGroup[alpha],0, nbv:, nbv:] += real_part + 1j * im_part
                 # 2nd integral
                 real_part = prefactor * isum2 * gdot * sfact_re
                 im_part = prefactor * isum2 * gdot * sfact_im
-                NLmats_oneKpt_toFill[alpha,1, nbv:, nbv:] = real_part + 1j * im_part
+                NLmats_oneKpt_toFill[self.atomToGroup[alpha],1, nbv:, nbv:] += real_part + 1j * im_part
         return
     
     
@@ -1122,7 +1143,7 @@ class Hamiltonian:
                 print("WARNING: Didn't find precomputed SOmats stored in shared memory. This buildSOmat could drastically slow down multiprocessing parallelization.")
             if self.SOmats is None: 
                 print("WARNING. THIS WILL BE SLOW. Attempting to build the SOmat, but 1) no precomputed SOmats are stored in shared memory, 2) no cached SOmatrices in the ham class. \nCalculating the SOmats for each kpt on the fly. ")
-                SOmats_kidx = np.zeros((self.system.getNAtoms(), 2*self.basis.shape[0], 2*self.basis.shape[0]), dtype=np.complex128)
+                SOmats_kidx = np.zeros((self.nMatGroups, 2*self.basis.shape[0], 2*self.basis.shape[0]), dtype=np.complex128)
                 self.initSOmat_fast_oneKpt(kidx, SOmats_kidx)
             else: 
                 SOmats_kidx = self.SOmats[kidx]
@@ -1137,13 +1158,13 @@ class Hamiltonian:
         else:
             SOmatf = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
         
-        for alpha in range(self.system.getNAtoms()):
-            if isinstance(SOmats_kidx[alpha], torch.Tensor):
-                tmp = SOmats_kidx[alpha]
+        for g in range(self.nMatGroups):
+            if isinstance(SOmats_kidx[g], torch.Tensor):
+                tmp = SOmats_kidx[g]
             else:
-                tmp = torch.tensor(SOmats_kidx[alpha])
+                tmp = torch.tensor(SOmats_kidx[g])
 
-            SOmatf = SOmatf + tmp * self.PPparams[self.system.atomTypes[alpha]][5]
+            SOmatf = SOmatf + tmp * self.PPparams[self.matGroupTypes[g]][5]
 
         return SOmatf
     
@@ -1163,7 +1184,7 @@ class Hamiltonian:
             if self.NLmats is None:
                 print("WARNING. THIS WILL BE SLOW. Attempting to build the NLmat, but 1) no precomputed NLmats are stored in shared memory, 2) no cached NL matrices in the ham class. \nCalculating the NLmats on the fly. ")
                 ndim = 2*self.basis.shape[0] if self.spinor else self.basis.shape[0]
-                NLmats_kidx = np.zeros((self.system.getNAtoms(), 2, ndim, ndim), dtype=np.complex128)
+                NLmats_kidx = np.zeros((self.nMatGroups, 2, ndim, ndim), dtype=np.complex128)
                 self.initNLmat_fast_oneKpt(kidx, NLmats_kidx)
             else:
                 NLmats_kidx = self.NLmats[kidx]
@@ -1181,18 +1202,18 @@ class Hamiltonian:
         else:
             NLmatf = torch.zeros([ndim, ndim], dtype=torch.complex128)
         
-        for alpha in range(self.system.getNAtoms()):
-            if isinstance(NLmats_kidx[alpha,0], torch.Tensor):
-                tmp1 = NLmats_kidx[alpha,0]
+        for g in range(self.nMatGroups):
+            if isinstance(NLmats_kidx[g,0], torch.Tensor):
+                tmp1 = NLmats_kidx[g,0]
             else:
-                tmp1 = torch.tensor(NLmats_kidx[alpha,0])
-            if isinstance(NLmats_kidx[alpha,1], torch.Tensor):
-                tmp2 = NLmats_kidx[alpha,1]
+                tmp1 = torch.tensor(NLmats_kidx[g,0])
+            if isinstance(NLmats_kidx[g,1], torch.Tensor):
+                tmp2 = NLmats_kidx[g,1]
             else:
-                tmp2 = torch.tensor(NLmats_kidx[alpha,1])
+                tmp2 = torch.tensor(NLmats_kidx[g,1])
 
-            NLmatf = (NLmatf + tmp1 * self.PPparams[self.system.atomTypes[alpha]][6]
-                             + tmp2 * self.PPparams[self.system.atomTypes[alpha]][7] )
+            NLmatf = (NLmatf + tmp1 * self.PPparams[self.matGroupTypes[g]][6]
+                             + tmp2 * self.PPparams[self.matGroupTypes[g]][7] )
 
         return NLmatf
 
