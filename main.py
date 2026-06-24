@@ -17,6 +17,7 @@ from utils.init_LSD_train import init_LSD_PP
 from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, weighted_relative_mse_bandStruct, weighted_relative_mse_energiesAtKpt, bandStruct_train_GPU, evalBS_noGrad, runMC_NN, write_PP_qSpace, write_PP_qSpace_spin
 from utils.ham import initAndCacheHams, set_LSDModels
 from utils.genMovie import genMovie
+from utils.profiling import PROF, benchmark_eigensolve
 
 def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     torch.set_default_dtype(torch.float64)
@@ -26,6 +27,10 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     os.makedirs(resultsFolder, exist_ok=True)
 
     NNConfig = read_NNConfigFile(inputsFolder + 'NN_config.par')
+    # Enable the aggregating timing/memory profiler (utils/profiling.PROF) based
+    # on the runtime_flag / memory_flag switches. When on, the training loop
+    # prints a per-section breakdown (build vs diagonalize) plus RSS checkpoints.
+    PROF.configure(NNConfig.get('runtime_flag', False), NNConfig.get('memory_flag', False))
     # os.environ["OMP_NUM_THREADS"] = f"{NNConfig["num_threads"]}"
     # os.environ["MKL_NUM_THREADS"] = f"{NNConfig["num_threads"]}"
     # torch.set_num_threads(NNConfig["num_threads"])
@@ -72,8 +77,19 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
         LSDoptimizers = {atom: None for atom in atomPPOrder}
         LSDschedulers = {atom: None for atom in atomPPOrder}
 
-    # Initialize the ham class for each BulkSystem. Cache the SO and NL mats. 
+    # Initialize the ham class for each BulkSystem. Cache the SO and NL mats.
     hams, cachedMats_info, shm_dict_SO, shm_dict_NL = initAndCacheHams(systems, NNConfig, PPparams, atomPPOrder, device, spinModel=spinModel)
+    PROF.mem_checkpoint("after initAndCacheHams")
+
+    # One-shot diagnostic: how does diagonalizing a representative Hamiltonian
+    # scale with BLAS/torch threads? This directly answers "should I parallelize
+    # the eigensolve (num_threads>1) vs keep BLAS single-threaded and parallelize
+    # over k-points?" at the actual matrix size of this run.
+    if NNConfig.get('runtime_flag', False) and len(hams) > 0:
+        _nbv = hams[0].basis.shape[0]
+        _ndim = 2 * _nbv if hams[0].spinor else _nbv
+        benchmark_eigensolve(_ndim)
+
     if NNConfig['local_env_corr']:
         # Initialize the LSD correction to the potential differences
         LSDmodels, LSD_PPFunc_val = init_LSD_PP(inputsFolder, LSDmodels, systems, atomPPOrder, NNConfig, resultsFolder, force_retrain=NNConfig["init_LSD_force_retrain"])
@@ -95,7 +111,12 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     
     # Evaluate the band structures and pseudopotentials for the initialized NN
     print("\nEvaluating band structures using the initialized pseudopotentials. ")
+    PROF.reset()
     init_totalMSE = evalBS_noGrad(PPmodel, f'{resultsFolder}initZunger_plotBS.pdf', 'Init NN BS', NNConfig, hams, systems, cachedMats_info, writeBS=True, resultsFolder=resultsFolder, spinModel=spinModel)
+    # Profile of the no-grad evaluation pass (serial path captures build+diag
+    # fully; with num_cores>0 the eval runs in mp workers whose timing is not
+    # folded back here -- use the training-loop report or num_cores=0 to profile).
+    PROF.report("EVAL PROFILE (initial no-grad band structure)", reset=True)
 
     print("Converge the pseudopotentials in the real and reciprocal space for the initialized NN. ")
     Rmax = 30.0

@@ -10,11 +10,13 @@ import gc
 from torch.utils.checkpoint import checkpoint
 import multiprocessing as mp
 from multiprocessing import Process, Queue, Pool, shared_memory
+from concurrent.futures import ThreadPoolExecutor
 import gc
 
 from .constants import *
 from .pp_func import pot_func, pot_funcLR, long_range_correction, qSpacePot_ft
 from .read import init_critical_NNconfig, setNN
+from .profiling import PROF
 from utils.local_structure_correction import calcLocalSymmDescriptor
 
 torch.set_default_dtype(torch.float64)
@@ -261,6 +263,31 @@ class Hamiltonian:
         return so_mats, nl_mats
 
 
+    def _init_parallel_mode(self, pool_flag, nkp):
+        """
+        Decide how the SO/NL matrix initialization parallelizes over k-points.
+
+        Returns one of:
+          "serial"  - single-threaded loop (num_cores==0 or only one k-point).
+          "thread"  - OpenMP-style shared-memory threads (default when
+                      num_cores>0). The per-k-point integrals are heavy
+                      numpy/scipy that release the GIL, so threads parallelize
+                      with no per-worker copy of the Hamiltonian and no pickling.
+          "process" - legacy mp.Pool over k-points. Only used when the user
+                      explicitly disables init_threads AND sets the
+                      pool_initSO/pool_initNL flag. Higher memory (pickles the
+                      whole ham to each worker and copies results back).
+        """
+        num_cores = self.NNConfig.get("num_cores", 0)
+        if num_cores <= 0 or nkp <= 1:
+            return "serial"
+        if self.NNConfig.get("init_threads", True):
+            return "thread"
+        if pool_flag != 0:
+            return "process"
+        return "serial"
+
+
     def buildHtot(self, kidx, preComp_SOmats_kidx=None, preComp_NLmats_kidx=None, requires_grad=True):
         """
         Build the total Hamiltonian for a given kpt, specified by its kidx. 
@@ -268,38 +295,36 @@ class Hamiltonian:
         SO and NL matrices (actual matrices) at the certain kidx
         """
         nbv = self.basis.shape[0]
-        if self.spinor:
-            Htot = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
-        else:
-            Htot = torch.zeros([nbv, nbv], dtype=torch.complex128)
-
-        # kinetic energy (spin-diagonal: identical in both spin blocks)
-        if self.spinor: top = 2*nbv
-        else: top = nbv
-        for i in range(top):
-            Htot[i,i] = HBAR**2 / (2*MASS) * torch.norm(self.basis[i%nbv] + self.system.kpts[kidx])**2
+        # kinetic energy (spin-diagonal: identical in both spin blocks).
+        # Vectorized over the basis to avoid a Python loop over (2*)nbv per kpt
+        # in the training inner loop.
+        with PROF.time("Htot_kinetic"):
+            if self.spinor:
+                Htot = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
+            else:
+                Htot = torch.zeros([nbv, nbv], dtype=torch.complex128)
+            kvec = self.basis + self.system.kpts[kidx]
+            kin = (HBAR**2 / (2*MASS)) * (kvec * kvec).sum(dim=1)   # real, length nbv
+            if self.spinor:
+                kin = kin.repeat(2)                                 # up block then dn block
+            diag_idx = torch.arange(kin.shape[0])
+            Htot[diag_idx, diag_idx] = kin.to(Htot.dtype)
 
         # local potential
-        start_time = time.time() if self.NNConfig['runtime_flag'] else None
-        Htot = self.buildVlocMat(addMat=Htot)
-        if not requires_grad: 
-            Htot = Htot.detach()
-        end_time = time.time() if self.NNConfig['runtime_flag'] else None
-        print(f"Building VlocMat, elapsed time: {(end_time - start_time):.2f} seconds", flush=True) if self.NNConfig['runtime_flag'] else None
-        
+        with PROF.time("Htot_Vloc"):
+            Htot = self.buildVlocMat(addMat=Htot)
+            if not requires_grad:
+                Htot = Htot.detach()
+
         if self.SObool:
-            start_time = time.time() if self.NNConfig['runtime_flag'] else None
-            Htot = self.buildSOmat(kidx, preComp_SOmats_kidx, addMat=Htot)
-            end_time = time.time() if self.NNConfig['runtime_flag'] else None
-            print(f"Building SOmat, elapsed time: {(end_time - start_time):.2f} seconds", flush=True) if self.NNConfig['runtime_flag'] else None
+            with PROF.time("Htot_SO"):
+                Htot = self.buildSOmat(kidx, preComp_SOmats_kidx, addMat=Htot)
 
         # The non-local potential is added independently of spin-orbit, gated on
         # NLbool (and the presence of non-local coefficients).
         if self.NLbool and self.checknl:
-            start_time = time.time() if self.NNConfig['runtime_flag'] else None
-            Htot = self.buildNLmat(kidx, preComp_NLmats_kidx, addMat=Htot)
-            end_time = time.time() if self.NNConfig['runtime_flag'] else None
-            print(f"Building NLmat, elapsed time: {(end_time - start_time):.2f} seconds", flush=True) if self.NNConfig['runtime_flag'] else None
+            with PROF.time("Htot_NL"):
+                Htot = self.buildNLmat(kidx, preComp_NLmats_kidx, addMat=Htot)
 
         if self.device.type == "cuda":
             # !!! is this sufficient to match previous performance?
@@ -358,11 +383,14 @@ class Hamiltonian:
         else:
             Htot = torch.zeros([nbv, nbv], dtype=torch.complex128)
 
-        # kinetic energy (spin-diagonal: identical in both spin blocks)
-        if self.spinor: top = 2*nbv
-        else: top = nbv
-        for i in range(top):
-            Htot[i,i] = HBAR**2 / (2*MASS) * torch.norm(self.basis[i%nbv] + self.system.kpts[kidx])**2
+        # kinetic energy (spin-diagonal: identical in both spin blocks).
+        # Vectorized over the basis to avoid a Python loop over (2*)nbv.
+        kvec = self.basis + self.system.kpts[kidx]
+        kin = (HBAR**2 / (2*MASS)) * (kvec * kvec).sum(dim=1)   # real, length nbv
+        if self.spinor:
+            kin = kin.repeat(2)                                 # up block then dn block
+        diag_idx = torch.arange(kin.shape[0])
+        Htot[diag_idx, diag_idx] = kin.to(Htot.dtype)
 
         # local potential
         Htot = self.buildVlocMat(addMat=Htot)
@@ -430,11 +458,14 @@ class Hamiltonian:
         else:
             Htot = torch.zeros([nbv, nbv], dtype=torch.complex128)
 
-        # kinetic energy (spin-diagonal: identical in both spin blocks)
-        if self.spinor: top = 2*nbv
-        else: top = nbv
-        for i in range(top):
-            Htot[i,i] = HBAR**2 / (2*MASS) * torch.norm(self.basis[i%nbv] + self.system.kpts[kidx])**2
+        # kinetic energy (spin-diagonal: identical in both spin blocks).
+        # Vectorized over the basis to avoid a Python loop over (2*)nbv.
+        kvec = self.basis + self.system.kpts[kidx]
+        kin = (HBAR**2 / (2*MASS)) * (kvec * kvec).sum(dim=1)   # real, length nbv
+        if self.spinor:
+            kin = kin.repeat(2)                                 # up block then dn block
+        diag_idx = torch.arange(kin.shape[0])
+        Htot[diag_idx, diag_idx] = kin.to(Htot.dtype)
 
         # local potential
         Htot = self.buildVlocMat(addMat=Htot)
@@ -718,23 +749,35 @@ class Hamiltonian:
         else:
             nkp = self.system.getNKpts()
         
-        if (self.NNConfig["num_cores"] == 0) or (self.NNConfig["pool_initSO"] == 0):
-            # serial path
-            SOmats_4d = np.zeros((nkp, self.nMatGroups, 2*nbv, 2*nbv), dtype=np.complex128)
-            for kidx in range(nkp):
-                self.initSOmat_fast_oneKpt(kidx, SOmats_4d[kidx], SOwidth, defbool, idxGap)
-                gc.collect()
-            
-        else:
-            print(f"Initializing with {self.NNConfig['num_cores']} pools\n")
-            args_list = [(kidx, SOwidth, defbool, idxGap) for kidx in range(nkp)]
-            with mp.Pool(self.NNConfig['num_cores']) as pool:
-                results = pool.map(self._wrap_initSOmat, args_list)
+        # Single result buffer that every k-point writes into directly. This is
+        # the only large allocation: workers fill disjoint k-point slices in
+        # place, so we never hold a second copy of the matrices.
+        SOmats_4d = np.zeros((nkp, self.nMatGroups, 2*nbv, 2*nbv), dtype=np.complex128)
 
-            # collect into big array
-            SOmats_4d = np.zeros((nkp, self.nMatGroups, 2*nbv, 2*nbv), dtype=np.complex128)
-            for kidx, mat in results:
-                SOmats_4d[kidx] = mat
+        mode = self._init_parallel_mode(self.NNConfig.get("pool_initSO", 0), nkp)
+        with PROF.time("init_SO"):
+            if mode == "thread":
+                # OpenMP-style shared-memory parallelism over k-points. The SO
+                # integral is heavy numpy/scipy (erf, exp, tensordot) that releases
+                # the GIL, so threads give real parallelism with no per-worker copy
+                # of the Hamiltonian and no IPC/pickling overhead.
+                n_workers = min(self.NNConfig["num_cores"], nkp)
+                print(f"Initializing SO mats with {n_workers} shared-memory threads\n", flush=True)
+                with ThreadPoolExecutor(max_workers=n_workers) as ex:
+                    list(ex.map(
+                        lambda kidx: self.initSOmat_fast_oneKpt(kidx, SOmats_4d[kidx], SOwidth, defbool, idxGap),
+                        range(nkp)))
+            elif mode == "process":
+                print(f"Initializing SO mats with {self.NNConfig['num_cores']} processes\n", flush=True)
+                args_list = [(kidx, SOwidth, defbool, idxGap) for kidx in range(nkp)]
+                with mp.Pool(self.NNConfig['num_cores']) as pool:
+                    results = pool.map(self._wrap_initSOmat, args_list)
+                for kidx, mat in results:
+                    SOmats_4d[kidx] = mat
+            else:
+                for kidx in range(nkp):
+                    self.initSOmat_fast_oneKpt(kidx, SOmats_4d[kidx], SOwidth, defbool, idxGap)
+                    gc.collect()
 
         return SOmats_4d
 
@@ -1002,23 +1045,35 @@ class Hamiltonian:
         # spin blocks, so the single block is sufficient when spinors are off).
         ndim = 2*nbv if self.spinor else nbv
 
-        # this can be parallelized over kpoints, but it's not critical since
-        # this is only done once during initialization
-        if (self.NNConfig["num_cores"] == 0) or (self.NNConfig["pool_initNL"] == 0):
-          NLmats_5d = np.zeros((nkp, self.nMatGroups, 2, ndim, ndim), dtype=np.complex128)
-          for kidx in range(nkp):
-              self.initNLmat_fast_oneKpt(kidx, NLmats_5d[kidx], width1, width2, shift, defbool, idxGap)
-              gc.collect()
-        else:
-            print(f"Initializing with {self.NNConfig['num_cores']} pools\n")
-            args_list = [(kidx, width1, width2, shift, defbool, idxGap) for kidx in range(nkp)]
-            with mp.Pool(self.NNConfig['num_cores']) as pool:
-                results = pool.map(self._wrap_initNLmat, args_list)
+        # Single result buffer that every k-point writes into directly. This is
+        # the only large allocation: workers fill disjoint k-point slices in
+        # place, so we never hold a second copy of the matrices.
+        NLmats_5d = np.zeros((nkp, self.nMatGroups, 2, ndim, ndim), dtype=np.complex128)
 
-            # collect into big array
-            NLmats_5d = np.zeros((nkp, self.nMatGroups, 2, ndim, ndim), dtype=np.complex128)
-            for kidx, mat in results:
-                NLmats_5d[kidx] = mat
+        mode = self._init_parallel_mode(self.NNConfig.get("pool_initNL", 0), nkp)
+        with PROF.time("init_NL"):
+            if mode == "thread":
+                # OpenMP-style shared-memory parallelism over k-points. The non-local
+                # integral is dominated by scipy quad_vec / numpy work that releases
+                # the GIL, so threads give real parallelism with no per-worker copy of
+                # the Hamiltonian and no IPC/pickling overhead (low memory).
+                n_workers = min(self.NNConfig["num_cores"], nkp)
+                print(f"Initializing NL mats with {n_workers} shared-memory threads\n", flush=True)
+                with ThreadPoolExecutor(max_workers=n_workers) as ex:
+                    list(ex.map(
+                        lambda kidx: self.initNLmat_fast_oneKpt(kidx, NLmats_5d[kidx], width1, width2, shift, defbool, idxGap),
+                        range(nkp)))
+            elif mode == "process":
+                print(f"Initializing NL mats with {self.NNConfig['num_cores']} processes\n", flush=True)
+                args_list = [(kidx, width1, width2, shift, defbool, idxGap) for kidx in range(nkp)]
+                with mp.Pool(self.NNConfig['num_cores']) as pool:
+                    results = pool.map(self._wrap_initNLmat, args_list)
+                for kidx, mat in results:
+                    NLmats_5d[kidx] = mat
+            else:
+                for kidx in range(nkp):
+                    self.initNLmat_fast_oneKpt(kidx, NLmats_5d[kidx], width1, width2, shift, defbool, idxGap)
+                    gc.collect()
 
         return NLmats_5d
     
@@ -1236,34 +1291,30 @@ class Hamiltonian:
             # The SO and NL matrices live in shared memory independently: load the
             # SO matrices only when spin-orbit is active, and the NL matrices only
             # when the non-local potential is active.
-            start_time = time.time() if self.NNConfig['runtime_flag'] else None
-            if self.SObool:
-                shm_SOmats = shared_memory.SharedMemory(name=f"SOmats_{self.shm_tag}_{self.iSystem}_{kidx}")
-                preComp_SOmats_kidx = np.ndarray(cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_SOmats.buf)
-            else:
-                preComp_SOmats_kidx = None
-            if self.NLbool and self.checknl:
-                shm_NLmats = shared_memory.SharedMemory(name=f"NLmats_{self.shm_tag}_{self.iSystem}_{kidx}")
-                preComp_NLmats_kidx = np.ndarray(cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_NLmats.buf)
-            else:
-                preComp_NLmats_kidx = None
-            end_time = time.time() if self.NNConfig['runtime_flag'] else None
-            print(f"Loading shared memory, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
-        else: 
+            with PROF.time("shm_load"):
+                if self.SObool:
+                    shm_SOmats = shared_memory.SharedMemory(name=f"SOmats_{self.shm_tag}_{self.iSystem}_{kidx}")
+                    preComp_SOmats_kidx = np.ndarray(cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_SOmats.buf)
+                else:
+                    preComp_SOmats_kidx = None
+                if self.NLbool and self.checknl:
+                    shm_NLmats = shared_memory.SharedMemory(name=f"NLmats_{self.shm_tag}_{self.iSystem}_{kidx}")
+                    preComp_NLmats_kidx = np.ndarray(cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_NLmats.buf)
+                else:
+                    preComp_NLmats_kidx = None
+        else:
             raise ValueError("Error in calcEigValsAtK. ")
 
-        start_time = time.time() if self.NNConfig['runtime_flag'] else None
-        if not def_H: 
+        # buildHtot is profiled internally (Htot_kinetic/Vloc/SO/NL); no wrapper
+        # timer here so the leaf sections partition the inner loop cleanly.
+        if not def_H:
             H = self.buildHtot(kidx, preComp_SOmats_kidx, preComp_NLmats_kidx, requires_grad)
-        else: 
+        else:
             H = self.buildHtot_def_NEW(kidx, scale=def_scale, requires_grad=requires_grad)
 
-        if not requires_grad: 
+        if not requires_grad:
             H = H.detach()
-        end_time = time.time() if self.NNConfig['runtime_flag'] else None
-        print(f"Building Htot, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
 
-        start_time = time.time() if self.NNConfig['runtime_flag'] else None
         if not self.coupling:
             if self.magBool and not self.SObool:
                 # Spin-polarized, no SOC: H is block-diagonal in spin, with the
@@ -1276,8 +1327,9 @@ class Hamiltonian:
                 # identity wherever an up band crosses a down band (the bug where
                 # BS_up[N] ends up equal to BS_down[N-1]).
                 nbv = self.basis.shape[0]
-                e_up = torch.linalg.eigvalsh(H[:nbv, :nbv]) * AUTOEV
-                e_dn = torch.linalg.eigvalsh(H[nbv:, nbv:]) * AUTOEV
+                with PROF.time("diag"):
+                    e_up = torch.linalg.eigvalsh(H[:nbv, :nbv]) * AUTOEV
+                    e_dn = torch.linalg.eigvalsh(H[nbv:, nbv:]) * AUTOEV
                 # Interleave the channels: [up0, dn0, up1, dn1, ...]. At the start
                 # of training b(q)=0, so e_up==e_dn and this reproduces exactly the
                 # unpolarized, spin-doubled spectrum (matching the repeat_interleave
@@ -1285,11 +1337,13 @@ class Hamiltonian:
                 # are spin-up, odd columns are spin-down.
                 energiesEV = torch.stack([e_up, e_dn], dim=1).reshape(-1)
             else:
-                energies = torch.linalg.eigvalsh(H)
+                with PROF.time("diag"):
+                    energies = torch.linalg.eigvalsh(H)
                 energiesEV = energies * AUTOEV
 
             # reorder the energies according to the manual input in self.system.bandOrderMatrix
-            energiesEV = energiesEV[self.system.bandOrderMatrix[kidx, :]]
+            with PROF.time("band_reorder"):
+                energiesEV = energiesEV[self.system.bandOrderMatrix[kidx, :]]
 
         else:
             # this will be slower than necessary, since torch seems to only support
@@ -1300,9 +1354,10 @@ class Hamiltonian:
             # diagonalization algorithms (e.g. the ?heevr driver).
 
             """
-            WARNING: This else clause hasn't been made compatible with band ordering!!! 
+            WARNING: This else clause hasn't been made compatible with band ordering!!!
             """
-            ens, vecs = torch.linalg.eigh(H)
+            with PROF.time("diag"):
+                ens, vecs = torch.linalg.eigh(H)
             energiesEV = ens * AUTOEV
             self.vb_vecs[kidx].append(vecs[:, self.idx_vb])
             self.cb_vecs[kidx].append(vecs[:, self.idx_cb])
@@ -1356,20 +1411,8 @@ class Hamiltonian:
         # That has been removed: it assumed spin-doubled reference data, whereas the
         # reference band structures here list each band once.)
         eigVals[:] = energiesEV[:nbands]
-        end_time = time.time() if self.NNConfig['runtime_flag'] else None
-        print(f"eigvalsh and storing energies, elapsed time: {(end_time - start_time):.2f} seconds") if self.NNConfig['runtime_flag'] else None
 
-        '''
-        # Testing with random matrix
-        start_time = time.time() if self.NNConfig['runtime_flag'] else None
-        test_H = torch.randn(2000, 2000, dtype=torch.complex128)
-        eigenvalues = torch.linalg.eigvalsh(test_H)
-        end_time = time.time() if self.NNConfig['runtime_flag'] else None
-        total_time = end_time - start_time
-        print(f"Generating and diagonalizing a random 2000x2000 matrix. Time: {total_time:.2f} seconds") if self.NNConfig['runtime_flag'] else None
-        '''
-        
-        if requires_grad: 
+        if requires_grad:
             return eigVals
         else: 
             return eigVals.detach()
@@ -2595,45 +2638,73 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model
             shm_dict_SO = None
             shm_dict_NL = None
         else:
+            # Parallel path. Build each k-point's SO/NL matrices DIRECTLY into
+            # its shared-memory segment, never materializing the full per-k-point
+            # stack in a private array first. This is the minimal-memory layout:
+            # the only copy of the cache lives in shared memory (the previous
+            # implementation built a complete dummy_ham.SOmats/NLmats stack and
+            # then copied it into shared memory, transiently doubling RAM).
             ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=SObool, NLbool=NLbool, cacheSO=False, LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
             # Stamp the per-job tag onto the worker-facing ham so its reattach
             # code in calcEigValsAtK reconstructs the exact segment names below.
             ham.shm_tag = shm_tag
-            dummy_ham = Hamiltonian(sys, PPparams, atomPPOrder, device, NNConfig=NNConfig, iSystem=iSys, SObool=SObool, NLbool=NLbool, LSDmodels=LSDmodels, spinModel=spinModel, coupling=sys.fit_eph)
 
-            if dummy_ham.SOmats is not None: 
-                # reshape dummy_ham.SOmats has shape (nkpt)*(nAtoms)*(2*nbasis) x (2*nbasis)
-                dummy_ham.SOmats
-                for kidx in range(sys.getNKpts()):
-                    SOkey = f"SO_{iSys}_{kidx}"
-                    SOvalue = {'dtype': dummy_ham.SOmats[kidx].dtype,
-                        'shape': dummy_ham.SOmats[kidx].shape,
-                    }
-                    cachedMats_info[SOkey] = SOvalue
+            nbv = ham.basis.shape[0]
+            nkpt = sys.getNKpts()
+            need_SO = ham.SObool
+            need_NL = ham.NLbool and ham.checknl
+            ndim_NL = 2 * nbv if ham.spinor else nbv
+            cdt = np.dtype(np.complex128)
+            itemsize = cdt.itemsize
 
-                    # Move the SOmats to shared memory
-                    shm_dict_SO[f"shm_SO_{iSys}_{kidx}"] = shared_memory.SharedMemory(create=True, size=dummy_ham.SOmats[kidx].nbytes, name=f"SOmats_{shm_tag}_{iSys}_{kidx}")
-                    tmp_arr = np.ndarray(cachedMats_info[f"SO_{iSys}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{iSys}_{kidx}"]['dtype'], buffer=shm_dict_SO[f"shm_SO_{iSys}_{kidx}"].buf)  # Create a NumPy array backed by shared memory
-                    tmp_arr[:] = dummy_ham.SOmats[kidx][:]   # Copy the cached SOmat into shared memory
+            num_cores = NNConfig['num_cores']
+            use_threads = (num_cores > 0) and bool(NNConfig.get('init_threads', True)) and (nkpt > 1)
 
-            if dummy_ham.NLmats is not None: 
-                # reshape dummy_ham.NLmats has shape (nkpt)*(nAtoms)*(2)*(2*nbasis) x (2*nbasis)
-                dummy_ham.NLmats
-                for kidx in range(sys.getNKpts()):
-                    NLkey = f"NL_{iSys}_{kidx}"
-                    NLvalue = {'dtype': dummy_ham.NLmats[kidx].dtype,
-                        'shape': dummy_ham.NLmats[kidx].shape,
-                    }
-                    cachedMats_info[NLkey] = NLvalue
+            def _alloc_shm(name, shape):
+                nbytes = int(np.prod(shape)) * itemsize
+                shm = shared_memory.SharedMemory(create=True, size=nbytes, name=name)
+                arr = np.ndarray(shape, dtype=cdt, buffer=shm.buf)
+                arr[:] = 0
+                return shm, arr
 
-                    # Move the NLmats to shared memory
-                    shm_dict_NL[f"shm_NL_{iSys}_{kidx}"] = shared_memory.SharedMemory(create=True, size=dummy_ham.NLmats[kidx].nbytes, name=f"NLmats_{shm_tag}_{iSys}_{kidx}")
-                    tmp_arr = np.ndarray(cachedMats_info[f"NL_{iSys}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{iSys}_{kidx}"]['dtype'], buffer=shm_dict_NL[f"shm_NL_{iSys}_{kidx}"].buf) 
-                    tmp_arr[:] = dummy_ham.NLmats[kidx][:] 
+            if need_SO:
+                so_shape = (ham.nMatGroups, 2 * nbv, 2 * nbv)
+                so_views = {}
+                for kidx in range(nkpt):
+                    cachedMats_info[f"SO_{iSys}_{kidx}"] = {'dtype': cdt, 'shape': so_shape}
+                    shm, arr = _alloc_shm(f"SOmats_{shm_tag}_{iSys}_{kidx}", so_shape)
+                    shm_dict_SO[f"shm_SO_{iSys}_{kidx}"] = shm
+                    so_views[kidx] = arr
+                if use_threads:
+                    n_workers = min(num_cores, nkpt)
+                    print(f"Building SO mats into shared memory with {n_workers} threads\n", flush=True)
+                    with ThreadPoolExecutor(max_workers=n_workers) as ex:
+                        list(ex.map(lambda kidx: ham.initSOmat_fast_oneKpt(kidx, so_views[kidx]), range(nkpt)))
+                else:
+                    for kidx in range(nkpt):
+                        ham.initSOmat_fast_oneKpt(kidx, so_views[kidx])
+                del so_views
 
-            del dummy_ham
+            if need_NL:
+                nl_shape = (ham.nMatGroups, 2, ndim_NL, ndim_NL)
+                nl_views = {}
+                for kidx in range(nkpt):
+                    cachedMats_info[f"NL_{iSys}_{kidx}"] = {'dtype': cdt, 'shape': nl_shape}
+                    shm, arr = _alloc_shm(f"NLmats_{shm_tag}_{iSys}_{kidx}", nl_shape)
+                    shm_dict_NL[f"shm_NL_{iSys}_{kidx}"] = shm
+                    nl_views[kidx] = arr
+                if use_threads:
+                    n_workers = min(num_cores, nkpt)
+                    print(f"Building NL mats into shared memory with {n_workers} threads\n", flush=True)
+                    with ThreadPoolExecutor(max_workers=n_workers) as ex:
+                        list(ex.map(lambda kidx: ham.initNLmat_fast_oneKpt(kidx, nl_views[kidx]), range(nkpt)))
+                else:
+                    for kidx in range(nkpt):
+                        ham.initNLmat_fast_oneKpt(kidx, nl_views[kidx])
+                del nl_views
+
             gc.collect()
-            print("Finished putting the cached SO and NLmats into shared memory ...")
+            print("Finished building the cached SO and NLmats directly into shared memory ...")
         hams.append(ham)
         end_time = time.time()
         print(f"Elapsed time: {(end_time - start_time):.2f} seconds\n")

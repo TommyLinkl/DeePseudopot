@@ -39,6 +39,13 @@ def read_NNConfigFile(filename):
     config['descriptor_backend'] = 'handcrafted'  # 'handcrafted' | 'mace' (MACE-MP-0 invariants)
     config['pool_initSO'] = 0
     config['pool_initNL'] = 0
+    # SO/NL matrix initialization parallelism. When num_cores>0, the per-k-point
+    # integrals are parallelized with OpenMP-style shared-memory threads (the
+    # numpy/scipy integral kernels release the GIL). This is the default because
+    # it needs no per-worker copy of the Hamiltonian and no pickling, so it is
+    # both faster and far lower-memory than the legacy mp.Pool path. Set
+    # init_threads = 0 to fall back to the process-pool path (pool_initSO/NL).
+    config['init_threads'] = True
     config['force_retrain'] = 0
     # Gradient-based training of the spin-orbit / non-local prefactors stored in
     # PPparams (indices 5=SOC, 6=NL1, 7=NL2). When 'nonlocal_grad' is on, these
@@ -57,7 +64,7 @@ def read_NNConfigFile(filename):
                 key, value = stripped.split('=', 1) # split on first '=' only
                 key = key.strip()
                 value = value.strip()
-                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'NLbool', 'cacheSO', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'init_LSD_force_retrain', 'printGrad', 'mc_bool', 'smooth_reorder', 'eigvec_reorder', 'local_env_corr', 'init_LSD_parallel_atoms', 'init_LSD_normalize', 'nonlocal_grad', 'low_mem']:
+                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'NLbool', 'cacheSO', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'init_LSD_force_retrain', 'printGrad', 'mc_bool', 'smooth_reorder', 'eigvec_reorder', 'local_env_corr', 'init_LSD_parallel_atoms', 'init_LSD_normalize', 'nonlocal_grad', 'low_mem', 'init_threads']:
                     config[key] = bool(int(value))
                 elif key in ['nSystem', 'num_cores', 'num_threads', 'pool_initSO', 'pool_initNL', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'init_LSD_num_epochs', 'init_LSD_plot_every', 'init_LSD_scheduler_step', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter', 'pre_adjust_moves', 'mc_perturb_mode', 'nQGrid', 'nRGrid']:
                     config[key] = int(value)
@@ -193,6 +200,7 @@ def init_critical_NNconfig():
     config['checkpoint'] = False
     config['num_cores'] = 0
     config['num_threads'] = 1
+    config['init_threads'] = True   # OpenMP-style shared-memory threads for SO/NL init
     config['SHOWPLOTS'] = False
     config['separateKptGrad'] = True
     config['SObool'] = False

@@ -20,6 +20,7 @@ os.environ["MKL_NUM_THREADS"] = "1"
 from .constants import *
 from .pp_func import plotPP, plotPP_spin, plotLSD, plot_training_validation_cost, plotBandStruct, plot_mc_cost, plotBandStruct_reorder
 from .smooth_order import reorder_smoothness_deg2_tensors, reorder_kpt_smoothness_deg2_tensors
+from .profiling import PROF
 
 
 # ---------------------------------------------------------------------------
@@ -655,6 +656,13 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
     and step the dedicated optimizer. The grad is the full 9-vector; the parent
     masks it to the trained indices.
     """
+    # This runs in a spawned worker process with its own module-level PROF.
+    # Configure + reset it so the timers reflect ONLY this kpt's work; the
+    # snapshot is returned at the end and merged by the parent (so the
+    # aggregated report includes the build+diagonalize time that happens here).
+    PROF.configure(ham.NNConfig.get('runtime_flag', False), ham.NNConfig.get('memory_flag', False))
+    PROF.reset()
+
     singleKptGradients = {}
     singleKptGradients_LSD = {}
     singleKptGradients_spin = {}
@@ -670,16 +678,14 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
     else:
         systemKptLoss = weighted_mse_energiesAtKpt(calcEnergies, bulkSystem, kidx)
 
-    start_time = time.time() if ham.NNConfig['runtime_flag'] else None
     optimizer.zero_grad()
     if LSDmodels:
         for key in LSDoptimizers:
             LSDoptimizers[key].zero_grad()
     if spinOptimizer is not None:
         spinOptimizer.zero_grad()
-    systemKptLoss.backward()
-    end_time = time.time() if ham.NNConfig['runtime_flag'] else None
-    print(f"loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if ham.NNConfig['runtime_flag'] else None
+    with PROF.time("backward"):
+        systemKptLoss.backward()
     for name, param in model.named_parameters():
         if param.grad is not None:
             if name not in singleKptGradients:
@@ -715,7 +721,7 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
 
     calcEnergies = calcEnergies.detach()
     extrapolated_eigVal = extrapolated_eigVal.detach()
-    return singleKptGradients, trainLoss_systemKpt, calcEnergies, extrapolated_eigVal, singleKptGradients_LSD, singleKptGradients_spin, singleKptGradients_nl
+    return singleKptGradients, trainLoss_systemKpt, calcEnergies, extrapolated_eigVal, singleKptGradients_LSD, singleKptGradients_spin, singleKptGradients_nl, PROF.snapshot()
 
 
 def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, runtime_flag=False, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, LSDmodels=None, LSDoptimizers=None, spinModel=None, spinOptimizer=None, nl_ctx=None):
@@ -854,7 +860,6 @@ def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=N
                     print("\n\n", file=fwrite, end="")
         trainLoss += coupling_Loss
 
-    start_time = time.time() if runtime_flag else None
     optimizer.zero_grad()
     if LSDmodels:
         for key in LSDoptimizers:
@@ -863,26 +868,26 @@ def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=N
         spinOptimizer.zero_grad()
     _zero_nonlocal_grad(nl_ctx)
 
-    trainLoss.backward()
-    if preAdjustBool:
-        manual_GD_one_param(model, preAdjustStepSize)
-        if LSDmodels:
-            for key in LSDmodels:
-                manual_GD_one_param(LSDmodels[key], preAdjustStepSize)
-        if spinModel is not None:
-            manual_GD_one_param(spinModel, preAdjustStepSize)
-    else:
-        optimizer.step()
-        if LSDmodels:
-            for key in LSDoptimizers:
-                LSDoptimizers[key].step()
-        if spinOptimizer is not None:
-            spinOptimizer.step()
-        # SOC/NL prefactors share the same backward as the local NN; just mask
-        # to the trained indices and step their dedicated optimizer.
-        _step_nonlocal_grad(nl_ctx)
-    end_time = time.time() if runtime_flag else None
-    print(f"loss_backward + optimizer.step, elapsed time: {(end_time - start_time):.2f} seconds") if runtime_flag else None
+    with PROF.time("backward"):
+        trainLoss.backward()
+    with PROF.time("optimizer_step"):
+        if preAdjustBool:
+            manual_GD_one_param(model, preAdjustStepSize)
+            if LSDmodels:
+                for key in LSDmodels:
+                    manual_GD_one_param(LSDmodels[key], preAdjustStepSize)
+            if spinModel is not None:
+                manual_GD_one_param(spinModel, preAdjustStepSize)
+        else:
+            optimizer.step()
+            if LSDmodels:
+                for key in LSDoptimizers:
+                    LSDoptimizers[key].step()
+            if spinOptimizer is not None:
+                spinOptimizer.step()
+            # SOC/NL prefactors share the same backward as the local NN; just mask
+            # to the trained indices and step their dedicated optimizer.
+            _step_nonlocal_grad(nl_ctx)
 
     torch.cuda.empty_cache()
     return model, trainLoss
@@ -984,7 +989,6 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                 if sys.fit_eff_masses:
                     print(f"Warning: effective mass fitting not available with separateKptGrad.")
 
-                start_time = time.time() if NNConfig['runtime_flag'] else None
                 optimizer.zero_grad()
                 if LSDmodels:
                     for key in LSDmodels:
@@ -992,9 +996,8 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                 if spinModel is not None:
                     spinOptimizer.zero_grad()
                 _zero_nonlocal_grad(nl_ctx)
-                systemKptLoss.backward()
-                end_time = time.time() if NNConfig['runtime_flag'] else None
-                print(f"loss_backward, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
+                with PROF.time("backward"):
+                    systemKptLoss.backward()
 
                 for name, param in model.named_parameters():
                     if param.grad is not None:
@@ -1051,7 +1054,11 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
             ctx = mp.get_context("spawn")
             with ctx.Pool(NNConfig['num_cores']) as pool:
                 results_systemKpt = pool.starmap(calcEigValsAtK_wGrad_parallel, args_list)
-                gradients_systemKpt, trainLoss_systemKpt, eigValsList, extrapolated_eigValList, gradients_systemKpt_LSD, gradients_systemKpt_spin, gradients_systemKpt_nl = zip(*results_systemKpt)
+                gradients_systemKpt, trainLoss_systemKpt, eigValsList, extrapolated_eigValList, gradients_systemKpt_LSD, gradients_systemKpt_spin, gradients_systemKpt_nl, prof_snaps = zip(*results_systemKpt)
+            # Fold each worker's per-kpt timing into the parent profiler so the
+            # aggregated report includes the build+diagonalize work done in workers.
+            for snap in prof_snaps:
+                PROF.merge(snap)
             currBS = torch.stack(eigValsList).detach()
             extrapolated_points = torch.stack(extrapolated_eigValList).detach()
 
@@ -1113,34 +1120,32 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                     if name in total_gradients_LSD[key]:
                         param.grad = total_gradients_LSD[key][name].detach().clone()
 
-    start_time = time.time() if NNConfig['runtime_flag'] else None
-    if preAdjustBool: 
-        if verbosity>1:
-            print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_gradients.dat', show=True)
-            print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_params.dat', show=True)
-        manual_GD_one_param(model, preAdjustStepSize)
-        if LSDmodels:
-            for key in LSDoptimizers:
-                manual_GD_one_param(LSDmodels[key], NNConfig['pre_adjust_LSD_step_size'])
-        if spinModel is not None:
-            manual_GD_one_param(spinModel, preAdjustStepSize)
-    else:
-        optimizer.step()
-        if LSDmodels:
-            for key in LSDoptimizers:
-                LSDoptimizers[key].step()
-        if spinModel is not None:
-            spinOptimizer.step()
-        # Write the manually kpt-weighted SOC/NL prefactor gradients back onto the
-        # shared PPparams leaves, then mask + step their optimizer.
-        if nl_ctx is not None:
-            nl_ctx['optimizer'].zero_grad()
-            with torch.no_grad():
-                for atom, p in nl_ctx['params'].items():
-                    p.grad = nl_grad_accum[atom].detach().clone()
-            _step_nonlocal_grad(nl_ctx)
-    end_time = time.time() if NNConfig['runtime_flag'] else None
-    print(f"optimizer step, elapsed time: {(end_time - start_time):.2f} seconds") if NNConfig['runtime_flag'] else None
+    with PROF.time("optimizer_step"):
+        if preAdjustBool:
+            if verbosity>1:
+                print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_gradients.dat', show=True)
+                print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_before_params.dat', show=True)
+            manual_GD_one_param(model, preAdjustStepSize)
+            if LSDmodels:
+                for key in LSDoptimizers:
+                    manual_GD_one_param(LSDmodels[key], NNConfig['pre_adjust_LSD_step_size'])
+            if spinModel is not None:
+                manual_GD_one_param(spinModel, preAdjustStepSize)
+        else:
+            optimizer.step()
+            if LSDmodels:
+                for key in LSDoptimizers:
+                    LSDoptimizers[key].step()
+            if spinModel is not None:
+                spinOptimizer.step()
+            # Write the manually kpt-weighted SOC/NL prefactor gradients back onto the
+            # shared PPparams leaves, then mask + step their optimizer.
+            if nl_ctx is not None:
+                nl_ctx['optimizer'].zero_grad()
+                with torch.no_grad():
+                    for atom, p in nl_ctx['params'].items():
+                        p.grad = nl_grad_accum[atom].detach().clone()
+                _step_nonlocal_grad(nl_ctx)
 
     torch.cuda.empty_cache()
     # print_and_inspect_gradients(model, show=NNConfig['printGrad'])
@@ -1260,6 +1265,11 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
                 os.remove(f'{resultsFolder}preEpoch_{pre_epoch+1}_plotBS.pdf')
                 os.remove(f'{resultsFolder}preEpoch_{pre_epoch+1}_plotBS.png')
 
+    # Start the training-phase profile fresh (the pre-adjust moves / init eval
+    # above accumulated into PROF; reset so the report below reflects training).
+    PROF.reset()
+    PROF.mem_checkpoint("train loop start")
+
     for epoch in range(NNConfig['max_num_epochs']):
 
         # train
@@ -1278,6 +1288,11 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
         trainingCOST_x.append(epoch+1)
         training_COST.append(trainLoss.item())
         print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], training cost (including penalty): {trainLoss.item():.4f}")
+        PROF.mem_checkpoint(f"epoch {epoch+1}")
+        # Periodic cumulative timing breakdown (build vs diagonalize) so a long
+        # run shows where time is going without waiting for the final report.
+        if (epoch + 1) % NNConfig['plotEvery'] == 0:
+            PROF.report(f"RUNTIME PROFILE (cumulative through epoch {epoch+1})")
         if nl_ctx is not None:
             for atom, p in nl_ctx['params'].items():
                 vals = p.detach()
@@ -1402,6 +1417,10 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
     fig_cost = plot_training_validation_cost(trainingCOST_x, training_COST, validation_cost_x=validationCOST_x, validation_cost=validation_COST, ylogBoolean=True, SHOWPLOTS=NNConfig['SHOWPLOTS']);
     fig_cost.savefig(resultsFolder + 'final_train_cost.pdf')
     torch.cuda.empty_cache()
+
+    # Final aggregated timing breakdown over the whole training run.
+    PROF.report("FINAL RUNTIME PROFILE (whole training run)")
+    PROF.mem_checkpoint("train loop end")
     return (training_COST, validation_COST)
 
 
