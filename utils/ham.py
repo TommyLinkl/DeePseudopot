@@ -133,26 +133,45 @@ class Hamiltonian:
         # in calcEigValsAtK reconstructs the exact same names from this tag.
         self.shm_tag = None
 
-        # Memory option (low_mem): cache the SO/NL matrices grouped by atom TYPE
-        # rather than per atom. Atoms of the same type share the same PPparams
-        # prefactor, so summing their (constant) projector matrices into one slot
-        # per type is exactly equivalent to summing them in buildSOmat/buildNLmat
-        # (associativity of the Hamiltonian sum), but stores nTypes matrices
-        # instead of nAtoms. For supercells with many same-type atoms (e.g.
-        # graphene) this is a large RAM saving in the SO/NL cache + shared memory.
-        # When low_mem is off, every atom is its own group (legacy behavior).
+        # The SO/NL matrices are cached grouped by atom TYPE (default) rather than
+        # per atom. Atoms of the same type share the same PPparams prefactor, so
+        # summing their (constant) projector matrices into one slot per type is
+        # exactly equivalent to summing them in buildSOmat/buildNLmat (associativity
+        # of the Hamiltonian sum), but stores nTypes matrices instead of nAtoms. For
+        # supercells with many same-type atoms (e.g. graphene) this is a large RAM
+        # saving in the SO/NL cache + shared memory. The per-atom loops that fill
+        # these matrices still use each atom's true position (the structure factor
+        # in init{SO,NL}mat_fast_oneKpt), so position dependence is fully preserved;
+        # only the storage is collapsed by type.
+        #
+        # NOTE: this exactness relies on every atom in a group carrying IDENTICAL
+        # PPparams prefactors (indices 5=SOC, 6=NL1, 7=NL2). If site-resolved
+        # prefactors are ever needed, set 'group_by_type'=False to fall back to the
+        # legacy one-group-per-atom storage (this is also how test_low_mem verifies
+        # the grouped result is bit-for-bit identical to the per-atom result).
         #
         # "matGroupTypes[g]" is the atom type whose prefactor multiplies group g's
         # matrix; "atomToGroup[alpha]" maps an atom to the matrix slot it fills.
-        self.low_mem = bool(self.NNConfig.get('low_mem', False))
+        self.group_by_type = bool(self.NNConfig.get('group_by_type', True))
         atomTypesList = list(self.system.atomTypes)
-        if self.low_mem:
+        if self.group_by_type:
             self.matGroupTypes = list(dict.fromkeys(atomTypesList))  # distinct types, first-appearance order
             self.atomToGroup = [self.matGroupTypes.index(t) for t in atomTypesList]
         else:
-            self.matGroupTypes = atomTypesList                       # one group per atom
+            self.matGroupTypes = atomTypesList                       # one group per atom (legacy)
             self.atomToGroup = list(range(len(atomTypesList)))
         self.nMatGroups = len(self.matGroupTypes)
+
+        # Disk-backed cache (low_mem): when on, the per-k-point SO/NL matrices are
+        # written to .npy files under './<mat_cache_dir>/' (labeled by the per-job
+        # shm tag) and loaded one k-point at a time on demand, instead of being held
+        # resident in POSIX shared memory for the whole run. Peak cache RAM drops
+        # from the full k-point stack to a single k-point's matrices per worker, at
+        # the cost of a disk read per k-point. The flag is named 'low_mem' for
+        # backward compatibility; it now toggles this disk spill (type-grouping
+        # above is unconditional).
+        self.disk_cache = bool(self.NNConfig.get('low_mem', False))
+        self.mat_cache_dir = self.NNConfig.get('mat_cache_dir', 'mat_cache')
 
         # Detect whether any atom actually carries non-local potential
         # coefficients (PPparams indices 6 and 7). This guards the (otherwise
@@ -518,11 +537,11 @@ class Hamiltonian:
 
 
         def compute_atomFF():
-            return self.model(torch.norm(gdiff, dim=2).view(-1,1))
+            return self.model(q)
 
         def compute_b():
             # spin/exchange field b(q); same form-factor shape as compute_atomFF
-            return self.spinModel(torch.norm(gdiff, dim=2).view(-1,1))
+            return self.spinModel(q)
 
         if addMat is not None:
             if self.spinor:
@@ -534,6 +553,23 @@ class Hamiltonian:
                 Vmat = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
             else:
                 Vmat = torch.zeros([nbv, nbv])
+
+        # The NN form factors depend only on q = |G_i - G_j|, not on the atom
+        # (the model output carries one column per atom *type*). Evaluate the
+        # model(s) ONCE here rather than once per atom in the loop below. This
+        # avoids rebuilding NAtoms identical copies of the autograd subgraph,
+        # which would otherwise make the compute-graph memory scale linearly
+        # with the number of atoms. Per-atom code just slices the right column.
+        if self.NN_locbool:
+            if self.NNConfig['checkpoint'] == 0:
+                atomFF_full = self.model(q)
+            elif self.NNConfig['checkpoint'] == 1:
+                atomFF_full = checkpoint(compute_atomFF, use_reentrant=False)
+        if self.magBool:
+            if self.NNConfig['checkpoint'] == 0:
+                bff_full = self.spinModel(q)
+            elif self.NNConfig['checkpoint'] == 1:
+                bff_full = checkpoint(compute_b, use_reentrant=False)
 
         for alpha in range(self.system.getNAtoms()):
             atomType = self.system.atomTypes[alpha]
@@ -547,12 +583,9 @@ class Hamiltonian:
             thisAtomIndex = thisAtomIndex[0]
 
             if self.NN_locbool:
-                # atomFF = self.model(torch.norm(gdiff, dim=2).view(-1,1))
-                if self.NNConfig['checkpoint']==0: 
-                    atomFF = self.model(torch.norm(gdiff, dim=2).view(-1,1))
-                elif self.NNConfig['checkpoint']==1: 
-                    atomFF = checkpoint(compute_atomFF, use_reentrant=False)
-                atomFF = atomFF[:, thisAtomIndex].view(nbv, nbv)
+                # Slice the per-type column from the model output computed once
+                # above; no new forward pass / graph is created per atom.
+                atomFF = atomFF_full[:, thisAtomIndex].view(nbv, nbv)
                 lr_coeff = self.PPparams[atomType][4]
                 atomFF = atomFF + long_range_correction(torch.norm(gdiff, dim=2), self.LRgamma, lr_coeff)
             else:
@@ -582,11 +615,8 @@ class Hamiltonian:
             # When not magBool, atomFF_up == atomFF_dn == atomFF (identical to the
             # unpolarized code).
             if self.magBool:
-                if self.NNConfig['checkpoint']==0:
-                    bff = self.spinModel(torch.norm(gdiff, dim=2).view(-1,1))
-                elif self.NNConfig['checkpoint']==1:
-                    bff = checkpoint(compute_b, use_reentrant=False)
-                bff = bff[:, thisAtomIndex].view(nbv, nbv)
+                # Slice the per-type column from spinModel output computed once above.
+                bff = bff_full[:, thisAtomIndex].view(nbv, nbv)
                 atomFF_up = atomFF + bff
                 atomFF_dn = atomFF - bff
             else:
@@ -1273,6 +1303,18 @@ class Hamiltonian:
         return NLmatf
 
 
+    def _mat_cache_path(self, kind, kidx):
+        """
+        Filesystem path for a disk-cached SO/NL matrix file. 'kind' is "SOmats" or
+        "NLmats". Files are labeled by the per-job shm tag (so concurrent jobs in
+        the same working directory never collide) and live under ./<mat_cache_dir>/.
+        Mirrors the in-memory shared-memory segment names exactly, with a .npy
+        suffix. Used by both the build side (initAndCacheHams) and the per-k-point
+        load in calcEigValsAtK.
+        """
+        return os.path.join(self.mat_cache_dir,
+                            f"{kind}_{self.shm_tag}_{self.iSystem}_{kidx}.npy")
+
     def calcEigValsAtK(self, kidx, cachedMats_info=None, requires_grad=True, verbosity=0, def_H=False, def_scale=0.01):
         '''
         This function builds the Htot at a certain kpoint that is given as the input, 
@@ -1293,13 +1335,21 @@ class Hamiltonian:
             # when the non-local potential is active.
             with PROF.time("shm_load"):
                 if self.SObool:
-                    shm_SOmats = shared_memory.SharedMemory(name=f"SOmats_{self.shm_tag}_{self.iSystem}_{kidx}")
-                    preComp_SOmats_kidx = np.ndarray(cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_SOmats.buf)
+                    if self.disk_cache:
+                        # Load just this k-point's SO matrices from disk (one .npy
+                        # per k-point); they leave RAM again when this scope exits.
+                        preComp_SOmats_kidx = np.load(self._mat_cache_path("SOmats", kidx))
+                    else:
+                        shm_SOmats = shared_memory.SharedMemory(name=f"SOmats_{self.shm_tag}_{self.iSystem}_{kidx}")
+                        preComp_SOmats_kidx = np.ndarray(cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_SOmats.buf)
                 else:
                     preComp_SOmats_kidx = None
                 if self.NLbool and self.checknl:
-                    shm_NLmats = shared_memory.SharedMemory(name=f"NLmats_{self.shm_tag}_{self.iSystem}_{kidx}")
-                    preComp_NLmats_kidx = np.ndarray(cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_NLmats.buf)
+                    if self.disk_cache:
+                        preComp_NLmats_kidx = np.load(self._mat_cache_path("NLmats", kidx))
+                    else:
+                        shm_NLmats = shared_memory.SharedMemory(name=f"NLmats_{self.shm_tag}_{self.iSystem}_{kidx}")
+                        preComp_NLmats_kidx = np.ndarray(cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_NLmats.buf)
                 else:
                     preComp_NLmats_kidx = None
         else:
@@ -1330,11 +1380,14 @@ class Hamiltonian:
                 with PROF.time("diag"):
                     e_up = torch.linalg.eigvalsh(H[:nbv, :nbv]) * AUTOEV
                     e_dn = torch.linalg.eigvalsh(H[nbv:, nbv:]) * AUTOEV
-                # Interleave the channels: [up0, dn0, up1, dn1, ...]. At the start
-                # of training b(q)=0, so e_up==e_dn and this reproduces exactly the
-                # unpolarized, spin-doubled spectrum (matching the repeat_interleave
-                # convention of the non-spin-polarized path). Even output columns
-                # are spin-up, odd columns are spin-down.
+                # Interleave the channels: [up0, dn0, up1, dn1, ...]. Even output
+                # columns are spin-up, odd columns are spin-down. This is the
+                # spin-RESOLVED convention (same as the SObool path): each spatial
+                # band appears once per spin channel. At the start of training
+                # b(q)=0, so e_up==e_dn and the spectrum is exactly the unpolarized
+                # spectrum with every band doubled, [e0,e0,e1,e1,...]. (The
+                # non-spin-polarized path returns each band ONCE, [e0,e1,e2,...];
+                # to compare the two, spin-double the unpolarized spectrum.)
                 energiesEV = torch.stack([e_up, e_dn], dim=1).reshape(-1)
             else:
                 with PROF.time("diag"):
@@ -2580,6 +2633,32 @@ def sweep_stale_shared_memory(max_age_hours=6.0):
         print(f"sweep_stale_shared_memory: removed {removed} orphaned SO/NL shared-memory segment(s).")
 
 
+def sweep_stale_mat_cache(cache_dir):
+    """
+    Remove orphaned disk-cache .npy files (SOmats_/NLmats_ written by the low_mem
+    disk cache) left behind by crashed jobs. The owning PID is parsed out of the
+    tagged filename and the file is removed only when that PID is no longer
+    running, so files belonging to other live jobs sharing this directory are
+    never disturbed. Matches the per-job-tag policy of sweep_stale_shared_memory.
+    """
+    if not os.path.isdir(cache_dir):
+        return
+    removed = 0
+    for entry in os.listdir(cache_dir):
+        if not (entry.startswith("SOmats_") or entry.startswith("NLmats_")) or not entry.endswith(".npy"):
+            continue
+        pid = _parse_shm_pid(entry)            # also works on the .npy-suffixed name
+        if pid is None or _pid_is_running(pid):
+            continue                            # untagged or owned by a live job; leave it
+        try:
+            os.unlink(os.path.join(cache_dir, entry))
+            removed += 1
+        except OSError:
+            pass
+    if removed:
+        print(f"sweep_stale_mat_cache: removed {removed} orphaned SO/NL disk-cache file(s) from ./{cache_dir}/.")
+
+
 def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model=None, LSDmodels=None, spinModel=None):
     """
     Initialize the ham class for each BulkSystem. 
@@ -2594,6 +2673,10 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model
     # our own. Only this user's segments are touched; tagged segments owned by a
     # still-running job are left alone (see sweep_stale_shared_memory).
     sweep_stale_shared_memory()
+    # Same dead-PID sweep for the low_mem disk cache, so .npy files from crashed
+    # jobs in this working directory don't accumulate run after run.
+    if bool(NNConfig.get('low_mem', False)):
+        sweep_stale_mat_cache(NNConfig.get('mat_cache_dir', 'mat_cache'))
 
     # Unique per-job tag embedded in every shared-memory segment name so that
     # segments leaked by a crashed job can never collide with this job's (the
@@ -2660,6 +2743,14 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model
             num_cores = NNConfig['num_cores']
             use_threads = (num_cores > 0) and bool(NNConfig.get('init_threads', True)) and (nkpt > 1)
 
+            # When disk_cache (low_mem) is on, each k-point's matrices are written
+            # to ./<mat_cache_dir>/ as a .npy file (labeled by the job's shm tag)
+            # and loaded one k-point at a time in calcEigValsAtK, instead of being
+            # held resident in shared memory for the whole run.
+            disk_cache = ham.disk_cache
+            if disk_cache:
+                os.makedirs(ham.mat_cache_dir, exist_ok=True)
+
             def _alloc_shm(name, shape):
                 nbytes = int(np.prod(shape)) * itemsize
                 shm = shared_memory.SharedMemory(create=True, size=nbytes, name=name)
@@ -2667,44 +2758,51 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model
                 arr[:] = 0
                 return shm, arr
 
-            if need_SO:
-                so_shape = (ham.nMatGroups, 2 * nbv, 2 * nbv)
-                so_views = {}
+            def _build_cache(kind, cachedPrefix, shape, init_fn, shm_dict, shmKeyPrefix):
+                # Register shape/dtype so calcEigValsAtK takes the cached-matrix
+                # branch (cachedMats_info is its "a cache exists" discriminator).
                 for kidx in range(nkpt):
-                    cachedMats_info[f"SO_{iSys}_{kidx}"] = {'dtype': cdt, 'shape': so_shape}
-                    shm, arr = _alloc_shm(f"SOmats_{shm_tag}_{iSys}_{kidx}", so_shape)
-                    shm_dict_SO[f"shm_SO_{iSys}_{kidx}"] = shm
-                    so_views[kidx] = arr
+                    cachedMats_info[f"{cachedPrefix}_{iSys}_{kidx}"] = {'dtype': cdt, 'shape': shape}
+                if disk_cache:
+                    # Build into a private array, write it out, then drop it: only
+                    # one k-point's matrices (per worker) are ever resident.
+                    def work(kidx):
+                        arr = np.zeros(shape, dtype=cdt)
+                        init_fn(kidx, arr)
+                        np.save(ham._mat_cache_path(kind, kidx), arr)
+                        del arr
+                    dest = "disk (./%s/)" % ham.mat_cache_dir
+                else:
+                    # Build directly into the shared-memory segments (no private
+                    # copy); shm_dict keeps the segments alive for the run.
+                    views = {}
+                    for kidx in range(nkpt):
+                        shm, arr = _alloc_shm(f"{kind}_{shm_tag}_{iSys}_{kidx}", shape)
+                        shm_dict[f"{shmKeyPrefix}_{iSys}_{kidx}"] = shm
+                        views[kidx] = arr
+                    def work(kidx):
+                        init_fn(kidx, views[kidx])
+                    dest = "shared memory"
                 if use_threads:
                     n_workers = min(num_cores, nkpt)
-                    print(f"Building SO mats into shared memory with {n_workers} threads\n", flush=True)
+                    print(f"Building {kind} into {dest} with {n_workers} threads\n", flush=True)
                     with ThreadPoolExecutor(max_workers=n_workers) as ex:
-                        list(ex.map(lambda kidx: ham.initSOmat_fast_oneKpt(kidx, so_views[kidx]), range(nkpt)))
+                        list(ex.map(work, range(nkpt)))
                 else:
                     for kidx in range(nkpt):
-                        ham.initSOmat_fast_oneKpt(kidx, so_views[kidx])
-                del so_views
+                        work(kidx)
+
+            if need_SO:
+                so_shape = (ham.nMatGroups, 2 * nbv, 2 * nbv)
+                _build_cache("SOmats", "SO", so_shape, ham.initSOmat_fast_oneKpt, shm_dict_SO, "shm_SO")
 
             if need_NL:
                 nl_shape = (ham.nMatGroups, 2, ndim_NL, ndim_NL)
-                nl_views = {}
-                for kidx in range(nkpt):
-                    cachedMats_info[f"NL_{iSys}_{kidx}"] = {'dtype': cdt, 'shape': nl_shape}
-                    shm, arr = _alloc_shm(f"NLmats_{shm_tag}_{iSys}_{kidx}", nl_shape)
-                    shm_dict_NL[f"shm_NL_{iSys}_{kidx}"] = shm
-                    nl_views[kidx] = arr
-                if use_threads:
-                    n_workers = min(num_cores, nkpt)
-                    print(f"Building NL mats into shared memory with {n_workers} threads\n", flush=True)
-                    with ThreadPoolExecutor(max_workers=n_workers) as ex:
-                        list(ex.map(lambda kidx: ham.initNLmat_fast_oneKpt(kidx, nl_views[kidx]), range(nkpt)))
-                else:
-                    for kidx in range(nkpt):
-                        ham.initNLmat_fast_oneKpt(kidx, nl_views[kidx])
-                del nl_views
+                _build_cache("NLmats", "NL", nl_shape, ham.initNLmat_fast_oneKpt, shm_dict_NL, "shm_NL")
 
             gc.collect()
-            print("Finished building the cached SO and NLmats directly into shared memory ...")
+            where = f"disk (./{ham.mat_cache_dir}/)" if ham.disk_cache else "shared memory"
+            print(f"Finished building the cached SO and NLmats into {where} ...")
         hams.append(ham)
         end_time = time.time()
         print(f"Elapsed time: {(end_time - start_time):.2f} seconds\n")

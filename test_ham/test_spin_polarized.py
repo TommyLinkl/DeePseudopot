@@ -4,12 +4,25 @@ Tests for the spin-polarized (spin-unrestricted) local pseudopotential.
 V_up = V0 + b, V_down = V0 - b, where V0 is the existing local-potential model
 and b is the learned spin field (self.spinModel). Toggled by tot_magnetization.
 
+Conventions (important for reading the checks below):
+  - The UNPOLARIZED path (magBool off, no SOC) builds the nbv x nbv block and
+    returns each DISTINCT spatial band once: [e0, e1, e2, ...]. Spin degeneracy
+    is implicit, so the spectrum is NOT doubled.
+  - The SPIN-POLARIZED path (magBool on) builds the 2*nbv block-diagonal H and
+    returns the spin-RESOLVED spectrum, interleaved [up0, dn0, up1, dn1, ...].
+    At b == 0 the channels are degenerate, so this is exactly the unpolarized
+    spectrum spin-doubled: [e0, e0, e1, e1, ...]. These two conventions are both
+    correct (the SObool path uses the same spin-resolved convention); they must
+    be compared like-for-like, i.e. by spin-doubling the unpolarized spectrum.
+
 Checks:
   1. Zero-init invariant: with b == 0, the spin-polarized (2*nbv) band structure
-     equals the unpolarized (post-hoc spin-doubled) band structure to ~machine
-     precision. Proves the sizing/doubling unification + zero-init.
+     equals the unpolarized band structure SPIN-DOUBLED, to ~machine precision.
+     Proves the sizing/doubling unification + zero-init.
   2. b -> -b symmetry: a nonzero b splits the bands, and flipping the sign of b
-     (i.e. swapping which spin channel is up) gives the IDENTICAL spectrum.
+     (i.e. swapping which spin channel is up) leaves the physical SPECTRUM (the
+     sorted set of eigenvalues) IDENTICAL. The per-channel interleaving swaps
+     up<->dn within each pair, so the comparison is on the sorted spectrum.
      Proves the up/down block assignment + symmetric splitting.
   3. Gradient flow: the spin field receives nonzero gradients from a band loss.
 
@@ -86,25 +99,34 @@ def build_ham(NNcfg, spinModel=None, SObool=False):
 
 
 # ----------------------------------------------------------------------------
-# Test 1: zero-init invariant (spin-polarized with b==0 == unpolarized)
+# Test 1: zero-init invariant (spin-polarized with b==0 == unpolarized, doubled)
 # ----------------------------------------------------------------------------
 bs_plain = build_ham(cfg_with_mag(0.0)).calcBandStruct().detach()
 bs_mag0  = build_ham(cfg_with_mag(1.0), spinModel=make_spin_model()).calcBandStruct().detach()
-ok1 = torch.allclose(bs_plain, bs_mag0, atol=1e-10)
-print(f"[1] zero-init invariant (mag,b=0 == unpolarized): {ok1}  "
-      f"max|diff|={(bs_plain-bs_mag0).abs().max().item():.2e}")
+# The unpolarized spectrum lists each band once; spin-double it to match the
+# spin-resolved [up0,dn0,up1,dn1,...] convention of the polarized path, then
+# trim to the same nBands.
+bs_plain_doubled = bs_plain.repeat_interleave(2, dim=1)[:, :bs_mag0.shape[1]]
+ok1 = torch.allclose(bs_plain_doubled, bs_mag0, atol=1e-10)
+print(f"[1] zero-init invariant (mag,b=0 == unpolarized spin-doubled): {ok1}  "
+      f"max|diff|={(bs_plain_doubled-bs_mag0).abs().max().item():.2e}")
 
 # ----------------------------------------------------------------------------
 # Test 2: a nonzero b splits the bands, and b -> -b gives the same spectrum
 # ----------------------------------------------------------------------------
 bs_plus  = build_ham(cfg_with_mag(1.0), spinModel=make_spin_model(+0.05)).calcBandStruct().detach()
 bs_minus = build_ham(cfg_with_mag(1.0), spinModel=make_spin_model(-0.05)).calcBandStruct().detach()
-split_happened = not torch.allclose(bs_plus, bs_plain, atol=1e-6)
-symmetric      = torch.allclose(bs_plus, bs_minus, atol=1e-10)
-print(f"[2a] nonzero b splits the bands (differs from unpolarized): {split_happened}  "
-      f"max|split|={(bs_plus-bs_plain).abs().max().item():.2e}")
-print(f"[2b] b -> -b symmetry (up/down swap gives same spectrum): {symmetric}  "
-      f"max|diff|={(bs_plus-bs_minus).abs().max().item():.2e}")
+# Splitting: compare against the b==0 polarized spectrum (same convention), so
+# the difference isolates the b-induced spin splitting, not a convention change.
+split_happened = not torch.allclose(bs_plus, bs_mag0, atol=1e-6)
+# b -> -b swaps the up/dn labels within each interleaved pair; the physical
+# spectrum is invariant, so compare the sorted eigenvalues per k-point.
+symmetric = torch.allclose(bs_plus.sort(dim=1).values,
+                           bs_minus.sort(dim=1).values, atol=1e-10)
+print(f"[2a] nonzero b splits the bands (differs from b=0 polarized): {split_happened}  "
+      f"max|split|={(bs_plus-bs_mag0).abs().max().item():.2e}")
+print(f"[2b] b -> -b symmetry (sorted spectrum invariant): {symmetric}  "
+      f"max|diff|={(bs_plus.sort(dim=1).values-bs_minus.sort(dim=1).values).abs().max().item():.2e}")
 
 # ----------------------------------------------------------------------------
 # Test 3: gradient flow into the spin field from a band-structure loss

@@ -51,9 +51,20 @@ def read_NNConfigFile(filename):
     # PPparams (indices 5=SOC, 6=NL1, 7=NL2). When 'nonlocal_grad' is on, these
     # scalars are made autograd leaves and optimized alongside the local NN.
     config['nonlocal_grad'] = False
-    # Low-memory mode: cache the SO/NL matrices grouped by atom TYPE rather than
-    # per atom (exactly equivalent result; far less RAM when atoms share a type).
+    # Low-memory mode. Type-grouping of the SO/NL cache (one matrix per atom type
+    # rather than per atom; exactly equivalent, far less RAM when atoms share a
+    # type) is now ALWAYS on. This flag now toggles the DISK cache: when on, the
+    # per-k-point SO/NL matrices are written to .npy files under './mat_cache_dir/'
+    # (labeled by the job tag) and loaded one k-point at a time, instead of being
+    # held resident in shared memory for the whole run. Trades a disk read per
+    # k-point for a large drop in peak cache RAM.
     config['low_mem'] = False
+    # Directory (relative to the working directory) for the low_mem disk cache.
+    config['mat_cache_dir'] = 'mat_cache'
+    # Group the SO/NL cache by atom type (default, exact + low RAM). Set to 0 only
+    # to fall back to the legacy one-matrix-per-atom storage (e.g. for the
+    # equivalence regression test, or hypothetical site-resolved prefactors).
+    config['group_by_type'] = True
 
     with open(filename, 'r') as file:
         for line in file:
@@ -64,7 +75,7 @@ def read_NNConfigFile(filename):
                 key, value = stripped.split('=', 1) # split on first '=' only
                 key = key.strip()
                 value = value.strip()
-                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'NLbool', 'cacheSO', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'init_LSD_force_retrain', 'printGrad', 'mc_bool', 'smooth_reorder', 'eigvec_reorder', 'local_env_corr', 'init_LSD_parallel_atoms', 'init_LSD_normalize', 'nonlocal_grad', 'low_mem', 'init_threads']:
+                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'NLbool', 'cacheSO', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'init_LSD_force_retrain', 'printGrad', 'mc_bool', 'smooth_reorder', 'eigvec_reorder', 'local_env_corr', 'init_LSD_parallel_atoms', 'init_LSD_normalize', 'nonlocal_grad', 'low_mem', 'group_by_type', 'init_threads']:
                     config[key] = bool(int(value))
                 elif key in ['nSystem', 'num_cores', 'num_threads', 'pool_initSO', 'pool_initNL', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'init_LSD_num_epochs', 'init_LSD_plot_every', 'init_LSD_scheduler_step', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter', 'pre_adjust_moves', 'mc_perturb_mode', 'nQGrid', 'nRGrid']:
                     config[key] = int(value)

@@ -105,7 +105,6 @@ def write_nonlocal_params(filename, nl_ctx):
     with open(filename, 'w') as f:
         for atom, p in nl_ctx['params'].items():
             vals = p.detach()
-            f.write(f"# {atom}  (trained indices = {nl_ctx['indices']})\n")
             for i in range(vals.shape[0]):
                 f.write(f"{float(vals[i]):.8f}\n")
 
@@ -574,7 +573,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
             effMassLoss = sys.effMassWeight * ((eff_masses[0] - sys.expEffMasses[0])**2 + (eff_masses[1] - sys.expEffMasses[1])**2)
             effMass_MSE += effMassLoss
             print(f"Calculated effMasses = {eff_masses}, refEffMasses = {sys.expEffMasses}, effMass_Loss = {effMassLoss:.4f}")
-            output = f"{BSplotFilename.replace("_plotBS.pdf", f"_effMasses_{iSys}.dat")}"
+            output = f"{BSplotFilename.replace('_plotBS.pdf', f'_effMasses_{iSys}.dat')}"
             np.savetxt(output, eff_masses, fmt="%.2f")
 
         # add coupling loss
@@ -602,7 +601,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
             
             print(f"couplingMSE = {coupling_MSE:.4g}")
 
-            output = f"{BSplotFilename.replace("_plotBS.pdf", f"_couplingBands_{iSys}.dat")}"
+            output = f"{BSplotFilename.replace('_plotBS.pdf', f'_couplingBands_{iSys}.dat')}"
             with open(output, 'w') as fwrite:
                 for atomidx in range(sys.getNAtoms()):
                     print(f"Atom idx = {atomidx}   atom = {sys.atomTypes[atomidx]}   position = {sys.atomPos[atomidx]}", file=fwrite)
@@ -1299,7 +1298,7 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
                 grad_vals = None if p.grad is None else [round(float(p.grad[i]), 6) for i in nl_ctx['indices']]
                 print(f"    SOC/NL[{atom}] PPparams[{nl_ctx['indices']}] = "
                       f"{[round(float(vals[i]), 6) for i in nl_ctx['indices']]}  grad = {grad_vals}")
-            write_nonlocal_params(f'{resultsFolder}epoch_{epoch+1}_nonlocalParams.dat', nl_ctx)
+            write_nonlocal_params(f'{resultsFolder}epoch_{epoch+1}_{atom}Params.dat', nl_ctx)
         if (epoch<=9) or ((epoch + 1) % NNConfig['plotEvery'] == 0):
             print_and_inspect_gradients(model, f'{resultsFolder}epoch_{epoch+1}_gradients.dat', show=True)
             print_and_inspect_NNParams(model, f'{resultsFolder}epoch_{epoch+1}_params.dat', show=True)
