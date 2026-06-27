@@ -17,6 +17,8 @@ from .constants import *
 from .pp_func import pot_func, pot_funcLR, long_range_correction, qSpacePot_ft
 from .read import init_critical_NNconfig, setNN
 from .profiling import PROF
+from .threads import available_cpus, init_thread_count, pool_worker_init
+from .partial_eig import partial_eigvalsh
 from utils.local_structure_correction import calcLocalSymmDescriptor
 
 torch.set_default_dtype(torch.float64)
@@ -173,6 +175,16 @@ class Hamiltonian:
         self.disk_cache = bool(self.NNConfig.get('low_mem', False))
         self.mat_cache_dir = self.NNConfig.get('mat_cache_dir', 'mat_cache')
 
+        # Partial eigensolver: only the lowest ~nBands eigenvalues of the
+        # (2*nbv)-dim Hamiltonian are needed for the band-structure loss. When
+        # enabled, the eigenvalue-only diag path uses a direct LAPACK subset
+        # driver (utils.partial_eig.partial_eigvalsh) with a degeneracy-safe
+        # custom autograd backward, instead of the full torch.linalg.eigvalsh.
+        # Big win when nBands << 2*nbv. The coupling path (which needs
+        # eigenVECTORS) ignores this flag and keeps using torch.linalg.eigh.
+        self.partial_eig = bool(self.NNConfig.get('partial_eig', False))
+        self.partial_eig_driver = self.NNConfig.get('partial_eig_driver', 'evr')
+
         # Detect whether any atom actually carries non-local potential
         # coefficients (PPparams indices 6 and 7). This guards the (otherwise
         # wasteful) construction of NL matrices that would be identically zero.
@@ -298,11 +310,15 @@ class Hamiltonian:
                       whole ham to each worker and copies results back).
         """
         num_cores = self.NNConfig.get("num_cores", 0)
-        if num_cores <= 0 or nkp <= 1:
+        if nkp <= 1:
             return "serial"
+        # Thread mode is independent of num_cores: SO/NL init is a one-shot phase
+        # that owns the whole node before any k-point worker pool exists, so it
+        # threads over k-points (GIL-released numpy/scipy) even for a serial
+        # (num_cores==0) training run. See utils.threads.init_thread_count.
         if self.NNConfig.get("init_threads", True):
             return "thread"
-        if pool_flag != 0:
+        if num_cores > 0 and pool_flag != 0:
             return "process"
         return "serial"
 
@@ -791,7 +807,7 @@ class Hamiltonian:
                 # integral is heavy numpy/scipy (erf, exp, tensordot) that releases
                 # the GIL, so threads give real parallelism with no per-worker copy
                 # of the Hamiltonian and no IPC/pickling overhead.
-                n_workers = min(self.NNConfig["num_cores"], nkp)
+                n_workers = min(init_thread_count(self.NNConfig.get("num_threads", 0)), nkp)
                 print(f"Initializing SO mats with {n_workers} shared-memory threads\n", flush=True)
                 with ThreadPoolExecutor(max_workers=n_workers) as ex:
                     list(ex.map(
@@ -1087,7 +1103,7 @@ class Hamiltonian:
                 # integral is dominated by scipy quad_vec / numpy work that releases
                 # the GIL, so threads give real parallelism with no per-worker copy of
                 # the Hamiltonian and no IPC/pickling overhead (low memory).
-                n_workers = min(self.NNConfig["num_cores"], nkp)
+                n_workers = min(init_thread_count(self.NNConfig.get("num_threads", 0)), nkp)
                 print(f"Initializing NL mats with {n_workers} shared-memory threads\n", flush=True)
                 with ThreadPoolExecutor(max_workers=n_workers) as ex:
                     list(ex.map(
@@ -1366,6 +1382,12 @@ class Hamiltonian:
             H = H.detach()
 
         if not self.coupling:
+            # Number of lowest eigenvalues actually needed: every band index that
+            # the reorder below (bandOrderMatrix) can reference, at least nBands.
+            # For the default bandOrderMatrix = arange(nBands) this is just nBands.
+            # The partial eigensolver computes only this many; the full eigvalsh
+            # path ignores it.
+            need = max(nbands, int(self.system.bandOrderMatrix[kidx].max()) + 1)
             if self.magBool and not self.SObool:
                 # Spin-polarized, no SOC: H is block-diagonal in spin, with the
                 # up block H[:nbv,:nbv] carrying V_up = V0 + b and the down block
@@ -1378,8 +1400,16 @@ class Hamiltonian:
                 # BS_up[N] ends up equal to BS_down[N-1]).
                 nbv = self.basis.shape[0]
                 with PROF.time("diag"):
-                    e_up = torch.linalg.eigvalsh(H[:nbv, :nbv]) * AUTOEV
-                    e_dn = torch.linalg.eigvalsh(H[nbv:, nbv:]) * AUTOEV
+                    if self.partial_eig:
+                        # Interleaving [up0,dn0,up1,dn1,...] and keeping the lowest
+                        # `need` entries needs the lowest ceil(need/2) from each
+                        # spin block.
+                        kblk = min((need + 1) // 2, nbv)
+                        e_up = partial_eigvalsh(H[:nbv, :nbv], kblk, driver=self.partial_eig_driver) * AUTOEV
+                        e_dn = partial_eigvalsh(H[nbv:, nbv:], kblk, driver=self.partial_eig_driver) * AUTOEV
+                    else:
+                        e_up = torch.linalg.eigvalsh(H[:nbv, :nbv]) * AUTOEV
+                        e_dn = torch.linalg.eigvalsh(H[nbv:, nbv:]) * AUTOEV
                 # Interleave the channels: [up0, dn0, up1, dn1, ...]. Even output
                 # columns are spin-up, odd columns are spin-down. This is the
                 # spin-RESOLVED convention (same as the SObool path): each spatial
@@ -1391,7 +1421,11 @@ class Hamiltonian:
                 energiesEV = torch.stack([e_up, e_dn], dim=1).reshape(-1)
             else:
                 with PROF.time("diag"):
-                    energies = torch.linalg.eigvalsh(H)
+                    if self.partial_eig:
+                        k = min(need, H.shape[0])
+                        energies = partial_eigvalsh(H, k, driver=self.partial_eig_driver)
+                    else:
+                        energies = torch.linalg.eigvalsh(H)
                 energiesEV = energies * AUTOEV
 
             # reorder the energies according to the manual input in self.system.bandOrderMatrix
@@ -1509,7 +1543,15 @@ class Hamiltonian:
         else: # multiprocessing
             # print(f"The size of cachedMats_info is: {sys.getsizeof(cachedMats_info)/1024} KB")
             args_list = [(kidx, cachedMats_info, False) for kidx in range(nkpt)]
-            with mp.Pool(self.NNConfig['num_cores']) as pool:
+            # Pin each worker to its share of the node's lin.alg threads so the
+            # eigensolve is multi-threaded without num_cores*threads exceeding
+            # the budget (see utils.threads). Use a spawn context (not the default
+            # fork): the parent has a live OpenMP/MKL threadpool, and forking that
+            # state deadlocks. The training path spawns for the same reason.
+            blas_threads = self.NNConfig.get('blas_threads_per_worker', 1)
+            ctx = mp.get_context("spawn")
+            with ctx.Pool(self.NNConfig['num_cores'], initializer=pool_worker_init,
+                          initargs=(blas_threads,)) as pool:
                 eigValsList = pool.starmap(self.calcEigValsAtK, args_list)
             bandStruct = torch.stack(eigValsList)
         return bandStruct
@@ -2741,7 +2783,12 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model
             itemsize = cdt.itemsize
 
             num_cores = NNConfig['num_cores']
-            use_threads = (num_cores > 0) and bool(NNConfig.get('init_threads', True)) and (nkpt > 1)
+            # SO/NL init runs before any k-point worker pool exists, so it owns
+            # the node and threads over k-points regardless of num_cores (the
+            # integral kernels release the GIL). init_nworkers is the full-node
+            # thread budget for this one-shot phase.
+            use_threads = bool(NNConfig.get('init_threads', True)) and (nkpt > 1)
+            init_nworkers = init_thread_count(NNConfig.get('num_threads', 0))
 
             # When disk_cache (low_mem) is on, each k-point's matrices are written
             # to ./<mat_cache_dir>/ as a .npy file (labeled by the job's shm tag)
@@ -2784,7 +2831,7 @@ def initAndCacheHams(systemsList, NNConfig, PPparams, atomPPOrder, device, model
                         init_fn(kidx, views[kidx])
                     dest = "shared memory"
                 if use_threads:
-                    n_workers = min(num_cores, nkpt)
+                    n_workers = min(init_nworkers, nkpt)
                     print(f"Building {kind} into {dest} with {n_workers} threads\n", flush=True)
                     with ThreadPoolExecutor(max_workers=n_workers) as ex:
                         list(ex.map(work, range(nkpt)))

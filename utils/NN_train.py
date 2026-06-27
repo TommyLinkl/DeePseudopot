@@ -21,6 +21,7 @@ from .constants import *
 from .pp_func import plotPP, plotPP_spin, plotLSD, plot_training_validation_cost, plotBandStruct, plot_mc_cost, plotBandStruct_reorder
 from .smooth_order import reorder_smoothness_deg2_tensors, reorder_kpt_smoothness_deg2_tensors
 from .profiling import PROF
+from .threads import pool_worker_init
 
 
 # ---------------------------------------------------------------------------
@@ -1050,8 +1051,13 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
 
             # PyTorch autograd is not safe to use from forked workers.
             # Use an explicit spawn context for the per-k-point backward passes.
+            # Each worker is pinned (via the initializer) to blas_threads_per_worker
+            # linear-algebra threads, so the per-k-point eigensolve is multi-threaded
+            # while num_cores*threads stays within the node budget (no oversubscription).
+            blas_threads = NNConfig.get('blas_threads_per_worker', 1)
             ctx = mp.get_context("spawn")
-            with ctx.Pool(NNConfig['num_cores']) as pool:
+            with ctx.Pool(NNConfig['num_cores'], initializer=pool_worker_init,
+                          initargs=(blas_threads,)) as pool:
                 results_systemKpt = pool.starmap(calcEigValsAtK_wGrad_parallel, args_list)
                 gradients_systemKpt, trainLoss_systemKpt, eigValsList, extrapolated_eigValList, gradients_systemKpt_LSD, gradients_systemKpt_spin, gradients_systemKpt_nl, prof_snaps = zip(*results_systemKpt)
             # Fold each worker's per-kpt timing into the parent profiler so the

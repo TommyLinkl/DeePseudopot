@@ -75,7 +75,7 @@ def read_NNConfigFile(filename):
                 key, value = stripped.split('=', 1) # split on first '=' only
                 key = key.strip()
                 value = value.strip()
-                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'NLbool', 'cacheSO', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'init_LSD_force_retrain', 'printGrad', 'mc_bool', 'smooth_reorder', 'eigvec_reorder', 'local_env_corr', 'init_LSD_parallel_atoms', 'init_LSD_normalize', 'nonlocal_grad', 'low_mem', 'group_by_type', 'init_threads']:
+                if key in ['SHOWPLOTS', 'separateKptGrad', 'checkpoint', 'SObool', 'NLbool', 'cacheSO', 'memory_flag', 'runtime_flag', 'init_Zunger_printGrad', 'init_LSD_force_retrain', 'printGrad', 'mc_bool', 'smooth_reorder', 'eigvec_reorder', 'local_env_corr', 'init_LSD_parallel_atoms', 'init_LSD_normalize', 'nonlocal_grad', 'low_mem', 'group_by_type', 'init_threads', 'partial_eig']:
                     config[key] = bool(int(value))
                 elif key in ['nSystem', 'num_cores', 'num_threads', 'pool_initSO', 'pool_initNL', 'init_Zunger_num_epochs', 'init_Zunger_plotEvery', 'init_LSD_num_epochs', 'init_LSD_plot_every', 'init_LSD_scheduler_step', 'max_num_epochs', 'plotEvery', 'schedulerStep', 'patience', 'perturbEvery', 'mc_iter', 'pre_adjust_moves', 'mc_perturb_mode', 'nQGrid', 'nRGrid']:
                     config[key] = int(value)
@@ -109,11 +109,12 @@ def read_NNConfigFile(filename):
     elif (config["checkpoint"]==0) and (config["separateKptGrad"]==1): 
         print("\tUsing separateKptGrad. This can decrease the peak memory load during the fitting code.")
 
-    if (config['num_cores']==0): 
-        print("\tNot doing multiprocessing.")
+    _nthr_desc = "AUTO" if config['num_threads'] <= 0 else str(config['num_threads'])
+    if (config['num_cores']==0):
+        print(f"\tNo k-point multiprocessing (serial). Lin. alg. threads/process = {_nthr_desc}.")
     else:
-        print(f"\tUsing num_cores = {config['num_cores']}, {config['num_cores'] * config['num_threads']} CPUs out of {mp.cpu_count()} total CPUs available.")
-        print(f"\tEach (pool) uses {config['num_threads']} threads for lin. alg. multithreading. Beware of oversubscribing compute!")
+        print(f"\tUsing num_cores = {config['num_cores']} k-point worker processes, lin. alg. threads/process = {_nthr_desc}.")
+        print(f"\tThe num_cores x threads budget is tiled within the node (see [threads] line below); no oversubscription.")
 
     if config['memory_flag']: 
         print("\nWARNING: MEMORY_FLAG is ON. Please check to make sure that the script is run with:\n\tmprof run --output <mem_output_file> main.py <inputsFolder> <resultsFolder>\n\tmprof plot -o <mem_plot_file> <mem_output_file>\n")
@@ -201,6 +202,10 @@ def print_job_settings(config):
     print(f"\tcheckpoint                    : {onoff(config.get('checkpoint', False))}")
     print(f"\tseparateKptGrad               : {onoff(config.get('separateKptGrad', False))}")
     print(f"\truntime_flag / memory_flag    : {onoff(config.get('runtime_flag', False))} / {onoff(config.get('memory_flag', False))}")
+    if config.get('partial_eig', False):
+        print(f"\tpartial_eig                   : ON (driver={config.get('partial_eig_driver', 'evr')})")
+    else:
+        print(f"\tpartial_eig                   : OFF (full eigvalsh)")
     print(line)
 
 
@@ -210,8 +215,17 @@ def init_critical_NNconfig():
     config['memory_flag'] = False
     config['checkpoint'] = False
     config['num_cores'] = 0
-    config['num_threads'] = 1
+    # Linear-algebra threads per process (eigensolve/BLAS). 0 == AUTO: the thread
+    # budget is split evenly across the num_cores k-point workers (capped at the
+    # eigensolve's useful range) so num_cores*threads stays within the node. A
+    # positive value pins it explicitly (still clamped to avoid oversubscription).
+    # See utils/threads.py (plan_blas_threads).
+    config['num_threads'] = 0
     config['init_threads'] = True   # OpenMP-style shared-memory threads for SO/NL init
+    # Partial eigensolver for the band-structure loss (lowest ~nBands states only).
+    # Off by default (full torch.linalg.eigvalsh). See utils/partial_eig.py.
+    config['partial_eig'] = False
+    config['partial_eig_driver'] = 'evr'
     config['SHOWPLOTS'] = False
     config['separateKptGrad'] = True
     config['SObool'] = False

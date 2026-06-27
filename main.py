@@ -18,6 +18,7 @@ from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, 
 from utils.ham import initAndCacheHams, set_LSDModels
 from utils.genMovie import genMovie
 from utils.profiling import PROF, benchmark_eigensolve
+from utils.threads import available_cpus, plan_blas_threads, set_process_threads
 
 def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     torch.set_default_dtype(torch.float64)
@@ -31,10 +32,28 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     # on the runtime_flag / memory_flag switches. When on, the training loop
     # prints a per-section breakdown (build vs diagonalize) plus RSS checkpoints.
     PROF.configure(NNConfig.get('runtime_flag', False), NNConfig.get('memory_flag', False))
-    # os.environ["OMP_NUM_THREADS"] = f"{NNConfig["num_threads"]}"
-    # os.environ["MKL_NUM_THREADS"] = f"{NNConfig["num_threads"]}"
-    # torch.set_num_threads(NNConfig["num_threads"])
-    print(f"Number of threads for multithreaded lin. alg = {NNConfig['num_threads']}", flush=True)
+
+    # --- CPU/thread budget --------------------------------------------------
+    # Tile the node between the two parallelism layers so they never
+    # oversubscribe: num_cores k-point worker processes, each running the
+    # eigensolve/BLAS with blas_threads_per_worker threads, with
+    #     num_cores * blas_threads_per_worker <= available_cpus.
+    # The k-point workers pick up blas_threads via the mp.Pool initializer
+    # (utils.threads.pool_worker_init); the serial path (num_cores==0) gets the
+    # threads in THIS process, set after the SO/NL init phase below.
+    avail = available_cpus()
+    blas_threads = plan_blas_threads(NNConfig['num_cores'], NNConfig.get('num_threads', 0), avail)
+    NNConfig['blas_threads_per_worker'] = blas_threads
+    ncore_eff = max(1, NNConfig['num_cores'])
+    print(f"\n[threads] available CPUs (affinity) = {avail}")
+    print(f"[threads] k-point processes (num_cores) = {NNConfig['num_cores']}  "
+          f"x  lin.alg threads/process = {blas_threads}  "
+          f"=  {ncore_eff * blas_threads} CPUs used")
+    if ncore_eff * blas_threads < avail:
+        print(f"[threads] NOTE: {avail - ncore_eff * blas_threads} CPUs idle. To use more of the "
+              f"node, raise num_cores toward the k-point count (each diagonalization "
+              f"stops scaling past ~16 threads).")
+    print(f"Number of threads for multithreaded lin. alg = {blas_threads}", flush=True)
         
     nSystem = NNConfig['nSystem']
     
@@ -80,6 +99,15 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     # Initialize the ham class for each BulkSystem. Cache the SO and NL mats.
     hams, cachedMats_info, shm_dict_SO, shm_dict_NL = initAndCacheHams(systems, NNConfig, PPparams, atomPPOrder, device, spinModel=spinModel)
     PROF.mem_checkpoint("after initAndCacheHams")
+
+    # Give THIS process its linear-algebra thread budget ONLY in the serial
+    # (num_cores==0) path, where the eigensolve runs here and no worker pool is
+    # ever forked. When num_cores>0 the main process must stay single-threaded:
+    # the k-point pools (eval forks via mp.Pool) would otherwise fork a parent
+    # with a live OpenMP/MKL threadpool, which deadlocks. The workers get their
+    # own threads via the mp.Pool initializer instead.
+    if NNConfig['num_cores'] == 0:
+        set_process_threads(blas_threads)
 
     # One-shot diagnostic: how does diagonalizing a representative Hamiltonian
     # scale with BLAS/torch threads? This directly answers "should I parallelize

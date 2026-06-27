@@ -13,4 +13,4 @@ def configure_threads(n_threads=1):
     torch.set_num_threads(n_threads)
     torch.set_num_interop_threads(1)  # reduce inter-op thread contention
 
-    print(f"[config_threads] Using {n_threads} threads for BLAS + Torch.")
+    # print(f"[config_threads] Using {n_threads} threads for BLAS + Torch.")
