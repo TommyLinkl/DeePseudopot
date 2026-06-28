@@ -173,7 +173,7 @@ class Hamiltonian:
         # backward compatibility; it now toggles this disk spill (type-grouping
         # above is unconditional).
         self.disk_cache = bool(self.NNConfig.get('low_mem', False))
-        self.mat_cache_dir = self.NNConfig.get('mat_cache_dir', 'mat_cache')
+        self.mat_cache_dir = self.NNConfig.get('mat_cache_dir', f'{self.NNConfig["resultsFolder"]}mat_cache')
 
         # Partial eigensolver: only the lowest ~nBands eigenvalues of the
         # (2*nbv)-dim Hamiltonian are needed for the band-structure loss. When

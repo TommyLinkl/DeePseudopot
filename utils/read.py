@@ -9,7 +9,7 @@ from .local_structure_correction import compute_Pb_descriptors, compute_Cs_descr
 
 torch.set_default_dtype(torch.float64)
 
-def read_NNConfigFile(filename):
+def read_NNConfigFile(filename, resultsFolder):
     """
     This read function is able to skip empty lines, 
     able to ignore comments after # sign, 
@@ -36,7 +36,7 @@ def read_NNConfigFile(filename):
     config['init_LSD_scheduler'] = 'cosine'     # 'cosine' (anneal lr->floor) | 'exponential'
     config['init_LSD_eta_min_frac'] = 1e-3      # cosine lr floor as fraction of init_LSD_optimizer_lr
     config['init_LSD_normalize'] = True         # standardize LSD net inputs (descriptors, q)
-    config['descriptor_backend'] = 'handcrafted'  # 'handcrafted' | 'mace' (MACE-MP-0 invariants)
+    config['descriptor_backend'] = 'mace'       # 'handcrafted' | 'mace' (MACE-MP-0 invariants)
     config['pool_initSO'] = 0
     config['pool_initNL'] = 0
     # SO/NL matrix initialization parallelism. When num_cores>0, the per-k-point
@@ -60,7 +60,7 @@ def read_NNConfigFile(filename):
     # k-point for a large drop in peak cache RAM.
     config['low_mem'] = False
     # Directory (relative to the working directory) for the low_mem disk cache.
-    config['mat_cache_dir'] = 'mat_cache'
+    config['mat_cache_dir'] = f'{resultsFolder}mat_cache'
     # Group the SO/NL cache by atom type (default, exact + low RAM). Set to 0 only
     # to fall back to the legacy one-matrix-per-atom storage (e.g. for the
     # equivalence regression test, or hypothetical site-resolved prefactors).

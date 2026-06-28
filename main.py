@@ -27,7 +27,9 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     
     os.makedirs(resultsFolder, exist_ok=True)
 
-    NNConfig = read_NNConfigFile(inputsFolder + 'NN_config.par')
+    NNConfig = read_NNConfigFile(inputsFolder + 'NN_config.par', resultsFolder)
+    NNConfig["inputsFolder"] = inputsFolder
+    NNConfig["resultsFolder"] = resultsFolder
     # Enable the aggregating timing/memory profiler (utils/profiling.PROF) based
     # on the runtime_flag / memory_flag switches. When on, the training loop
     # prints a per-section breakdown (build vs diagonalize) plus RSS checkpoints.
