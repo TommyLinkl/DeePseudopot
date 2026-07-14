@@ -66,7 +66,7 @@ for atomType in atomPPorder:
     totalParams = torch.cat((totalParams, a.unsqueeze(0)), dim=0)
     PPparams[atomType] = a
 
-NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
+NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par", f"{pwd}/")
 
 # construct initial hamiltonian for eigenvecs and for finite difference
 ham1 = Hamiltonian(system, PPparams, atomPPorder, device, NNConfig=NNConfig, iSystem=0, SObool=False, coupling=True)

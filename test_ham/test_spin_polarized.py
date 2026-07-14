@@ -56,7 +56,7 @@ system.kptWeights    = system.kptWeights[:NKEEP]
 system.bandOrderMatrix = system.bandOrderMatrix[:NKEEP]
 system.expBandStruct = system.expBandStruct[:NKEEP]
 
-NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
+NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par", f"{pwd}/")
 NNConfig['separateKptGrad'] = False   # use the simple per-system grad path for calcBandStruct
 
 PPparams = {}

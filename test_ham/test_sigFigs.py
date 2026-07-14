@@ -45,7 +45,7 @@ for decimal_places in range(1, 10):
 device = torch.device("cpu")
 
 pwd = pathlib.Path(__file__).parent.resolve()
-NNConfig = read_NNConfigFile(f"{pwd}/inputs/sigFigs/NN_config.par")
+NNConfig = read_NNConfigFile(f"{pwd}/inputs/sigFigs/NN_config.par", f"{pwd}/")
 system = BulkSystem()
 system.setSystem(f"{pwd}/inputs/sigFigs/system_0.par")
 system.setInputs(f"{pwd}/inputs/sigFigs/input_0.par")

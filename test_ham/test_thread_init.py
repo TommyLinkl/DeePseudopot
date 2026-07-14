@@ -40,7 +40,7 @@ def make_ham(num_cores, init_threads, low_mem=False):
     system = build_system()
     atomPPorder = np.unique(system.atomTypes)
     PPparams, _ = read_PPparams(atomPPorder, f"{pwd}/inputs/soc/")
-    NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
+    NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par", f"{pwd}/")
     NNConfig['num_cores'] = num_cores
     NNConfig['init_threads'] = init_threads
     NNConfig['low_mem'] = low_mem
@@ -86,7 +86,7 @@ def main():
     system = build_system()
     atomPPorder = np.unique(system.atomTypes)
     PPparams, _ = read_PPparams(atomPPorder, f"{pwd}/inputs/soc/")
-    NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
+    NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par", f"{pwd}/")
     NNConfig['num_cores'] = 4
     NNConfig['init_threads'] = True
     NNConfig['cacheSO'] = True

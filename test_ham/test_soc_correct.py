@@ -37,7 +37,7 @@ bs_old = system.expBandStruct
 
 PPparams, totalParams = read_PPparams(atomPPorder, f"{pwd}/inputs/soc/")
 
-NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
+NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par", f"{pwd}/")
 
 print("\n\n***************************")
 print("Test with cacheing")

@@ -99,12 +99,21 @@ def _step_nonlocal_grad(nl_ctx):
     nl_ctx['optimizer'].step()
 
 
-def write_nonlocal_params(filename, nl_ctx):
-    """Dump the current full 9-entry PPparams for each trained atom."""
+def write_nonlocal_params(filename, nl_ctx, atom=None):
+    """Dump the current full 9-entry PPparams.
+
+    If `atom` is given, write ONLY that atom's params (one file per atom type);
+    otherwise write every trained atom into the one file (legacy behavior, used
+    for the aggregated final_nonlocalParams.dat dump).
+    """
     if nl_ctx is None:
         return
+    if atom is None:
+        items = list(nl_ctx['params'].items())
+    else:
+        items = [(atom, nl_ctx['params'][atom])]
     with open(filename, 'w') as f:
-        for atom, p in nl_ctx['params'].items():
+        for _atom, p in items:
             vals = p.detach()
             for i in range(vals.shape[0]):
                 f.write(f"{float(vals[i]):.8f}\n")
@@ -396,50 +405,71 @@ def mag_penalty_loss(f_x, x, f_x_max, lambda_penalty=1.0, penalize=True):
     mag_penalty = lambda_penalty * torch.mean(S_x * excess)
     return mag_penalty
 
-def compute_global_system_losses(model, bulkSystem, ham, cachedMats_info=None, requires_grad=True, coupling_debug=False):
+def _penalty_term(model, NNConfig, nkpt, device):
+    """Non-decay penalty on V(q). Zero tensor when not configured / no model."""
+    if not (("penalize_starting" in NNConfig) and ("penalize_lambda" in NNConfig) and (model is not None)):
+        return torch.tensor(0.0, dtype=torch.float64, device=device)
+    q = torch.linspace(NNConfig["penalize_starting"], 12.0, 50, dtype=torch.float64, device=device).view(-1, 1)
+    return penalty_loss(model(q), q, NNConfig["penalize_starting"], NNConfig["penalize_lambda"] * nkpt)
+
+
+def _mag_penalty_term(model, spinModel, NNConfig, nkpt, device):
+    """Magnitude penalty on V(q). Spin-aware: with a spinModel it penalizes the
+    two spin channels V_up = model + spin and V_dn = model - spin and returns
+    their average; without one it penalizes V = model. Zero when not configured."""
+    if not (("penalize_mag_threshold" in NNConfig) and ("penalize_mag_lambda" in NNConfig)
+            and (NNConfig["penalize_mag_lambda"] > 0) and (model is not None)):
+        return torch.tensor(0.0, dtype=torch.float64, device=device)
+    q = torch.linspace(0.0, 12.0, 240, dtype=torch.float64, device=device).view(-1, 1)
+    thresh = NNConfig["penalize_mag_threshold"]
+    lam = NNConfig["penalize_mag_lambda"] * nkpt
+    if spinModel is not None:
+        up = mag_penalty_loss(model(q) + spinModel(q), q, thresh, lam)
+        dn = mag_penalty_loss(model(q) - spinModel(q), q, thresh, lam)
+        return 0.5 * (up + dn)
+    return mag_penalty_loss(model(q), q, thresh, lam)
+
+
+def _defpot_term(ham, bulkSystem, cachedMats_info, requires_grad, device):
+    """Deformation-potential MSE loss. Zero tensor when the system isn't fitting
+    deformation potentials. DefPots are global transition observables, so this is
+    NOT scaled by k-point weights or nkpt."""
+    if not bulkSystem.fit_defPot:
+        return torch.tensor(0.0, dtype=torch.float64, device=device)
+    calcDefPots = ham.calcDefPots(cachedMats_info=cachedMats_info, requires_grad=requires_grad, verbosity=0)
+    refDefPots = torch.tensor(bulkSystem.defPotInfo[:, 5], dtype=torch.float64, device=calcDefPots.device)
+    defPotWeights = torch.tensor(bulkSystem.defPotInfo[:, 6], dtype=torch.float64, device=calcDefPots.device)
+    loss = ((calcDefPots - refDefPots) ** 2 * defPotWeights).sum()
+    print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {loss:.4f}")
+    return loss
+
+
+def regularization_loss(model, spinModel, ham, bulkSystem, cachedMats_info=None, requires_grad=True):
+    """Sum of the k-INDEPENDENT losses (penalty + spin-aware mag_penalty + defPot)
+    for one system. Computed ONCE per system (not per k-point) and returned as a
+    single scalar tensor ready for backward. This is the single source of truth
+    shared by every training path and by evaluation, so the trained and reported
+    losses stay consistent."""
+    device = next(model.parameters()).device if model is not None else bulkSystem.kpts.device
+    nkpt = bulkSystem.getNKpts()
+    return (_penalty_term(model, ham.NNConfig, nkpt, device)
+            + _mag_penalty_term(model, spinModel, ham.NNConfig, nkpt, device)
+            + _defpot_term(ham, bulkSystem, cachedMats_info, requires_grad, device))
+
+
+def compute_global_system_losses(model, bulkSystem, ham, cachedMats_info=None, requires_grad=True, coupling_debug=False, spinModel=None):
     if model is not None:
         device = next(model.parameters()).device
     else:
         device = bulkSystem.kpts.device
 
+    nkpt = bulkSystem.getNKpts()
     loss_terms = {
-        "penalty": torch.tensor(0.0, dtype=torch.float64, device=device),
-        "mag_penalty": torch.tensor(0.0, dtype=torch.float64, device=device),
-        "defpot": torch.tensor(0.0, dtype=torch.float64, device=device),
+        "penalty": _penalty_term(model, ham.NNConfig, nkpt, device),
+        "mag_penalty": _mag_penalty_term(model, spinModel, ham.NNConfig, nkpt, device),
+        "defpot": _defpot_term(ham, bulkSystem, cachedMats_info, requires_grad, device),
         "coupling": torch.tensor(0.0, dtype=torch.float64, device=device),
     }
-
-    if ("penalize_starting" in ham.NNConfig) and ("penalize_lambda" in ham.NNConfig) and (model is not None):
-        q = torch.linspace(ham.NNConfig["penalize_starting"], 12.0, 50, dtype=torch.float64, device=device).view(-1, 1)
-        v_q = model(q)
-        # Keep the historical regularization scale, but evaluate it once per system.
-        loss_terms["penalty"] = penalty_loss(
-            v_q,
-            q,
-            ham.NNConfig["penalize_starting"],
-            ham.NNConfig["penalize_lambda"] * bulkSystem.getNKpts(),
-        )
-#Changes by Helen, note here I haven't implemented for spin up and spin down because I wasn't sure how to
-    if ("penalize_mag_threshold" in ham.NNConfig) and ("penalize_mag_lambda" in ham.NNConfig) and (ham.NNConfig["penalize_mag_lambda"] > 0) and (model is not None):
-        q = torch.linspace(0.0, 12.0, 240, dtype=torch.float64, device=device).view(-1, 1)
-        v_q = model(q)
-        # Keep the historical regularization scale, but evaluate it once per system.
-        # NOTE: mag_penalty_loss signature is (f_x, x, f_x_max, lambda_penalty);
-        # pass q as the x argument to match the trainIter call sites.
-        loss_terms["mag_penalty"] = mag_penalty_loss(
-            v_q,
-            q,
-            ham.NNConfig["penalize_mag_threshold"],
-            ham.NNConfig["penalize_mag_lambda"] * bulkSystem.getNKpts()
-        )
-
-    if bulkSystem.fit_defPot:
-        calcDefPots = ham.calcDefPots(cachedMats_info=cachedMats_info, requires_grad=requires_grad, verbosity=0)
-        refDefPots = torch.tensor(bulkSystem.defPotInfo[:, 5], dtype=torch.float64, device=calcDefPots.device)
-        defPotWeights = torch.tensor(bulkSystem.defPotInfo[:, 6], dtype=torch.float64, device=calcDefPots.device)
-        # DefPots are global transition observables; they should not depend on k-point weights or nkpt scaling.
-        loss_terms["defpot"] = ((calcDefPots - refDefPots) ** 2 * defPotWeights).sum()
-        print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {loss_terms['defpot']:.4f}")
 
     if bulkSystem.fit_eph:
         # Keep the autograd graph alive through buildCouplingMats: the LSD
@@ -532,7 +562,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
             total_BS_MSE += weighted_mse_bandStruct(evalBS, sys).detach()
 
         with torch.no_grad():
-            global_loss_terms, calcCouplings_dict = compute_global_system_losses(model, sys, hams[iSys], cachedMats_info=cachedMats_info, requires_grad=False, coupling_debug=True)
+            global_loss_terms, calcCouplings_dict = compute_global_system_losses(model, sys, hams[iSys], cachedMats_info=cachedMats_info, requires_grad=False, coupling_debug=True, spinModel=spinModel)
             totalPenalty += global_loss_terms["penalty"].detach()
             totalMagPenalty += global_loss_terms["mag_penalty"].detach()
             defPot_MSE += global_loss_terms["defpot"].detach()
@@ -761,49 +791,9 @@ def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=N
             systemLoss = weighted_mse_bandStruct(NN_outputs, sys)
         trainLoss += systemLoss
 
-        # Add in penalization of non-decay
-        if ("penalize_starting" in hams[iSys].NNConfig) and ("penalize_lambda" in hams[iSys].NNConfig): 
-            q = torch.linspace(hams[iSys].NNConfig["penalize_starting"], 12.0, 50).view(-1,1)
-            v_q = model(q)
-
-            penalty = penalty_loss(v_q, q, hams[iSys].NNConfig["penalize_starting"], hams[iSys].NNConfig["penalize_lambda"]*sys.getNKpts())
-            trainLoss += penalty
-            # print(f"Done penalizing the non-decaying pp by {penalty}")
-
-    #Change by Helen
-        if ("penalize_mag_threshold" in hams[iSys].NNConfig) and ("penalize_mag_lambda" in hams[iSys].NNConfig) and (hams[iSys].NNConfig["penalize_mag_lambda"] > 0) and (model is not None) and (spinModel is not None):
-            q = torch.linspace(0.0, 12.0, 240, dtype=torch.float64).view(-1, 1)
-            #calculate for spin up
-            v_q = model(q)+spinModel(q)
-            # Keep the historical regularization scale, but evaluate it once per system.
-            mag_penalty = 0.5*mag_penalty_loss(
-                v_q,
-                q,
-                hams[iSys].NNConfig["penalize_mag_threshold"],
-                hams[iSys].NNConfig["penalize_mag_lambda"] * sys.getNKpts()
-            )
-            trainLoss += mag_penalty
-            #calculate for spin down
-            v_q = model(q)-spinModel(q)
-            # Keep the historical regularization scale, but evaluate it once per system.
-            mag_penalty = 0.5*mag_penalty_loss(
-                v_q,
-                q,
-                hams[iSys].NNConfig["penalize_mag_threshold"],
-                hams[iSys].NNConfig["penalize_mag_lambda"] * sys.getNKpts()
-            )
-            trainLoss += mag_penalty
-            print(f"Done penalizing the large magnitude pp by {mag_penalty}")
-
-        # Add in deformation potential
-        if sys.fit_defPot: 
-            calcDefPots = hams[iSys].calcDefPots(cachedMats_info=cachedMats_info, requires_grad=True)
-
-            refDefPots = torch.tensor(sys.defPotInfo[:,5])
-            defPotWeights = torch.tensor(sys.defPotInfo[:,6])
-            defPotLoss = ((calcDefPots - refDefPots) ** 2 * defPotWeights).sum() * sys.getNKpts()
-            print(f"Calculated defPots = {calcDefPots}, refDefPots = {refDefPots}, defPotLoss = {defPotLoss:.4f}")
-            trainLoss += defPotLoss
+        # k-independent losses (non-decay penalty + spin-aware magnitude penalty +
+        # deformation potentials), computed ONCE per system via the shared helper.
+        trainLoss += regularization_loss(model, spinModel, hams[iSys], sys, cachedMats_info, requires_grad=True)
 
         # Add in effective mass loss
         if sys.fit_eff_masses:
@@ -939,8 +929,15 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
         if (NNConfig['num_cores']==0):   # No multiprocessing
             currBS = torch.zeros([sys.getNKpts(), sys.nBands])
             extrapolated_points = torch.zeros([sys.getNKpts(), sys.nBands])
-            for kidx in range(sys.getNKpts()): 
-                calcEnergies = hams[iSys].calcEigValsAtK(kidx, cachedMats_info, requires_grad=True)
+            # Vloc is k-independent: build it ONCE per epoch and reuse the same
+            # grad-carrying tensor for every k-point. Because this path does a
+            # SEPARATE backward per k-point (to free each k's eigensolve graph),
+            # the shared Vloc subgraph must survive across those backwards, so we
+            # pass retain_graph=True to every per-k backward except the last.
+            nkpts_sys = sys.getNKpts()
+            precomp_Vloc = hams[iSys].buildVlocMat()
+            for kidx in range(nkpts_sys):
+                calcEnergies = hams[iSys].calcEigValsAtK(kidx, cachedMats_info, requires_grad=True, precomp_Vloc=precomp_Vloc)
 
                 extrapolated_eigVal = calcEnergies.detach().clone()
                 if NNConfig['smooth_reorder']: 
@@ -953,39 +950,11 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                     systemKptLoss = weighted_mse_energiesAtKpt(calcEnergies, sys, kidx)
                 currBS[kidx,:] = calcEnergies.detach().clone()
 
-                # add in penalization of the non-decay
-                if ("penalize_starting" in hams[iSys].NNConfig) and ("penalize_lambda" in hams[iSys].NNConfig): 
-                    q = torch.linspace(hams[iSys].NNConfig["penalize_starting"], 12.0, 50).view(-1,1)
-                    v_q = model(q)
+                # NOTE: k-INDEPENDENT losses (non-decay penalty, magnitude penalty,
+                # deformation potentials) are NOT added here. They are computed once
+                # per system after this k-point loop (see regularization_loss below),
+                # so they apply identically in the serial and multiprocessing paths.
 
-                    penalty = penalty_loss(v_q, q, hams[iSys].NNConfig["penalize_starting"], hams[iSys].NNConfig["penalize_lambda"])
-                    systemKptLoss += penalty
-                    # print(f"Done penalizing the non-decaying pp by {penalty}")
-#Changes by Helen
-                if ("penalize_mag_threshold" in hams[iSys].NNConfig) and ("penalize_mag_lambda" in hams[iSys].NNConfig) and (hams[iSys].NNConfig["penalize_mag_lambda"] > 0) and (model is not None) and (spinModel is not None):
-                    q = torch.linspace(0.0, 12.0, 240, dtype=torch.float64).view(-1, 1)
-                    v_q = model(q)+spinModel(q)
-                    # Keep the historical regularization scale, but evaluate it once per system.
-                    mag_penalty = 0.5*mag_penalty_loss(
-                        v_q,
-                        q,
-                        hams[iSys].NNConfig["penalize_mag_threshold"],
-                        hams[iSys].NNConfig["penalize_mag_lambda"]
-                    )
-                    systemKptLoss += mag_penalty
-                    v_q = model(q)-spinModel(q)
-                    # Keep the historical regularization scale, but evaluate it once per system.
-                    mag_penalty = 0.5*mag_penalty_loss(
-                        v_q,
-                        q,
-                        hams[iSys].NNConfig["penalize_mag_threshold"],
-                        hams[iSys].NNConfig["penalize_mag_lambda"]
-                    )
-                    systemKptLoss += mag_penalty
-                    print(f"Done penalizing the large magnitude pp by {mag_penalty}")
-
-                # Add in defPot loss
-                # Add in effective mass loss
                 if sys.fit_eff_masses:
                     print(f"Warning: effective mass fitting not available with separateKptGrad.")
 
@@ -997,7 +966,9 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                     spinOptimizer.zero_grad()
                 _zero_nonlocal_grad(nl_ctx)
                 with PROF.time("backward"):
-                    systemKptLoss.backward()
+                    # Keep the shared (k-independent) Vloc subgraph alive for the
+                    # remaining k-points; free it on the last one.
+                    systemKptLoss.backward(retain_graph=(kidx < nkpts_sys - 1))
 
                 for name, param in model.named_parameters():
                     if param.grad is not None:
@@ -1083,6 +1054,32 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                 for atom in nl_grad_accum:
                     if atom in gradients_system_nl:
                         nl_grad_accum[atom] = nl_grad_accum[atom] + gradients_system_nl[atom]
+
+        # k-INDEPENDENT losses (non-decay penalty + spin-aware magnitude penalty +
+        # deformation potentials), computed ONCE per system for BOTH the serial and
+        # multiprocessing paths (previously they were missing from the mp path and
+        # inconsistently scaled in the serial path). Backprop once and fold the
+        # (un-kpt-weighted) grads into the manual accumulators alongside the per-kpt
+        # band-structure grads.
+        reg_loss = regularization_loss(model, spinModel, hams[iSys], sys, cachedMats_info, requires_grad=True)
+        if reg_loss.requires_grad:
+            optimizer.zero_grad()
+            if spinOptimizer is not None:
+                spinOptimizer.zero_grad()
+            _zero_nonlocal_grad(nl_ctx)
+            reg_loss.backward()
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    gradients_system[name] = gradients_system.get(name, 0) + param.grad.detach().clone()
+            if spinModel is not None:
+                for name, param in spinModel.named_parameters():
+                    if param.grad is not None:
+                        gradients_system_spin[name] = gradients_system_spin.get(name, 0) + param.grad.detach().clone()
+            if nl_ctx is not None:
+                for atom, p in nl_ctx['params'].items():
+                    if p.grad is not None:
+                        nl_grad_accum[atom] = nl_grad_accum[atom] + p.grad.detach().clone()
+        trainLoss_system = trainLoss_system + float(reg_loss.detach())
 
         total_gradients = merge_dicts([total_gradients, gradients_system])
         if spinModel is not None:
@@ -1304,7 +1301,10 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
                 grad_vals = None if p.grad is None else [round(float(p.grad[i]), 6) for i in nl_ctx['indices']]
                 print(f"    SOC/NL[{atom}] PPparams[{nl_ctx['indices']}] = "
                       f"{[round(float(vals[i]), 6) for i in nl_ctx['indices']]}  grad = {grad_vals}")
-            write_nonlocal_params(f'{resultsFolder}epoch_{epoch+1}_{atom}Params.dat', nl_ctx)
+                # One file per atom type: previously this write sat OUTSIDE the
+                # loop, so `atom` was whatever the last iteration left it as and a
+                # single file (e.g. epoch_X_NParams.dat) held EVERY atom's params.
+                write_nonlocal_params(f'{resultsFolder}epoch_{epoch+1}_{atom}Params.dat', nl_ctx, atom=atom)
         if (epoch<=9) or ((epoch + 1) % NNConfig['plotEvery'] == 0):
             print_and_inspect_gradients(model, f'{resultsFolder}epoch_{epoch+1}_gradients.dat', show=True)
             print_and_inspect_NNParams(model, f'{resultsFolder}epoch_{epoch+1}_params.dat', show=True)

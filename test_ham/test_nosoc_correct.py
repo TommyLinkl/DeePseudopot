@@ -24,7 +24,7 @@ system.setKPointsAndWeights(f"{pwd}/inputs/kpoints_0.par")
 system.setExpBS(f"{pwd}/inputs/expBandStruct_0.par")
 atomPPorder = np.unique(system.atomTypes)
 
-NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
+NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par", f"{pwd}/")
 
 # old band structure
 bs_old = calcBandStruct_GPU(True, PPmodel, system, atomPPorder, [], device)

@@ -25,7 +25,7 @@ pot_j_3_2 = pot_j_0 + calc_NL_pot(r_grid, NL1_par, NL2_par) + 0.5 * calc_SO_pot(
 fig, ax = plt.subplots(figsize=(4,4))
 
 ax.plot(r_grid, pot_j_0, linewidth=1, label = r"$v_{0}$")
-if abs(SO_par) > 1e-8:
+if (abs(SO_par + NL1_par + NL2_par) > 1e-8):
   ax.plot(r_grid, pot_j_1_2, linewidth=1, label = r"$v_{1/2}$")
   ax.plot(r_grid, pot_j_3_2, linewidth=1, label = r"$v_{3/2}$")
 

@@ -44,7 +44,7 @@ system.setExpBS(f"{pwd}/inputs/soc/bandStruct_0.dat")
 atomPPorder = np.unique(system.atomTypes)
 
 PPparams, totalParams = read_PPparams(atomPPorder, f"{pwd}/inputs/soc/")
-NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
+NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par", f"{pwd}/")
 
 # Enable gradient training of SOC/NL prefactors.
 NNConfig['nonlocal_grad'] = True

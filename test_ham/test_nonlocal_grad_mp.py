@@ -43,7 +43,7 @@ def main():
 
     PPparams, totalParams = read_PPparams(atomPPorder, f"{pwd}/inputs/soc/")
 
-    NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
+    NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par", f"{pwd}/")
     NNConfig['nonlocal_grad'] = True
     NNConfig['nonlocal_grad_indices'] = [5, 6, 7]
     NNConfig['optimizer_lr'] = 5e-3

@@ -115,6 +115,18 @@ class Hamiltonian:
         self.magBool = (self.tot_magnetization != 0)
         self.spinor = self.SObool or self.magBool
         self.spinModel = spinModel
+        if self.tot_magnetization == 0:
+            # Spin polarization is OFF. The spectrum is NOT spin-doubled: each
+            # distinct spatial band is returned ONCE ([e0,e1,e2,...]), so idxVB/idxCB
+            # and the reference band structure must index the un-doubled spectrum.
+            # With tot_magnetization != 0 the spectrum is spin-resolved and doubled
+            # ([up0,dn0,up1,dn1,...]); mixing the two conventions shifts every band
+            # index and "messes up" the band energies. Set tot_magnetization != 0
+            # (e.g. 1) to run spin-polarized.
+            print(f"WARNING (iSystem={iSystem}): tot_magnetization = 0 -> spin "
+                  "polarization OFF. Bands are NOT spin-doubled; idxVB/idxCB and the "
+                  "reference bands must index the un-doubled spectrum. Set "
+                  "tot_magnetization != 0 to enable the spin-polarized (doubled) spectrum.")
 
         self.LRgamma = 0.2   # erf attenuation parameter for long-range 
                              # component of potential. This is a good value
@@ -173,7 +185,10 @@ class Hamiltonian:
         # backward compatibility; it now toggles this disk spill (type-grouping
         # above is unconditional).
         self.disk_cache = bool(self.NNConfig.get('low_mem', False))
-        self.mat_cache_dir = self.NNConfig.get('mat_cache_dir', f'{self.NNConfig["resultsFolder"]}mat_cache')
+        # Evaluate the fallback LAZILY: a plain dict default would eagerly index
+        # self.NNConfig["resultsFolder"] and KeyError when it is absent (e.g. a
+        # Hamiltonian built with the minimal default NNConfig and no results dir).
+        self.mat_cache_dir = self.NNConfig.get('mat_cache_dir') or f'{self.NNConfig.get("resultsFolder", "")}mat_cache'
 
         # Partial eigensolver: only the lowest ~nBands eigenvalues of the
         # (2*nbv)-dim Hamiltonian are needed for the band-structure loss. When
@@ -323,11 +338,19 @@ class Hamiltonian:
         return "serial"
 
 
-    def buildHtot(self, kidx, preComp_SOmats_kidx=None, preComp_NLmats_kidx=None, requires_grad=True):
+    def buildHtot(self, kidx, preComp_SOmats_kidx=None, preComp_NLmats_kidx=None, requires_grad=True, precomp_Vloc=None):
         """
-        Build the total Hamiltonian for a given kpt, specified by its kidx. 
+        Build the total Hamiltonian for a given kpt, specified by its kidx.
         preComp_SOmats_kidx and preComp_NLmats_kidx are the pre-computed
         SO and NL matrices (actual matrices) at the certain kidx
+
+        precomp_Vloc: the local-potential matrix built ONCE for this epoch and
+        reused across all k-points. Vloc is k-independent (it depends only on the
+        G-vector differences and atom positions, not on k), so when this is
+        supplied we just add it to the kinetic term instead of rebuilding it per
+        k. The SAME grad-carrying tensor is shared by every k, so a downstream
+        backward correctly accumulates the model gradient through the shared
+        subgraph (see calcBandStruct_withGrad / trainIter_separateKptGrad).
         """
         nbv = self.basis.shape[0]
         # kinetic energy (spin-diagonal: identical in both spin blocks).
@@ -347,7 +370,11 @@ class Hamiltonian:
 
         # local potential
         with PROF.time("Htot_Vloc"):
-            Htot = self.buildVlocMat(addMat=Htot)
+            if precomp_Vloc is not None:
+                # Reuse the epoch's k-independent Vloc; just add it onto kinetic.
+                Htot = Htot + precomp_Vloc
+            else:
+                Htot = self.buildVlocMat(addMat=Htot)
             if not requires_grad:
                 Htot = Htot.detach()
 
@@ -388,8 +415,6 @@ class Hamiltonian:
         This function currently doesn't account for the shared_memory SOmats and NLmats.
         It might mess things up.
         """
-        # Deformation potentials with spin polarization are out of scope/untested.
-        assert not self.magBool, "buildHtot_def does not support tot_magnetization (spin-polarized) yet."
         if verbosity >= 2:
             print("***************************")
             print("You are computing deformation potentials by directly changing")
@@ -404,60 +429,62 @@ class Hamiltonian:
         kidx = self.idx_gap
 
         self.defscale = self.system.scale * scale
-        # modify the relevent quantities, then modify them back after diagonalizing
-        self.basis *= (self.system.scale / self.defscale)
-        self.system.kpts *= (self.system.scale / self.defscale)
-        self.system.unitCellVectors *= (self.defscale / self.system.scale)
-        self.system.atomPos *= (self.defscale / self.system.scale)
-
-
-
-        nbv = self.basis.shape[0]
-        if self.spinor:
-            Htot = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
-        else:
-            Htot = torch.zeros([nbv, nbv], dtype=torch.complex128)
-
-        # kinetic energy (spin-diagonal: identical in both spin blocks).
-        # Vectorized over the basis to avoid a Python loop over (2*)nbv.
-        kvec = self.basis + self.system.kpts[kidx]
-        kin = (HBAR**2 / (2*MASS)) * (kvec * kvec).sum(dim=1)   # real, length nbv
-        if self.spinor:
-            kin = kin.repeat(2)                                 # up block then dn block
-        diag_idx = torch.arange(kin.shape[0])
-        Htot[diag_idx, diag_idx] = kin.to(Htot.dtype)
-
-        # local potential
-        Htot = self.buildVlocMat(addMat=Htot)
-
-        # The SO and NL terms are deformed/added independently. We need the
-        # deformed cached matrices whenever either spin-orbit or the non-local
-        # potential is active.
+        # Deform the relevant quantities, then restore them. Use OUT-OF-PLACE
+        # reassignment (not in-place *=): self.system.atomPos is a leaf that
+        # requires grad, and an in-place op on such a leaf raises. Originals are
+        # stashed and restored in the finally block.
+        store_basis = self.basis
+        store_kpts = self.system.kpts
+        store_cell = self.system.unitCellVectors
+        store_atomPos = self.system.atomPos
         need_def_mats = self.SObool or (self.NLbool and self.checknl)
-        if need_def_mats:
-            store_SOmats = self.SOmats
-            store_NLmats = self.NLmats
-            self.SOmats, self.NLmats = self._get_deformed_cached_mats(kidx, scale)
+        store_SOmats, store_NLmats = self.SOmats, self.NLmats
+        try:
+            self.basis = self.basis * (self.system.scale / self.defscale)
+            self.system.kpts = self.system.kpts * (self.system.scale / self.defscale)
+            self.system.unitCellVectors = self.system.unitCellVectors * (self.defscale / self.system.scale)
+            self.system.atomPos = self.system.atomPos * (self.defscale / self.system.scale)
 
-            # the below calls are kidx=0 because they index into the SOmats and NLmats
-            # arrays, for which there is only a single kpoint. There are no calls
-            # self.system.kpts[kidx] in these functions, so it does not cause any
-            # issues.
-            if self.SObool:
-                Htot = self.buildSOmat(0, addMat=Htot)
-            if self.NLbool and self.checknl:
-                Htot = self.buildNLmat(0, addMat=Htot)
+            nbv = self.basis.shape[0]
+            if self.spinor:
+                Htot = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
+            else:
+                Htot = torch.zeros([nbv, nbv], dtype=torch.complex128)
 
-        
+            # kinetic energy (spin-diagonal: identical in both spin blocks).
+            # Vectorized over the basis to avoid a Python loop over (2*)nbv.
+            kvec = self.basis + self.system.kpts[kidx]
+            kin = (HBAR**2 / (2*MASS)) * (kvec * kvec).sum(dim=1)   # real, length nbv
+            if self.spinor:
+                kin = kin.repeat(2)                                 # up block then dn block
+            diag_idx = torch.arange(kin.shape[0])
+            Htot[diag_idx, diag_idx] = kin.to(Htot.dtype)
 
-        # now return everything to its non-deformed values
-        self.basis *= (self.defscale / self.system.scale)
-        self.system.kpts *= (self.defscale / self.system.scale)
-        self.system.unitCellVectors *= (self.system.scale / self.defscale)
-        self.system.atomPos *= (self.system.scale / self.defscale)
-        if need_def_mats:
-            self.SOmats = store_SOmats
-            self.NLmats = store_NLmats
+            # local potential (carries the spin split when magnetic)
+            Htot = self.buildVlocMat(addMat=Htot)
+
+            # The SO and NL terms are deformed/added independently. We need the
+            # deformed cached matrices whenever either spin-orbit or the non-local
+            # potential is active.
+            if need_def_mats:
+                self.SOmats, self.NLmats = self._get_deformed_cached_mats(kidx, scale)
+                # the below calls are kidx=0 because they index into the SOmats and
+                # NLmats arrays, for which there is only a single kpoint. There are no
+                # calls self.system.kpts[kidx] in these functions, so it does not
+                # cause any issues.
+                if self.SObool:
+                    Htot = self.buildSOmat(0, addMat=Htot)
+                if self.NLbool and self.checknl:
+                    Htot = self.buildNLmat(0, addMat=Htot)
+        finally:
+            # Restore the non-deformed values (even if building H raised).
+            self.basis = store_basis
+            self.system.kpts = store_kpts
+            self.system.unitCellVectors = store_cell
+            self.system.atomPos = store_atomPos
+            if need_def_mats:
+                self.SOmats = store_SOmats
+                self.NLmats = store_NLmats
 
         return Htot
 
@@ -465,10 +492,10 @@ class Hamiltonian:
     def buildHtot_def_NEW(self, kidx, scale=1.01, verbosity=2, requires_grad=True):
         """
         Just like the function above, but with the added flexibility of
-        calculating at various k-points.
+        calculating at various k-points. The local potential (buildVlocMat) carries
+        the spin split when tot_magnetization != 0, so this builds the correct
+        spin-polarized deformed Hamiltonian as well.
         """
-        # Deformation potentials with spin polarization are out of scope/untested.
-        assert not self.magBool, "buildHtot_def_NEW does not support tot_magnetization (spin-polarized) yet."
         if verbosity >= 3:
             print("***************************")
             print("You are computing deformation potentials by directly changing")
@@ -481,58 +508,62 @@ class Hamiltonian:
             print("***************************")
 
         self.defscale = self.system.scale * scale
-        # modify the relevent quantities, then modify them back after diagonalizing
-        self.basis *= (self.system.scale / self.defscale)
-        self.system.kpts *= (self.system.scale / self.defscale)
-        self.system.unitCellVectors *= (self.defscale / self.system.scale)
-        self.system.atomPos *= (self.defscale / self.system.scale)
-
-        nbv = self.basis.shape[0]
-        if self.spinor:
-            Htot = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
-        else:
-            Htot = torch.zeros([nbv, nbv], dtype=torch.complex128)
-
-        # kinetic energy (spin-diagonal: identical in both spin blocks).
-        # Vectorized over the basis to avoid a Python loop over (2*)nbv.
-        kvec = self.basis + self.system.kpts[kidx]
-        kin = (HBAR**2 / (2*MASS)) * (kvec * kvec).sum(dim=1)   # real, length nbv
-        if self.spinor:
-            kin = kin.repeat(2)                                 # up block then dn block
-        diag_idx = torch.arange(kin.shape[0])
-        Htot[diag_idx, diag_idx] = kin.to(Htot.dtype)
-
-        # local potential
-        Htot = self.buildVlocMat(addMat=Htot)
-
-        # The SO and NL terms are deformed/added independently. We need the
-        # deformed cached matrices whenever either spin-orbit or the non-local
-        # potential is active.
+        # Deform the relevant quantities, then restore them after building H.
+        # Use OUT-OF-PLACE reassignment (not in-place *=): self.system.atomPos is a
+        # leaf that requires grad, and an in-place op on such a leaf raises. The
+        # originals are stashed and restored in the finally block below.
+        store_basis = self.basis
+        store_kpts = self.system.kpts
+        store_cell = self.system.unitCellVectors
+        store_atomPos = self.system.atomPos
         need_def_mats = self.SObool or (self.NLbool and self.checknl)
-        if need_def_mats:
-            store_SOmats = self.SOmats
-            store_NLmats = self.NLmats
-            self.SOmats, self.NLmats = self._get_deformed_cached_mats(kidx, scale)
+        store_SOmats, store_NLmats = self.SOmats, self.NLmats
+        try:
+            self.basis = self.basis * (self.system.scale / self.defscale)
+            self.system.kpts = self.system.kpts * (self.system.scale / self.defscale)
+            self.system.unitCellVectors = self.system.unitCellVectors * (self.defscale / self.system.scale)
+            self.system.atomPos = self.system.atomPos * (self.defscale / self.system.scale)
 
-            # the below calls are kidx=0 because they index into the SOmats and NLmats
-            # arrays, for which there is only a single kpoint. There are no calls
-            # self.system.kpts[kidx] in these functions, so it does not cause any
-            # issues.
-            if self.SObool:
-                Htot = self.buildSOmat(0, addMat=Htot)
-            if self.NLbool and self.checknl:
-                Htot = self.buildNLmat(0, addMat=Htot)
+            nbv = self.basis.shape[0]
+            if self.spinor:
+                Htot = torch.zeros([2*nbv, 2*nbv], dtype=torch.complex128)
+            else:
+                Htot = torch.zeros([nbv, nbv], dtype=torch.complex128)
 
-        
+            # kinetic energy (spin-diagonal: identical in both spin blocks).
+            # Vectorized over the basis to avoid a Python loop over (2*)nbv.
+            kvec = self.basis + self.system.kpts[kidx]
+            kin = (HBAR**2 / (2*MASS)) * (kvec * kvec).sum(dim=1)   # real, length nbv
+            if self.spinor:
+                kin = kin.repeat(2)                                 # up block then dn block
+            diag_idx = torch.arange(kin.shape[0])
+            Htot[diag_idx, diag_idx] = kin.to(Htot.dtype)
 
-        # now return everything to its non-deformed values
-        self.basis *= (self.defscale / self.system.scale)
-        self.system.kpts *= (self.defscale / self.system.scale)
-        self.system.unitCellVectors *= (self.system.scale / self.defscale)
-        self.system.atomPos *= (self.system.scale / self.defscale)
-        if need_def_mats:
-            self.SOmats = store_SOmats
-            self.NLmats = store_NLmats
+            # local potential (carries the spin split when magnetic)
+            Htot = self.buildVlocMat(addMat=Htot)
+
+            # The SO and NL terms are deformed/added independently. We need the
+            # deformed cached matrices whenever either spin-orbit or the non-local
+            # potential is active.
+            if need_def_mats:
+                self.SOmats, self.NLmats = self._get_deformed_cached_mats(kidx, scale)
+                # the below calls are kidx=0 because they index into the SOmats and
+                # NLmats arrays, for which there is only a single kpoint. There are no
+                # calls self.system.kpts[kidx] in these functions, so it does not
+                # cause any issues.
+                if self.SObool:
+                    Htot = self.buildSOmat(0, addMat=Htot)
+                if self.NLbool and self.checknl:
+                    Htot = self.buildNLmat(0, addMat=Htot)
+        finally:
+            # Restore the non-deformed values (even if building H raised).
+            self.basis = store_basis
+            self.system.kpts = store_kpts
+            self.system.unitCellVectors = store_cell
+            self.system.atomPos = store_atomPos
+            if need_def_mats:
+                self.SOmats = store_SOmats
+                self.NLmats = store_NLmats
 
         if not requires_grad: 
             Htot = Htot.detach()
@@ -587,49 +618,50 @@ class Hamiltonian:
             elif self.NNConfig['checkpoint'] == 1:
                 bff_full = checkpoint(compute_b, use_reentrant=False)
 
-        for alpha in range(self.system.getNAtoms()):
-            atomType = self.system.atomTypes[alpha]
-            gdiffDotTau = torch.sum(gdiff * self.system.atomPos[alpha], axis=2)
-            sfact_re = 1/self.system.getCellVolume() * torch.cos(gdiffDotTau)
-            sfact_im = 1/self.system.getCellVolume() * torch.sin(gdiffDotTau)
+        # The local-potential matrix element is
+        #     V_{ij} = sum_alpha atomFF_{type(alpha)}(|G_i-G_j|) * sfact_alpha,
+        #     sfact_alpha = exp(+i (G_i-G_j).tau_alpha) / V_cell.
+        # The structure factor sfact_alpha is built from atom positions and
+        # G-vectors only -- it carries NO autograd graph -- while atomFF carries
+        # the (expensive) model graph. When atomFF depends only on the atom TYPE
+        # (the usual case), the sum over atoms of one type factorizes:
+        #     sum_{alpha in t} atomFF_t * sfact_alpha = atomFF_t * (sum_alpha sfact_alpha).
+        # So we accumulate the structure factors per type FIRST (grad-free) and do
+        # a single grad-tracked multiply per TYPE. The retained backward graph is
+        # then O(N_types) instead of O(N_atoms), which is what made memory grow
+        # ~linearly per atom. This is exact (the H sum is associative and same-type
+        # atoms share atomFF), so it reproduces the per-atom result to round-off.
+        #
+        # CONDITION: the factorization holds only when atomFF is type-shared. The
+        # local-environment (LSD) correction breaks that -- it adds a term that
+        # depends on each atom's descriptor N_alpha -- so when local_env_corr is on
+        # we fall back to the exact per-atom loop (unchanged behavior).
+        gdiff_norm = torch.norm(gdiff, dim=2)
+        invV = 1.0 / self.system.getCellVolume()
 
-            thisAtomIndex = np.where(self.system.atomTypes[alpha]==self.atomPPorder)[0]
-            if len(thisAtomIndex)!=1: 
+        def type_index(atomType):
+            idx = np.where(atomType == self.atomPPorder)[0]
+            if len(idx) != 1:
                 raise ValueError("Type of atoms in PP. ")
-            thisAtomIndex = thisAtomIndex[0]
+            return idx[0]
 
+        def base_atomFF(atomType, thisAtomIndex):
+            # Spin-independent local form factor V0(|G_i-G_j|) for this atom type,
+            # including the long-range correction. Depends only on the type, so it
+            # is computed once per type (NN path slices the precomputed column).
             if self.NN_locbool:
-                # Slice the per-type column from the model output computed once
-                # above; no new forward pass / graph is created per atom.
                 atomFF = atomFF_full[:, thisAtomIndex].view(nbv, nbv)
                 lr_coeff = self.PPparams[atomType][4]
-                atomFF = atomFF + long_range_correction(torch.norm(gdiff, dim=2), self.LRgamma, lr_coeff)
+                atomFF = atomFF + long_range_correction(gdiff_norm, self.LRgamma, lr_coeff)
             else:
-                # atomFF = pot_func(torch.norm(gdiff, dim=2), self.PPparams[atom])
-                atomFF = pot_funcLR(torch.norm(gdiff, dim=2), self.PPparams[atomType], self.LRgamma)
+                atomFF = pot_funcLR(gdiff_norm, self.PPparams[atomType], self.LRgamma)
+            return atomFF
 
-            if self.NNConfig["local_env_corr"]:
-                descriptors = self.system.env_descriptors[atomType]
-                indx_alpha = torch.where(self.system.atom_indices[atomType] == alpha)[0].squeeze(0)
-                N_alpha = descriptors[indx_alpha, :]
-                
-                N_alphas = N_alpha.repeat(q.shape[0], 1)
-                
-                x_input = torch.cat([N_alphas, q], dim=1)
-                # x_ref_input = torch.cat([zeros, q], dim=1)
-
-                # rSpaceLSD = self.LSDmodels[atomType](x_input)
-                # print(f"shape of vr = {vr.shape}, rSpaceLSD = {rSpaceLSD.shape}")
-                # qSpaceLSD = spherical_ft(vr, rSpaceLSD, q)
-                # atomFF += qSpaceLSD.view(nbv, nbv)
-                # print(f"Added q LSD")
-                atomFF += self.LSDmodels[atomType](x_input).view(nbv, nbv)
-
-            # Spin-polarized local potential. atomFF is the spin-independent V0
-            # (incl. long-range and LSD corrections). The learned spin/exchange
-            # field b(q) splits the channels: V_up = V0 + b, V_down = V0 - b.
-            # When not magBool, atomFF_up == atomFF_dn == atomFF (identical to the
-            # unpolarized code).
+        def add_contribution(atomFF, sfact, thisAtomIndex):
+            # Apply the spin/exchange split (when magnetic) and add atomFF * sfact
+            # into Vmat. `sfact` is complex (nbv,nbv): a per-type summed structure
+            # factor on the grouped path, or a single-atom one on the LSD path.
+            nonlocal Vmat
             if self.magBool:
                 # Slice the per-type column from spinModel output computed once above.
                 bff = bff_full[:, thisAtomIndex].view(nbv, nbv)
@@ -642,14 +674,53 @@ class Hamiltonian:
             if self.spinor:
                 # local potential is spin-diagonal --> block diagonal; the up and
                 # down blocks carry V_up and V_down respectively.
-                sfact = torch.complex(sfact_re, sfact_im)
                 Vmat[:nbv, :nbv] = Vmat[:nbv, :nbv] + atomFF_up * sfact
                 Vmat[nbv:, nbv:] = Vmat[nbv:, nbv:] + atomFF_dn * sfact
             else:
-                #sfact = torch.complex(sfact_re, sfact_im)
-                #print(sfact.dtype)
-                #print((sfact*atomFF)[:8, :8])
-                Vmat = Vmat + atomFF * torch.complex(sfact_re, sfact_im)
+                Vmat = Vmat + atomFF * sfact
+
+        if self.NNConfig["local_env_corr"]:
+            # Per-atom path: the LSD correction depends on each atom's local
+            # environment (N_alpha), so atomFF is NOT shared across same-type atoms
+            # and the structure-factor sum cannot be collapsed by type.
+            for alpha in range(self.system.getNAtoms()):
+                atomType = self.system.atomTypes[alpha]
+                thisAtomIndex = type_index(atomType)
+                gdiffDotTau = torch.sum(gdiff * self.system.atomPos[alpha], axis=2)
+                sfact = torch.complex(invV * torch.cos(gdiffDotTau), invV * torch.sin(gdiffDotTau))
+
+                atomFF = base_atomFF(atomType, thisAtomIndex)
+
+                descriptors = self.system.env_descriptors[atomType]
+                indx_alpha = torch.where(self.system.atom_indices[atomType] == alpha)[0].squeeze(0)
+                N_alpha = descriptors[indx_alpha, :]
+                N_alphas = N_alpha.repeat(q.shape[0], 1)
+                x_input = torch.cat([N_alphas, q], dim=1)
+                atomFF = atomFF + self.LSDmodels[atomType](x_input).view(nbv, nbv)
+
+                add_contribution(atomFF, sfact, thisAtomIndex)
+        else:
+            # Per-type path: accumulate the (grad-free) structure factors over all
+            # atoms of each type, then do one grad-tracked multiply per type.
+            type_sfact_re = {}
+            type_sfact_im = {}
+            for alpha in range(self.system.getNAtoms()):
+                atomType = self.system.atomTypes[alpha]
+                gdiffDotTau = torch.sum(gdiff * self.system.atomPos[alpha], axis=2)
+                s_re = invV * torch.cos(gdiffDotTau)
+                s_im = invV * torch.sin(gdiffDotTau)
+                if atomType in type_sfact_re:
+                    type_sfact_re[atomType] = type_sfact_re[atomType] + s_re
+                    type_sfact_im[atomType] = type_sfact_im[atomType] + s_im
+                else:
+                    type_sfact_re[atomType] = s_re
+                    type_sfact_im[atomType] = s_im
+
+            for atomType in type_sfact_re:
+                thisAtomIndex = type_index(atomType)
+                sfact = torch.complex(type_sfact_re[atomType], type_sfact_im[atomType])
+                atomFF = base_atomFF(atomType, thisAtomIndex)
+                add_contribution(atomFF, sfact, thisAtomIndex)
 
         return Vmat
 
@@ -1331,7 +1402,7 @@ class Hamiltonian:
         return os.path.join(self.mat_cache_dir,
                             f"{kind}_{self.shm_tag}_{self.iSystem}_{kidx}.npy")
 
-    def calcEigValsAtK(self, kidx, cachedMats_info=None, requires_grad=True, verbosity=0, def_H=False, def_scale=0.01):
+    def calcEigValsAtK(self, kidx, cachedMats_info=None, requires_grad=True, verbosity=0, def_H=False, def_scale=0.01, precomp_Vloc=None):
         '''
         This function builds the Htot at a certain kpoint that is given as the input, 
         digonalizes the Htot, and obtains the eigenvalues at this kpoint. 
@@ -1374,7 +1445,7 @@ class Hamiltonian:
         # buildHtot is profiled internally (Htot_kinetic/Vloc/SO/NL); no wrapper
         # timer here so the leaf sections partition the inner loop cleanly.
         if not def_H:
-            H = self.buildHtot(kidx, preComp_SOmats_kidx, preComp_NLmats_kidx, requires_grad)
+            H = self.buildHtot(kidx, preComp_SOmats_kidx, preComp_NLmats_kidx, requires_grad, precomp_Vloc=precomp_Vloc)
         else:
             H = self.buildHtot_def_NEW(kidx, scale=def_scale, requires_grad=requires_grad)
 
@@ -1516,14 +1587,20 @@ class Hamiltonian:
         '''
         Multiprocessing is not implemented due to the requirement to keep gradients.
         '''
-        
+
         nbands = self.system.nBands
         nkpt = self.system.getNKpts()
         bandStruct = torch.zeros([nkpt, nbands])
+        # Vloc is k-INDEPENDENT: build it ONCE (one model forward over the q-grid +
+        # one structure-factor pass) and reuse the SAME grad-carrying tensor for
+        # every k-point. The caller does a SINGLE backward over the whole band
+        # structure, so autograd correctly accumulates the model gradient through
+        # this shared subgraph. Previously buildVlocMat ran once per k-point.
+        precomp_Vloc = self.buildVlocMat()
         for kidx in range(nkpt):
-            eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=True)
+            eigValsAtK = self.calcEigValsAtK(kidx, cachedMats_info, requires_grad=True, precomp_Vloc=precomp_Vloc)
             bandStruct[kidx,:] = eigValsAtK
-        
+
         return bandStruct
 
 
@@ -1557,21 +1634,34 @@ class Hamiltonian:
         return bandStruct
 
 
-    def calcDefPots(self, cachedMats_info=None, requires_grad=True, verbosity=2): 
+    def calcDefPots(self, cachedMats_info=None, requires_grad=True, verbosity=2):
         defpot_tensors = []
-        
-        for defPot_entry in self.system.defPotInfo: 
+        defPotSpin = getattr(self.system, 'defPotSpin', None)  # per-entry [spin_VB, spin_CB] or None
+
+        for iEntry, defPot_entry in enumerate(self.system.defPotInfo):
             kidx_VB = int(defPot_entry[0])
             kidx_CB = int(defPot_entry[2])
+            bidx_VB = int(defPot_entry[1])
+            bidx_CB = int(defPot_entry[3])
             def_scale = defPot_entry[4]
+
+            # Spin-polarized (no SOC) eigenvalues are returned interleaved as
+            # [up0, dn0, up1, dn1, ...] by calcEigValsAtK, so band n of spin s
+            # lives at 2*n + s (s: 0=up, 1=down). Map the (band, spin) request onto
+            # that list. Without SOC-off spin polarization the indices are used as-is.
+            if self.magBool and not self.SObool:
+                sVB = int(defPotSpin[iEntry][0]) if defPotSpin is not None else 0
+                sCB = int(defPotSpin[iEntry][1]) if defPotSpin is not None else 0
+                bidx_VB = 2 * bidx_VB + sVB
+                bidx_CB = 2 * bidx_CB + sCB
 
             eigValsAtVB = self.calcEigValsAtK(kidx_VB, cachedMats_info, requires_grad=requires_grad, verbosity=verbosity)
             eigValsAtVB_def = self.calcEigValsAtK(kidx_VB, cachedMats_info, requires_grad=requires_grad, def_H=True, def_scale=def_scale, verbosity=verbosity)
             eigValsAtCB = self.calcEigValsAtK(kidx_CB, cachedMats_info, requires_grad=requires_grad, verbosity=verbosity)
             eigValsAtCB_def = self.calcEigValsAtK(kidx_CB, cachedMats_info, requires_grad=requires_grad, def_H=True, def_scale=def_scale, verbosity=verbosity)
 
-            gap_org = eigValsAtCB[int(defPot_entry[3])] - eigValsAtVB[int(defPot_entry[1])]
-            gap_def = eigValsAtCB_def[int(defPot_entry[3])] - eigValsAtVB_def[int(defPot_entry[1])]
+            gap_org = eigValsAtCB[bidx_CB] - eigValsAtVB[bidx_VB]
+            gap_def = eigValsAtCB_def[bidx_CB] - eigValsAtVB_def[bidx_VB]
             defpot = (gap_org - gap_def) / 2 * (1+def_scale**3) / (1-def_scale**3)
             defpot_tensors.append(defpot)
 

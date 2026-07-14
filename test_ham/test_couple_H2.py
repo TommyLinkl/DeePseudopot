@@ -36,7 +36,7 @@ system.setExpBS(f"{inputs_dir}/expBandStruct_0.par")
 atomPPorder = np.unique(system.atomTypes)
 
 PPparams, totalParams = read_PPparams(atomPPorder, f"{inputs_dir}/init_")
-NNConfig = read_NNConfigFile(f"{inputs_dir}/NN_config.par")
+NNConfig = read_NNConfigFile(f"{inputs_dir}/NN_config.par", f"{inputs_dir}/")
 
 nPseudopot = len(atomPPorder)
 localPotParams = totalParams[:, :4]

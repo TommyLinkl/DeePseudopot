@@ -59,6 +59,10 @@ def read_NNConfigFile(filename, resultsFolder):
     # held resident in shared memory for the whole run. Trades a disk read per
     # k-point for a large drop in peak cache RAM.
     config['low_mem'] = False
+    # Stash the results folder so downstream consumers (e.g. the Hamiltonian's
+    # mat_cache_dir default) can read it straight off NNConfig without the caller
+    # having to set it separately.
+    config['resultsFolder'] = resultsFolder
     # Directory (relative to the working directory) for the low_mem disk cache.
     config['mat_cache_dir'] = f'{resultsFolder}mat_cache'
     # Group the SO/NL cache by atom type (default, exact + low RAM). Set to 0 only
@@ -324,6 +328,7 @@ class BulkSystem:
         self.BS_plot_CBVB_range_zoom = BS_plot_CBVB_range_zoom
         self.systemName = systemName
         self.fit_defPot = False
+        self.defPotSpin = None
         self.fit_eph = False
         self.fit_eff_masses = False
         self.relE_bIdx = -1
@@ -529,13 +534,28 @@ class BulkSystem:
             data = np.loadtxt(expDefPotFilename)
             if data.ndim == 1:
                 data = data.reshape(1, -1)
-            
-            assert data.shape[1] == 7, "Each row must have exactly 7 columns, corresponding to: kidx_VB(all 0-based index)    bidx_VB    kidx_CB    bidx_CB     latConst_ratio      defPot_gap(eV)    weight"
-            assert np.all(data[:, :4] == data[:, :4].astype(int)), "First 4 columns must be integers: kidx_VB(all 0-based index)    bidx_VB    kidx_CB    bidx_CB     latConst_ratio      defPot_gap(eV)    weight"
-            
+
+            # Two accepted layouts (all indices 0-based):
+            #   7 cols: kidx_VB bidx_VB kidx_CB bidx_CB latConst_ratio defPot_gap weight
+            #   9 cols: kidx_VB bidx_VB spin_VB kidx_CB bidx_CB spin_CB latConst_ratio defPot_gap weight
+            # The spin columns (0=up, 1=down) select the spin channel of each band
+            # extremum and are only meaningful in a spin-polarized run; they collapse
+            # to the canonical 7-column layout used everywhere downstream.
+            assert data.shape[1] in (7, 9), (
+                "expDefPot must have 7 columns [kidx_VB bidx_VB kidx_CB bidx_CB "
+                "latConst_ratio defPot_gap weight] or 9 columns with spin channels "
+                "[kidx_VB bidx_VB spin_VB kidx_CB bidx_CB spin_CB latConst_ratio "
+                "defPot_gap weight] (spin: 0=up, 1=down).")
+            if data.shape[1] == 9:
+                self.defPotSpin = data[:, [2, 5]].astype(int)
+                data = data[:, [0, 1, 3, 4, 6, 7, 8]]
+            else:
+                self.defPotSpin = None
+
+            assert np.all(data[:, :4] == data[:, :4].astype(int)), "First 4 columns (kidx_VB bidx_VB kidx_CB bidx_CB) must be integers."
             # Convert the first 4 columns to int to safely use them as indices later.
             data[:, :4] = data[:, :4].astype(int)
-            
+
             self.defPotInfo = data
             # print(self.defPotInfo)
 
@@ -921,8 +941,8 @@ def setAllBulkSystems(nSystem, inputsFolder, resultsFolder, LSD_flag=False, desc
         sys.setExpBS(inputsFolder + "expBandStruct_%d.par" % iSys)
         sys.setBandWeights(inputsFolder + "bandWeights_%d.par" % iSys)
         sys.print_basisStates(resultsFolder + "basisStates_%d.dat" % iSys)
-        if sys.fit_defPot: 
-            sys.setExpDefPot_NEW(inputsFolder + "expDefPot_%d.par" % iSys)
+        if sys.fit_defPot:
+            sys.setExpDefPot(inputsFolder + "expDefPot_%d.par" % iSys)
         if sys.fit_eph: 
             sys.setExpCouplings(inputsFolder + "expCoupling_%d.par" % iSys)
             sys.setQPointsAndWeights(inputsFolder + "qpoints_%d.par" % iSys)

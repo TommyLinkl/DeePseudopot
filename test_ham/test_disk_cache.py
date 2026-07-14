@@ -41,7 +41,7 @@ def run(low_mem, mat_cache_dir):
     system = build_system()
     atomPPorder = np.unique(system.atomTypes)
     PPparams, _ = read_PPparams(atomPPorder, f"{pwd}/inputs/soc/")
-    NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
+    NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par", f"{pwd}/")
     NNConfig['SObool'] = True
     NNConfig['NLbool'] = True
     NNConfig['cacheSO'] = True

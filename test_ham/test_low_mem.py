@@ -42,7 +42,7 @@ def make_ham(group_by_type, cacheSO):
     system = build_system()
     atomPPorder = np.unique(system.atomTypes)
     PPparams, _ = read_PPparams(atomPPorder, f"{pwd}/inputs/soc/")
-    NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
+    NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par", f"{pwd}/")
     NNConfig['group_by_type'] = group_by_type
     NNConfig['num_cores'] = 0
     ham = Hamiltonian(system, PPparams, atomPPorder, device, NNConfig=NNConfig,

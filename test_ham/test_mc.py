@@ -55,7 +55,7 @@ elif anyFile != len(atomPPorder):
 
 
 
-NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par")
+NNConfig = read_NNConfigFile(f"{pwd}/inputs/NN_config.par", f"{pwd}/")
 ham1 = Hamiltonian(system1, PPparams, atomPPorder, device, NNConfig=NNConfig, iSystem=0, SObool=False, coupling=False)
 optimizer = MonteCarloFit(ham1, f"{pwd}/mc_out/nocpl/", paramSteps=paramSteps, **mc_opts)
 print("\ntesting no coupling first\n")
