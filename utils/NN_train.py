@@ -444,59 +444,231 @@ def _defpot_term(ham, bulkSystem, cachedMats_info, requires_grad, device):
     return loss
 
 
-def regularization_loss(model, spinModel, ham, bulkSystem, cachedMats_info=None, requires_grad=True):
-    """Sum of the k-INDEPENDENT losses (penalty + spin-aware mag_penalty + defPot)
-    for one system. Computed ONCE per system (not per k-point) and returned as a
-    single scalar tensor ready for backward. This is the single source of truth
-    shared by every training path and by evaluation, so the trained and reported
-    losses stay consistent."""
+# ---------------------------------------------------------------------------
+# Unified loss function -- the SINGLE source of truth.
+#
+# The training/validation loss is the sum of a per-k-point band-structure MSE
+# and a set of GLOBAL (whole-system, k-INDEPENDENT) losses: a non-decay
+# penalty, a spin-aware magnitude penalty, deformation potentials, e-ph
+# couplings, and effective masses. EVERY path -- train_naive,
+# trainIter_separateKptGrad (serial + multiprocessing) and the no-grad
+# evaluation path evalBS_noGrad -- computes those global terms through the ONE
+# function compute_global_system_losses() below, so the loss that trains the NN
+# is identical to the loss that is reported and plotted. Previously each path
+# recomputed these terms inline and inconsistently (couplings/eff-masses were
+# silently dropped by separateKptGrad), so newly added loss terms did not
+# actually update the NN parameters on every route.
+#
+# The band-structure term is the only per-k-point piece; the global terms are
+# computed ONCE per system. Adding a new global loss term now means adding ONE
+# _xxx_term helper, ONE key in compute_global_system_losses(), and ONE entry in
+# LOSS_TERM_NAMES -- every path and the reporting then pick it up automatically.
+# ---------------------------------------------------------------------------
+
+# Canonical, ordered list of the loss components that are tracked, printed, and
+# plotted. "bandStruct" is the per-k-point term the caller adds; the rest are
+# the global terms returned by compute_global_system_losses().
+LOSS_TERM_NAMES = ["bandStruct", "penalty", "mag_penalty", "defpot", "coupling", "effmass"]
+
+
+def new_loss_components():
+    """A fresh {term_name: 0.0} accumulator over LOSS_TERM_NAMES."""
+    return {name: 0.0 for name in LOSS_TERM_NAMES}
+
+
+def accumulate_loss_components(target, source):
+    """Add the (tensor or float) values of `source` into the `target` float
+    accumulator, detaching tensors. Keys not in LOSS_TERM_NAMES are ignored."""
+    for name in LOSS_TERM_NAMES:
+        if name in source:
+            val = source[name]
+            target[name] += float(val.detach()) if torch.is_tensor(val) else float(val)
+
+
+def loss_components_total(comp):
+    """Total loss = sum of all tracked components."""
+    return sum(comp.get(name, 0.0) for name in LOSS_TERM_NAMES)
+
+
+def bandStruct_loss(bandStruct_hat, bulkSystem):
+    """Whole-band-structure MSE term (relative-to-reference-band if configured)."""
+    if bulkSystem.relE_bIdx != -1:
+        return weighted_relative_mse_bandStruct(bandStruct_hat, bulkSystem, bulkSystem.relE_bIdx)
+    return weighted_mse_bandStruct(bandStruct_hat, bulkSystem)
+
+
+def bandStruct_kpt_loss(calcEnergiesAtKpt, bulkSystem, kidx):
+    """Single-k-point band-structure MSE term (sums over k to bandStruct_loss)."""
+    if bulkSystem.relE_bIdx != -1:
+        return weighted_relative_mse_energiesAtKpt(calcEnergiesAtKpt, bulkSystem, kidx, bulkSystem.relE_bIdx)
+    return weighted_mse_energiesAtKpt(calcEnergiesAtKpt, bulkSystem, kidx)
+
+
+def _coupling_term(ham, bulkSystem, device, requires_grad=True, coupling_debug=False):
+    """e-ph coupling MSE loss. Zero tensor when the system isn't fitting couplings.
+    Returns (loss, calcCouplings_dict); calcCouplings_dict is None when not fit.
+    Scaled by nkpt so it balances against the k-point-summed band-structure term
+    (this matches the historical inline definition exactly). Under requires_grad
+    the differentiable calcCouplings() graph is kept alive (the LSD correction is
+    trained by differentiating this term)."""
+    if not bulkSystem.fit_eph:
+        return torch.tensor(0.0, dtype=torch.float64, device=device), None
+    loss = torch.tensor(0.0, dtype=torch.float64, device=device)
+    grad_ctx = torch.enable_grad() if requires_grad else torch.no_grad()
+    with grad_ctx:
+        calcCouplings_dict = ham.calcCouplings()
+        if coupling_debug:
+            print(calcCouplings_dict)
+        for atomidx in range(bulkSystem.getNAtoms()):
+            for gamma in range(3):
+                for qidx in range(bulkSystem.qpts.shape[0]):
+                    for band in ["vb", "cb"]:
+                        key = (atomidx, gamma, qidx, band)
+                        if (key in calcCouplings_dict) and (key in bulkSystem.expCouplingBands):
+                            cpl_weight = (bulkSystem.expCouplingWeights.get(key, 1.0)
+                                          if bulkSystem.expCouplingWeights is not None else 1.0)
+                            loss = loss + ((abs(calcCouplings_dict[key]) - abs(bulkSystem.expCouplingBands[key])) ** 2
+                                           * bulkSystem.qptWeights[qidx] * cpl_weight) * bulkSystem.getNKpts()
+                        else:
+                            print(f"WARNING: The coupling key {key} is missing in either the calculated "
+                                  f"or reference couplings. Skipping this entry in calculating the loss. ")
+    return loss, calcCouplings_dict
+
+
+def _effmass_term(ham, bulkSystem, cachedMats_info, requires_grad, device, bandStruct=None):
+    """Effective-mass MSE loss. Zero tensor when the system isn't fitting eff. masses.
+    Returns (loss, eff_masses). When a grad-carrying `bandStruct` is supplied
+    (train_naive / eval already have the full band structure) it is reused;
+    otherwise (separateKptGrad, whose per-k band graphs are freed) the two
+    k-points calcEffMasses needs are re-evaluated here with a FRESH graph, so the
+    term is differentiable in every path (including multiprocessing, where this
+    runs in the parent)."""
+    if not bulkSystem.fit_eff_masses:
+        return torch.tensor(0.0, dtype=torch.float64, device=device), None
+    if bandStruct is None:
+        nBands = bulkSystem.nBands
+        nkpt = bulkSystem.getNKpts()
+        bandStruct = torch.zeros([nkpt, nBands], dtype=torch.float64, device=device)
+        for kidx in (ham.idx_gap, ham.idx_gap - 1):
+            bandStruct[kidx, :] = ham.calcEigValsAtK(kidx, cachedMats_info, requires_grad=requires_grad)
+    eff_masses = ham.calcEffMasses(bandStruct)
+    loss = bulkSystem.effMassWeight * ((eff_masses[0] - bulkSystem.expEffMasses[0]) ** 2
+                                       + (eff_masses[1] - bulkSystem.expEffMasses[1]) ** 2)
+    return loss, eff_masses
+
+
+def compute_global_system_losses(model, spinModel, ham, bulkSystem, cachedMats_info=None,
+                                  requires_grad=True, coupling_debug=False, bandStruct=None):
+    """The single source of truth for the GLOBAL (whole-system, k-INDEPENDENT)
+    loss terms of one system. Returns (loss_terms, extras) where:
+      * loss_terms is a dict of grad-carrying scalar tensors keyed by the global
+        entries of LOSS_TERM_NAMES (penalty, mag_penalty, defpot, coupling,
+        effmass). The caller adds the per-k-point "bandStruct" term separately.
+      * extras carries the by-products used for file output:
+        {'calcCouplings': dict|None, 'eff_masses': tensor|None}.
+    """
     device = next(model.parameters()).device if model is not None else bulkSystem.kpts.device
     nkpt = bulkSystem.getNKpts()
-    return (_penalty_term(model, ham.NNConfig, nkpt, device)
-            + _mag_penalty_term(model, spinModel, ham.NNConfig, nkpt, device)
-            + _defpot_term(ham, bulkSystem, cachedMats_info, requires_grad, device))
 
+    coupling_loss, calcCouplings_dict = _coupling_term(
+        ham, bulkSystem, device, requires_grad=requires_grad, coupling_debug=coupling_debug)
+    effmass_loss, eff_masses = _effmass_term(
+        ham, bulkSystem, cachedMats_info, requires_grad, device, bandStruct=bandStruct)
 
-def compute_global_system_losses(model, bulkSystem, ham, cachedMats_info=None, requires_grad=True, coupling_debug=False, spinModel=None):
-    if model is not None:
-        device = next(model.parameters()).device
-    else:
-        device = bulkSystem.kpts.device
-
-    nkpt = bulkSystem.getNKpts()
     loss_terms = {
         "penalty": _penalty_term(model, ham.NNConfig, nkpt, device),
         "mag_penalty": _mag_penalty_term(model, spinModel, ham.NNConfig, nkpt, device),
         "defpot": _defpot_term(ham, bulkSystem, cachedMats_info, requires_grad, device),
-        "coupling": torch.tensor(0.0, dtype=torch.float64, device=device),
+        "coupling": coupling_loss,
+        "effmass": effmass_loss,
     }
+    extras = {"calcCouplings": calcCouplings_dict, "eff_masses": eff_masses}
+    return loss_terms, extras
 
-    if bulkSystem.fit_eph:
-        # Keep the autograd graph alive through buildCouplingMats: the LSD
-        # correction is trained by differentiating the coupling loss, so use the
-        # analytic, differentiable calcCouplings() (NOT the finite-difference
-        # calcCouplings_diag_fd) and force grad on even under an outer no_grad.
-        with torch.enable_grad():
-            calcCouplings_dict = ham.calcCouplings()
-            if coupling_debug:
-                print(calcCouplings_dict)
 
-            for atomidx in range(bulkSystem.getNAtoms()):
+def global_loss_sum(loss_terms):
+    """Sum the global loss-term tensors into one scalar tensor ready for backward.
+    Returns None if there is nothing to sum (all terms absent)."""
+    total = None
+    for name, val in loss_terms.items():
+        total = val if total is None else total + val
+    return total
+
+
+def write_coupling_bands(filename, bulkSystem, calcCouplings_dict):
+    """Write the vb-vb / cb-cb e-ph coupling matrix elements to a .dat file.
+    No-op when there are no couplings (calcCouplings_dict is None)."""
+    if calcCouplings_dict is None:
+        return
+    pol = {0: "x", 1: "y", 2: "z"}
+    with open(filename, 'w') as fwrite:
+        for atomidx in range(bulkSystem.getNAtoms()):
+            print(f"Atom idx = {atomidx}   atom = {bulkSystem.atomTypes[atomidx]}   position = {bulkSystem.atomPos[atomidx]}", file=fwrite)
+            for band in ["vb", "cb"]:
+                print(f"{band}-{band} coupling elements. ", file=fwrite, end="")
                 for gamma in range(3):
+                    print(f"\npolarization of derivative = {pol[gamma]}", file=fwrite)
                     for qidx in range(bulkSystem.qpts.shape[0]):
-                        for band in ["vb", "cb"]:
-                            if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in bulkSystem.expCouplingBands):
-                                cpl_key = (atomidx, gamma, qidx, band)
-                                cpl_weight = bulkSystem.expCouplingWeights.get(cpl_key, 1.0) if bulkSystem.expCouplingWeights is not None else 1.0
-                                loss_terms["coupling"] += ((abs(calcCouplings_dict[cpl_key]) - abs(bulkSystem.expCouplingBands[cpl_key])) ** 2 * bulkSystem.qptWeights[qidx] * cpl_weight) * bulkSystem.getNKpts()
+                        key = (atomidx, gamma, qidx, band)
+                        if key in calcCouplings_dict:
+                            val = calcCouplings_dict[key]
+                            val_item = val.item() if torch.is_tensor(val) else val
+                            if abs(val_item) < 1e-9:
+                                print("0   ", file=fwrite, end="")
                             else:
-                                print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
+                                print(f"{val_item:.5e}   ", file=fwrite, end="")
+                        else:
+                            print("Not-fit   ", file=fwrite, end="")
+                    print("\n", file=fwrite, end="")
+                print("\n", file=fwrite, end="")
+            print("\n\n", file=fwrite, end="")
 
-        return loss_terms, calcCouplings_dict
 
-    return loss_terms, None
+# Header and formatter for the per-component cost .dat files. Columns are the
+# total followed by each entry of LOSS_TERM_NAMES, so the files are self-
+# describing and the breakdown plot / any downstream analysis can read them.
+COST_FILE_HEADER = "# epoch    total    " + "    ".join(LOSS_TERM_NAMES) + "\n"
 
-def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None, writeBS=False, LSDmodels=None, resultsFolder="", spinModel=None):
+
+def format_cost_line(epoch, comp):
+    cols = "    ".join(f"{comp.get(name, 0.0):.6e}" for name in LOSS_TERM_NAMES)
+    return f"{epoch}    {loss_components_total(comp):.6e}    {cols}\n"
+
+
+def plot_loss_breakdown(train_x, train_history, val_x=None, val_history=None, SHOWPLOTS=False):
+    """Plot every non-zero loss component (and the total) vs epoch on a log scale,
+    so a run shows which term dominates and how each is trending. train_history /
+    val_history are lists of {term: value} dicts aligned with train_x / val_x."""
+    colors = {"bandStruct": "tab:blue", "penalty": "tab:orange", "mag_penalty": "tab:green",
+              "defpot": "tab:red", "coupling": "tab:purple", "effmass": "tab:brown"}
+    fig, axs = plt.subplots(1, 1, figsize=(7, 5))
+    for name in LOSS_TERM_NAMES:
+        series = [comp.get(name, 0.0) for comp in train_history]
+        if any(abs(v) > 0 for v in series):
+            axs.plot(train_x, series, "-", color=colors.get(name), label=f"train {name}")
+            if (val_x is not None) and val_history:
+                vseries = [comp.get(name, 0.0) for comp in val_history]
+                axs.plot(val_x, vseries, ":", color=colors.get(name), alpha=0.7, label=f"val {name}")
+    total_series = [loss_components_total(comp) for comp in train_history]
+    axs.plot(train_x, total_series, "k-", linewidth=2, label="train total")
+    if (val_x is not None) and val_history:
+        vtotal = [loss_components_total(comp) for comp in val_history]
+        axs.plot(val_x, vtotal, "k:", linewidth=2, label="val total")
+    axs.set_yscale('log')
+    axs.set(xlabel="Epochs", ylabel="Cost", title="Loss component breakdown")
+    axs.legend(frameon=False, fontsize=7, ncol=2)
+    axs.grid(True, which="both", alpha=0.3)
+    fig.tight_layout()
+    if SHOWPLOTS:
+        plt.show()
+    return fig
+
+def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cachedMats_info=None, writeBS=False, LSDmodels=None, resultsFolder="", spinModel=None, loss_components_out=None):
+    """No-grad evaluation of the band structures and the FULL loss. Uses the same
+    single-source-of-truth loss as training (band-structure MSE + the global
+    terms from compute_global_system_losses), so the returned scalar is directly
+    comparable to the training loss. If `loss_components_out` (a dict) is passed,
+    it is filled in place with the per-component breakdown over LOSS_TERM_NAMES."""
     if (model is not None):
         print(f"\t{runName}: Evaluating band structures using the NN-pp model. ")
         model.eval()
@@ -513,18 +685,12 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
         spinModel.eval()
 
     plot_bandStruct_list = []
-    total_BS_MSE = 0
-    true_BS_MSE = 0
-    totalPenalty = 0
-    totalMagPenalty = 0
-    defPot_MSE = 0
-    effMass_MSE = 0
-    coupling_MSE = 0
+    comp = new_loss_components()
     for iSys, sys in enumerate(systems):
-        if (model is not None): 
+        if (model is not None):
             hams[iSys].NN_locbool = True
             hams[iSys].set_NNmodel(model)
-        else: 
+        else:
             hams[iSys].NN_locbool = False
 
         if (LSDmodels is not None):
@@ -538,7 +704,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
             evalBS = hams[iSys].calcBandStruct_noGrad(cachedMats_info)
         evalBS.detach_()
         end_time = time.time()
-        if writeBS: 
+        if writeBS:
             if (not BSplotFilename.endswith('_plotBS.pdf')) and (not BSplotFilename.endswith('_plotBS.png')):
                 raise ValueError("BSplotFilename must end with '_plotBS.pdf' or '_plotBS.png' to write BS.dat files. ")
             else:
@@ -550,127 +716,60 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
                 shutil.copy(write_BS_filename, write_BS_filename.replace(f'_BS_sys{iSys}.dat', f'_BS_sys{iSys}_trueE.dat'))
                 write_tensor_shifted = torch.cat((kptDistInputs_vertical, evalBS - evalBS[:, sys.relE_bIdx].unsqueeze(1) + sys.expBandStruct[:, sys.relE_bIdx].unsqueeze(1)), dim=1)
                 np.savetxt(BSplotFilename.replace('_plotBS.pdf', f'_BS_sys{iSys}_relative.dat'), write_tensor_shifted, fmt='%.5f')
-        
-        if sys.relE_bIdx != -1:
-            plot_bandStruct_list.append(sys.expBandStruct)
-            plot_bandStruct_list.append(evalBS)
-            total_BS_MSE += weighted_relative_mse_bandStruct(evalBS, sys, sys.relE_bIdx).detach()
-            true_BS_MSE += weighted_mse_bandStruct(evalBS, sys).detach()
-        else:
-            plot_bandStruct_list.append(sys.expBandStruct)
-            plot_bandStruct_list.append(evalBS)
-            total_BS_MSE += weighted_mse_bandStruct(evalBS, sys).detach()
 
+        plot_bandStruct_list.append(sys.expBandStruct)
+        plot_bandStruct_list.append(evalBS)
+        # Same per-k-point band-structure MSE term the training paths use.
+        comp["bandStruct"] += float(bandStruct_loss(evalBS, sys).detach())
+
+        # Global (whole-system) losses through the SAME shared function used by
+        # training. requires_grad=False -> no autograd graph is built. Pass the
+        # already-computed evalBS so the eff-mass term is not re-diagonalized.
         with torch.no_grad():
-            global_loss_terms, calcCouplings_dict = compute_global_system_losses(model, sys, hams[iSys], cachedMats_info=cachedMats_info, requires_grad=False, coupling_debug=True, spinModel=spinModel)
-            totalPenalty += global_loss_terms["penalty"].detach()
-            totalMagPenalty += global_loss_terms["mag_penalty"].detach()
-            defPot_MSE += global_loss_terms["defpot"].detach()
-            coupling_MSE += global_loss_terms["coupling"].detach()
+            global_loss_terms, extras = compute_global_system_losses(
+                model, spinModel, hams[iSys], sys, cachedMats_info=cachedMats_info,
+                requires_grad=False, coupling_debug=True, bandStruct=evalBS)
+        accumulate_loss_components(comp, global_loss_terms)
 
+        # ----- file output side-effects (loss already tallied above) -----
         if sys.fit_eph:
-            output = os.path.join(resultsFolder, f"{runName}_couplingBands_{iSys}.dat")
-            with open(output, 'w') as fwrite:
-                for atomidx in range(sys.getNAtoms()):
-                    print(f"Atom idx = {atomidx}   atom = {sys.atomTypes[atomidx]}   position = {sys.atomPos[atomidx]}", file=fwrite)
+            write_coupling_bands(os.path.join(resultsFolder, f"{runName}_couplingBands_{iSys}.dat"), sys, extras["calcCouplings"])
+            write_coupling_bands(BSplotFilename.replace('_plotBS.pdf', f'_couplingBands_{iSys}.dat'), sys, extras["calcCouplings"])
+            print(f"couplingMSE = {float(global_loss_terms['coupling'].detach()):.4g}")
 
-                    for band in ["vb", "cb"]:
-                        print(f"{band}-{band} coupling elements. ", file=fwrite, end="")
-                        for gamma in range(3):
-                            if gamma == 0:
-                                print("\npolarization of derivative = x", file=fwrite)
-                            elif gamma == 1:
-                                print("polarization of derivative = y", file=fwrite)
-                            else:
-                                print("polarization of derivative = z", file=fwrite)
+        if sys.fit_eff_masses and extras["eff_masses"] is not None:
+            eff_masses = extras["eff_masses"]
+            print(f"Calculated effMasses = {eff_masses}, refEffMasses = {sys.expEffMasses}, effMass_Loss = {float(global_loss_terms['effmass'].detach()):.4f}")
+            np.savetxt(BSplotFilename.replace('_plotBS.pdf', f'_effMasses_{iSys}.dat'),
+                       eff_masses.detach().numpy() if torch.is_tensor(eff_masses) else np.asarray(eff_masses), fmt="%.2f")
 
-                            for qidx in range(sys.qpts.shape[0]):
-                                if (atomidx, gamma, qidx, band) in calcCouplings_dict:
-                                    val = calcCouplings_dict[(atomidx, gamma, qidx, band)]
-                                    val_item = val.item() if torch.is_tensor(val) else val
-                                    if abs(val_item) < 1e-9:
-                                        print("0   ", file=fwrite, end="")
-                                    else:
-                                        print(f"{val_item:.5e}   ", file=fwrite, end="")
-                                else:
-                                    print("Not-fit   ", file=fwrite, end="")
-                            print("\n", file=fwrite, end="")
-                        print("\n", file=fwrite, end="")
-                    print("\n\n", file=fwrite, end="")
+        if sys.fit_defPot:
+            calcDefPots = hams[iSys].calcDefPots(cachedMats_info=cachedMats_info, requires_grad=False, verbosity=0)
+            np.savetxt(BSplotFilename.replace('_plotBS.pdf', f'_defPots_{iSys}.dat'),
+                       calcDefPots.detach().numpy(), fmt="%.5f")
 
-        # Add in effective mass loss
-        if sys.fit_eff_masses:
-            eff_masses = hams[iSys].calcEffMasses(evalBS)
-            effMassLoss = sys.effMassWeight * ((eff_masses[0] - sys.expEffMasses[0])**2 + (eff_masses[1] - sys.expEffMasses[1])**2)
-            effMass_MSE += effMassLoss
-            print(f"Calculated effMasses = {eff_masses}, refEffMasses = {sys.expEffMasses}, effMass_Loss = {effMassLoss:.4f}")
-            output = f"{BSplotFilename.replace('_plotBS.pdf', f'_effMasses_{iSys}.dat')}"
-            np.savetxt(output, eff_masses, fmt="%.2f")
+        print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... "
+              f"total = {loss_components_total(comp):.4f}. BS_MSE = {comp['bandStruct']:.4f}. "
+              f"Penalty = {comp['penalty']:.4f}. defPot_MSE = {comp['defpot']:.4f}. effMass_MSE = {comp['effmass']:.4f}. "
+              f"coupling_MSE = {comp['coupling']:.4g}.")
 
-        # add coupling loss
-        if sys.fit_eph:
-            if (LSDmodels is None):
-                torch.no_grad()
-            
-            calcCouplings_dict = hams[iSys].calcCouplings()
-            # for key, item in calcCouplings_dict.items():
-            #     print(f"{key}: {item}")
-            # calcCouplings_dict_fd = hams[iSys].calcCouplings_diag_fd()
-            # for key in calcCouplings_dict:
-            #     print(f"{key}: {calcCouplings_dict_fd[key]}")
+    if loss_components_out is not None:
+        loss_components_out.clear()
+        loss_components_out.update(comp)
 
-            for atomidx in range(sys.getNAtoms()):
-                for gamma in range(3):
-                    for qidx in range(sys.qpts.shape[0]):
-                        for band in ["vb", "cb"]:
-                            if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in sys.expCouplingBands):
-                                cpl_key = (atomidx, gamma, qidx, band)
-                                cpl_weight = sys.expCouplingWeights.get(cpl_key, 1.0) if sys.expCouplingWeights is not None else 1.0
-                                coupling_MSE += ((abs(calcCouplings_dict[cpl_key]) - abs(sys.expCouplingBands[cpl_key])) ** 2 * sys.qptWeights[qidx] * cpl_weight) * sys.getNKpts()
-                            else: 
-                                print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
-            
-            print(f"couplingMSE = {coupling_MSE:.4g}")
-
-            output = f"{BSplotFilename.replace('_plotBS.pdf', f'_couplingBands_{iSys}.dat')}"
-            with open(output, 'w') as fwrite:
-                for atomidx in range(sys.getNAtoms()):
-                    print(f"Atom idx = {atomidx}   atom = {sys.atomTypes[atomidx]}   position = {sys.atomPos[atomidx]}", file=fwrite)
-
-                    for band in ["vb", "cb"]:
-                        print(f"{band}-{band} coupling elements. ", file=fwrite, end="")
-                        for gamma in range(3):
-                            if gamma == 0:
-                                print("polarization of derivative = x", file=fwrite)
-                            elif gamma == 1:
-                                print("polarization of derivative = y", file=fwrite)
-                            else:
-                                print("polarization of derivative = z", file=fwrite)
-
-                            for qidx in range(sys.qpts.shape[0]):
-                                if (atomidx, gamma, qidx, band) in calcCouplings_dict:
-                                    val = calcCouplings_dict[(atomidx, gamma, qidx, band)]
-                                    val_item = val.item() if torch.is_tensor(val) else val
-                                    if abs(val_item) < 1e-9:
-                                        print("0   ", file=fwrite, end="")
-                                    else:
-                                        print(f"{val_item:.5e}   ", file=fwrite, end="")
-                                else:
-                                    print("Not-fit   ", file=fwrite, end="")
-                            print("\n", file=fwrite, end="")
-                        print("\n", file=fwrite, end="")
-                    print("\n\n", file=fwrite, end="")
-
-        print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... Total_BS_MSE = {total_BS_MSE:.4f}. Penalty = {totalPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}. effMass_MSE = {effMass_MSE:.4f}.")
-
+    total = loss_components_total(comp)
     fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
-    print(f"\t{runName}: Finished evaluating all band structures with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. Total_BS_MSE = {total_BS_MSE:.4f}. Penalty = {totalPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}.")
-    fig.suptitle(f"{runName}: total_BS_MSE = {total_BS_MSE:.4f}. Penalty = {totalPenalty:.4f}. defPot_MSE = {defPot_MSE:.4f}. effMass_MSE = {effMass_MSE:.4f}.")
+    print(f"\t{runName}: Finished evaluating all band structures with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. "
+          f"total = {total:.4f}. BS_MSE = {comp['bandStruct']:.4f}. Penalty = {comp['penalty']:.4f}. defPot_MSE = {comp['defpot']:.4f}.")
+    fig.suptitle(f"{runName}: total = {total:.4f}. BS_MSE = {comp['bandStruct']:.4f}. Penalty = {comp['penalty']:.4f}. "
+                 f"defPot_MSE = {comp['defpot']:.4f}. effMass_MSE = {comp['effmass']:.4f}. coupling_MSE = {comp['coupling']:.4g}.")
     fig.savefig(BSplotFilename)
     fig.savefig(BSplotFilename.replace('.pdf', '.png'))
     plt.close('all')
     torch.cuda.empty_cache()
-    return total_BS_MSE + totalPenalty + defPot_MSE + effMass_MSE
+    # Return a tensor (callers -- runMC_NN, bandStruct_train_GPU -- use .item(),
+    # comparisons and np.sqrt on the result).
+    return torch.tensor(total, dtype=torch.float64)
 
 
 def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cachedMats_info=None, prevBS=None, LSDmodels=None, LSDoptimizers=None, spinModel=None, spinOptimizer=None, collect_nl=False):
@@ -703,10 +802,9 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
     if ham.NNConfig['smooth_reorder']: 
         col_ind, calcEnergies, extrapolated_eigVal = reorder_kpt_smoothness_deg2_tensors(calcEnergies, kidx, comparedBS=prevBS.detach() if prevBS is not None else None)
 
-    if bulkSystem.relE_bIdx!=-1:
-        systemKptLoss = weighted_relative_mse_energiesAtKpt(calcEnergies, bulkSystem, kidx, bulkSystem.relE_bIdx)
-    else:
-        systemKptLoss = weighted_mse_energiesAtKpt(calcEnergies, bulkSystem, kidx)
+    # Only the per-k-point band-structure MSE term is computed here; the GLOBAL
+    # losses are added once per system in the parent (trainIter_separateKptGrad).
+    systemKptLoss = bandStruct_kpt_loss(calcEnergies, bulkSystem, kidx)
 
     optimizer.zero_grad()
     if LSDmodels:
@@ -756,8 +854,7 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
 
 def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, runtime_flag=False, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, LSDmodels=None, LSDoptimizers=None, spinModel=None, spinOptimizer=None, nl_ctx=None):
     trainLoss = torch.tensor(0.0)
-    coupling_Loss = torch.tensor(0.0)
-    effMass_Loss = torch.tensor(0.0)
+    comp = new_loss_components()   # per-component loss breakdown for reporting
 
     for iSys, sys in enumerate(systems):
         hams[iSys].NN_locbool = True
@@ -770,12 +867,12 @@ def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=N
         NN_outputs = hams[iSys].calcBandStruct_withGrad(cachedMats_info)
 
         # reorder NN_outputs if the keyword is turned on
-        if hams[iSys].NNConfig['smooth_reorder']: 
+        if hams[iSys].NNConfig['smooth_reorder']:
             order_table, newBS, extrapolated_points = reorder_smoothness_deg2_tensors(NN_outputs)
             NN_outputs = newBS
 
             # Plot each individual band for debugging
-            if verbosity>=1: 
+            if verbosity>=1:
                 for bandIdx in range(newBS.shape[1]):
                     fig, ax = plotBandStruct_reorder(newBS.detach().numpy(), bandIdx)
                     ax.plot(np.arange(len(newBS)), extrapolated_points[:, bandIdx].detach().numpy(), "gx:", alpha=0.8, markersize=4)
@@ -784,71 +881,30 @@ def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=N
                     fig.savefig(f"{resultsFolder}epoch_{epoch+1}_newBand_{bandIdx}.png")
                     fig.savefig(f"{resultsFolder}epoch_{epoch+1}_newBand_{bandIdx}.pdf")
                     plt.close()
-        
-        if sys.relE_bIdx != -1: 
-            systemLoss = weighted_relative_mse_bandStruct(NN_outputs, sys, sys.relE_bIdx)
-        else:
-            systemLoss = weighted_mse_bandStruct(NN_outputs, sys)
-        trainLoss += systemLoss
 
-        # k-independent losses (non-decay penalty + spin-aware magnitude penalty +
-        # deformation potentials), computed ONCE per system via the shared helper.
-        trainLoss += regularization_loss(model, spinModel, hams[iSys], sys, cachedMats_info, requires_grad=True)
+        # Band-structure MSE term.
+        systemBSLoss = bandStruct_loss(NN_outputs, sys)
 
-        # Add in effective mass loss
-        if sys.fit_eff_masses:
-            eff_masses = hams[iSys].calcEffMasses(NN_outputs)
-            effMass_MSE = sys.effMassWeight * ((eff_masses[0] - sys.expEffMasses[0])**2 + (eff_masses[1] - sys.expEffMasses[1])**2)
-            effMass_Loss += effMass_MSE
-            
-        trainLoss += effMass_Loss
+        # ALL global (whole-system) losses through the single source of truth:
+        # penalty + spin-aware magnitude penalty + deformation potentials +
+        # e-ph couplings + effective masses. The already-computed grad-carrying
+        # NN_outputs is reused for the eff-mass term (no re-diagonalization).
+        loss_terms, extras = compute_global_system_losses(
+            model, spinModel, hams[iSys], sys, cachedMats_info, requires_grad=True, bandStruct=NN_outputs)
 
-        # add coupling loss
-        if sys.fit_eph:
-            calcCouplings_dict = hams[iSys].calcCouplings()
-            
-            for atomidx in range(sys.getNAtoms()):
-                for gamma in range(3):
-                    for qidx in range(sys.qpts.shape[0]):
-                        for band in ["vb", "cb"]:
-                            if ((atomidx, gamma, qidx, band) in calcCouplings_dict) and ((atomidx, gamma, qidx, band) in sys.expCouplingBands):
-                                cpl_key = (atomidx, gamma, qidx, band)
-                                cpl_weight = sys.expCouplingWeights.get(cpl_key, 1.0) if sys.expCouplingWeights is not None else 1.0
-                                coupling_Loss += ((abs(calcCouplings_dict[cpl_key]) - abs(sys.expCouplingBands[cpl_key])) ** 2 * sys.qptWeights[qidx] * cpl_weight) * sys.getNKpts()
-                            else: 
-                                print(f"WARNING: The coupling key {(atomidx, gamma, qidx, band)} is missing in either the calculated or reference couplings. Skipping this entry in calculating the loss. ")
-            
-            print(f"couplingMSE = {coupling_Loss:.4g}")
+        trainLoss = trainLoss + systemBSLoss + global_loss_sum(loss_terms)
 
-            output = os.path.join(resultsFolder, f"couplingBands_{iSys}.dat")
-            with open(output, 'w') as fwrite:
-                for atomidx in range(sys.getNAtoms()):
-                    print(f"Atom idx = {atomidx}   atom = {sys.atomTypes[atomidx]}   position = {sys.atomPos[atomidx]}", file=fwrite)
+        # track the breakdown for reporting / plotting
+        comp["bandStruct"] += float(systemBSLoss.detach())
+        accumulate_loss_components(comp, loss_terms)
 
-                    for band in ["vb", "cb"]:
-                        print(f"{band}-{band} coupling elements. ", file=fwrite, end="")
-                        for gamma in range(3):
-                            if gamma == 0:
-                                print("\npolarization of derivative = x", file=fwrite)
-                            elif gamma == 1:
-                                print("polarization of derivative = y", file=fwrite)
-                            else:
-                                print("polarization of derivative = z", file=fwrite)
-
-                            for qidx in range(sys.qpts.shape[0]):
-                                if (atomidx, gamma, qidx, band) in calcCouplings_dict:
-                                    val = calcCouplings_dict[(atomidx, gamma, qidx, band)]
-                                    val_item = val.item() if torch.is_tensor(val) else val
-                                    if abs(val_item) < 1e-9:
-                                        print("0   ", file=fwrite, end="")
-                                    else:
-                                        print(f"{val_item:.5e}   ", file=fwrite, end="")
-                                else:
-                                    print("Not-fit   ", file=fwrite, end="")
-                            print("\n", file=fwrite, end="")
-                        print("\n", file=fwrite, end="")
-                    print("\n\n", file=fwrite, end="")
-        trainLoss += coupling_Loss
+        # file output + progress printouts (loss already tallied above)
+        if sys.fit_eph and extras["calcCouplings"] is not None:
+            write_coupling_bands(os.path.join(resultsFolder, f"couplingBands_{iSys}.dat"), sys, extras["calcCouplings"])
+            print(f"couplingMSE = {float(loss_terms['coupling'].detach()):.4g}")
+        if sys.fit_eff_masses and extras["eff_masses"] is not None:
+            print(f"Calculated effMasses = {extras['eff_masses']}, refEffMasses = {sys.expEffMasses}, "
+                  f"effMass_Loss = {float(loss_terms['effmass'].detach()):.4f}")
 
     optimizer.zero_grad()
     if LSDmodels:
@@ -880,7 +936,7 @@ def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=N
             _step_nonlocal_grad(nl_ctx)
 
     torch.cuda.empty_cache()
-    return model, trainLoss
+    return model, trainLoss, comp
 
 
 def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, prevBS=None, LSDmodels=None, LSDoptimizers=None, spinModel=None, spinOptimizer=None, nl_ctx=None):
@@ -901,6 +957,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
         return merged_dict
     
     trainLoss = 0.0
+    comp = new_loss_components()   # per-component loss breakdown for reporting
     total_gradients = {}
     total_gradients_LSD = {}
     total_gradients_spin = {}
@@ -944,19 +1001,14 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                     col_ind, calcEnergies, extrapolated_eigVal = reorder_kpt_smoothness_deg2_tensors(calcEnergies, kidx, comparedBS=prevBS.detach() if prevBS is not None else None)
                     extrapolated_points[kidx,:] = extrapolated_eigVal.detach().clone()
 
-                if sys.relE_bIdx != -1: 
-                    systemKptLoss = weighted_relative_mse_energiesAtKpt(calcEnergies, sys, kidx, sys.relE_bIdx)
-                else:
-                    systemKptLoss = weighted_mse_energiesAtKpt(calcEnergies, sys, kidx)
+                systemKptLoss = bandStruct_kpt_loss(calcEnergies, sys, kidx)
                 currBS[kidx,:] = calcEnergies.detach().clone()
 
-                # NOTE: k-INDEPENDENT losses (non-decay penalty, magnitude penalty,
-                # deformation potentials) are NOT added here. They are computed once
-                # per system after this k-point loop (see regularization_loss below),
-                # so they apply identically in the serial and multiprocessing paths.
-
-                if sys.fit_eff_masses:
-                    print(f"Warning: effective mass fitting not available with separateKptGrad.")
+                # NOTE: the GLOBAL losses (penalty, magnitude penalty, deformation
+                # potentials, couplings, effective masses) are NOT added here. They
+                # are computed once per system after this k-point loop through the
+                # shared compute_global_system_losses(), so they apply identically
+                # in the serial and multiprocessing paths (and match train_naive).
 
                 optimizer.zero_grad()
                 if LSDmodels:
@@ -967,8 +1019,13 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                 _zero_nonlocal_grad(nl_ctx)
                 with PROF.time("backward"):
                     # Keep the shared (k-independent) Vloc subgraph alive for the
-                    # remaining k-points; free it on the last one.
-                    systemKptLoss.backward(retain_graph=(kidx < nkpts_sys - 1))
+                    # remaining k-points; free it on the last one. When fitting e-ph
+                    # couplings, the coupling term (computed after this loop) reuses
+                    # the per-k-point eigenVECTORS, so keep every k-point's graph
+                    # alive until that final global backward frees them.
+                    systemKptLoss.backward(retain_graph=(kidx < nkpts_sys - 1) or sys.fit_eph)
+
+                comp["bandStruct"] += float(systemKptLoss.detach()) * float(sys.kptWeights[kidx])
 
                 for name, param in model.named_parameters():
                     if param.grad is not None:
@@ -1004,6 +1061,13 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                 gc.collect()
 
         else: # multiprocessing
+            if sys.fit_eph:
+                raise NotImplementedError(
+                    "e-ph coupling (fit_eph) is not supported with separateKptGrad + "
+                    "multiprocessing (num_cores>0): the coupling loss needs the eigenvectors, "
+                    "which are produced inside the worker processes and not returned. Use "
+                    "train_naive (separateKptGrad=0), or run separateKptGrad serially "
+                    "(num_cores=0), for coupling training.")
             optimizer.zero_grad()
             if LSDmodels:
                 for key in LSDoptimizers:
@@ -1044,6 +1108,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                 gradients_system_spin = merge_dicts(gradients_systemKpt_spin)
 
             trainLoss_system = torch.sum(torch.tensor(trainLoss_systemKpt))
+            comp["bandStruct"] += float(trainLoss_system)
             if LSDmodels:
                 gradients_system_LSD = merge_dicts_LSD(gradients_systemKpt_LSD)
 
@@ -1055,19 +1120,26 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                     if atom in gradients_system_nl:
                         nl_grad_accum[atom] = nl_grad_accum[atom] + gradients_system_nl[atom]
 
-        # k-INDEPENDENT losses (non-decay penalty + spin-aware magnitude penalty +
-        # deformation potentials), computed ONCE per system for BOTH the serial and
-        # multiprocessing paths (previously they were missing from the mp path and
-        # inconsistently scaled in the serial path). Backprop once and fold the
+        # GLOBAL (whole-system, k-INDEPENDENT) losses -- non-decay penalty, spin-
+        # aware magnitude penalty, deformation potentials, e-ph couplings, and
+        # effective masses -- through the SAME shared compute_global_system_losses()
+        # used by train_naive and evalBS_noGrad. Computed ONCE per system for BOTH
+        # the serial and multiprocessing paths and backpropagated once, folding the
         # (un-kpt-weighted) grads into the manual accumulators alongside the per-kpt
-        # band-structure grads.
-        reg_loss = regularization_loss(model, spinModel, hams[iSys], sys, cachedMats_info, requires_grad=True)
-        if reg_loss.requires_grad:
+        # band-structure grads. (Previously only penalty/mag/defpot were applied;
+        # couplings and effective masses were silently dropped by this path.)
+        global_terms, extras = compute_global_system_losses(
+            model, spinModel, hams[iSys], sys, cachedMats_info, requires_grad=True)
+        global_loss = global_loss_sum(global_terms)
+        if (global_loss is not None) and global_loss.requires_grad:
             optimizer.zero_grad()
             if spinOptimizer is not None:
                 spinOptimizer.zero_grad()
+            if LSDmodels:
+                for key in LSDoptimizers:
+                    LSDoptimizers[key].zero_grad()
             _zero_nonlocal_grad(nl_ctx)
-            reg_loss.backward()
+            global_loss.backward()
             for name, param in model.named_parameters():
                 if param.grad is not None:
                     gradients_system[name] = gradients_system.get(name, 0) + param.grad.detach().clone()
@@ -1075,11 +1147,26 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                 for name, param in spinModel.named_parameters():
                     if param.grad is not None:
                         gradients_system_spin[name] = gradients_system_spin.get(name, 0) + param.grad.detach().clone()
+            if LSDmodels:
+                for key in LSDmodels:
+                    for name, param in LSDmodels[key].named_parameters():
+                        if param.grad is not None:
+                            gradients_system_LSD[key][name] = gradients_system_LSD[key].get(name, 0) + param.grad.detach().clone()
             if nl_ctx is not None:
                 for atom, p in nl_ctx['params'].items():
                     if p.grad is not None:
                         nl_grad_accum[atom] = nl_grad_accum[atom] + p.grad.detach().clone()
-        trainLoss_system = trainLoss_system + float(reg_loss.detach())
+        accumulate_loss_components(comp, global_terms)
+        if global_loss is not None:
+            trainLoss_system = trainLoss_system + float(global_loss.detach())
+
+        # coupling / eff-mass file output + printouts (loss already tallied above)
+        if sys.fit_eph and extras["calcCouplings"] is not None:
+            write_coupling_bands(os.path.join(resultsFolder, f"couplingBands_{iSys}.dat"), sys, extras["calcCouplings"])
+            print(f"couplingMSE = {float(global_terms['coupling'].detach()):.4g}")
+        if sys.fit_eff_masses and extras["eff_masses"] is not None:
+            print(f"Calculated effMasses = {extras['eff_masses']}, refEffMasses = {sys.expEffMasses}, "
+                  f"effMass_Loss = {float(global_terms['effmass'].detach()):.4f}")
 
         total_gradients = merge_dicts([total_gradients, gradients_system])
         if spinModel is not None:
@@ -1152,7 +1239,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
     torch.cuda.empty_cache()
     # print_and_inspect_gradients(model, show=NNConfig['printGrad'])
 
-    return model, trainLoss, currBS
+    return model, trainLoss, currBS, comp
 
 
 def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, optimizer, scheduler, val_dataset, resultsFolder, cachedMats_info=None, LSDmodels=None, LSDoptimizers=None, LSDscheduler=None, LSDval_dataset=None, spinModel=None, spinOptimizer=None, spinScheduler=None):
@@ -1160,8 +1247,17 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
     training_COST = []
     validationCOST_x = []
     validation_COST =[]
+    # Per-component loss breakdown histories, aligned with the *_COST_x lists, so
+    # the final breakdown plot shows how each loss term (band structure, penalty,
+    # mag_penalty, defpot, coupling, effmass) trends over training.
+    training_comp_history = []
+    validation_comp_history = []
     file_trainCost = open(f'{resultsFolder}final_training_cost.dat', "w")
     file_valCost = open(f'{resultsFolder}final_validation_cost.dat', "w")
+    file_trainCost.write(COST_FILE_HEADER)
+    file_valCost.write(COST_FILE_HEADER)
+    file_trainCost.flush()
+    file_valCost.flush()
 
     model.to(device)
     if LSDmodels:
@@ -1204,15 +1300,17 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
                 spinModel.train()
 
             if NNConfig['separateKptGrad']==0:
-                model, trainLoss = trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info, NNConfig['runtime_flag'], preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, spinModel=spinModel, spinOptimizer=spinOptimizer, nl_ctx=nl_ctx)
+                model, trainLoss, trainComp = trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info, NNConfig['runtime_flag'], preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, spinModel=spinModel, spinOptimizer=spinOptimizer, nl_ctx=nl_ctx)
             else:
-                model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, prevBS=prevBS.detach() if prevBS is not None else None, spinModel=spinModel, spinOptimizer=spinOptimizer, nl_ctx=nl_ctx)
-                
-            file_trainCost.write(f"{pre_epoch-NNConfig['pre_adjust_moves']-1}  {trainLoss.item()}\n")
+                model, trainLoss, prevBS, trainComp = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, preAdjustBool=True, preAdjustStepSize=pre_adjust_stepSize, resultsFolder=resultsFolder, pre_epoch=pre_epoch, prevBS=prevBS.detach() if prevBS is not None else None, spinModel=spinModel, spinOptimizer=spinOptimizer, nl_ctx=nl_ctx)
+
+            pre_x = pre_epoch-NNConfig['pre_adjust_moves']-1
+            file_trainCost.write(format_cost_line(pre_x, trainComp))
             file_trainCost.flush()
-            trainingCOST_x.append(pre_epoch-NNConfig['pre_adjust_moves']-1)
-            training_COST.append(trainLoss.item())
-            print(f"pre_adjust_moves [{pre_epoch+1}/{NNConfig['pre_adjust_moves']}], training cost: {trainLoss.item():.4f}")
+            trainingCOST_x.append(pre_x)
+            training_COST.append(loss_components_total(trainComp))
+            training_comp_history.append(trainComp)
+            print(f"pre_adjust_moves [{pre_epoch+1}/{NNConfig['pre_adjust_moves']}], training cost: {loss_components_total(trainComp):.4f}")
             # print_and_inspect_gradients(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_gradients.dat', show=True)
             # print_and_inspect_NNParams(model, f'{resultsFolder}preEpoch_{pre_epoch+1}_after_params.dat', show=True)
 
@@ -1282,14 +1380,16 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
         if spinModel is not None:
             spinModel.train()
         if NNConfig['separateKptGrad']==0:
-            model, trainLoss = trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info, NNConfig['runtime_flag'], resultsFolder=resultsFolder, epoch=epoch, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, spinModel=spinModel, spinOptimizer=spinOptimizer, nl_ctx=nl_ctx)
+            model, trainLoss, trainComp = trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info, NNConfig['runtime_flag'], resultsFolder=resultsFolder, epoch=epoch, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, spinModel=spinModel, spinOptimizer=spinOptimizer, nl_ctx=nl_ctx)
         else:
-            model, trainLoss, prevBS = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, resultsFolder=resultsFolder, epoch=epoch, prevBS=prevBS.detach() if prevBS is not None else None, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, spinModel=spinModel, spinOptimizer=spinOptimizer, nl_ctx=nl_ctx)
-        file_trainCost.write(f"{epoch+1}  {trainLoss.item()}\n")
+            model, trainLoss, prevBS, trainComp = trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info, resultsFolder=resultsFolder, epoch=epoch, prevBS=prevBS.detach() if prevBS is not None else None, LSDmodels=LSDmodels, LSDoptimizers=LSDoptimizers, spinModel=spinModel, spinOptimizer=spinOptimizer, nl_ctx=nl_ctx)
+        file_trainCost.write(format_cost_line(epoch+1, trainComp))
         file_trainCost.flush()
         trainingCOST_x.append(epoch+1)
-        training_COST.append(trainLoss.item())
-        print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], training cost (including penalty): {trainLoss.item():.4f}")
+        training_COST.append(loss_components_total(trainComp))
+        training_comp_history.append(trainComp)
+        print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], training cost (total incl. penalties): {loss_components_total(trainComp):.4f}  "
+              + "  ".join(f"{n}={trainComp[n]:.3g}" for n in LOSS_TERM_NAMES if abs(trainComp[n]) > 0))
         PROF.mem_checkpoint(f"epoch {epoch+1}")
         # Periodic cumulative timing breakdown (build vs diagonalize) so a long
         # run shows where time is going without waiting for the final report.
@@ -1342,11 +1442,14 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
                     LSDmodels[key].eval()
             if spinModel is not None:
                 spinModel.eval()
-            val_MSE = evalBS_noGrad(model, f'{resultsFolder}epoch_{epoch+1}_plotBS.pdf', f'epoch_{epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True, LSDmodels=LSDmodels, spinModel=spinModel)
+            valComp = {}
+            val_MSE = evalBS_noGrad(model, f'{resultsFolder}epoch_{epoch+1}_plotBS.pdf', f'epoch_{epoch+1}', NNConfig, hams, systems, cachedMats_info, writeBS=True, LSDmodels=LSDmodels, spinModel=spinModel, loss_components_out=valComp)
             validationCOST_x.append(epoch+1)
             validation_COST.append(val_MSE)
-            print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], validation cost (including penalty): {val_MSE:.4f}")
-            file_valCost.write(f"{epoch+1}  {val_MSE}\n")
+            validation_comp_history.append(valComp)
+            print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], validation cost (total incl. penalties): {loss_components_total(valComp):.4f}  "
+                  + "  ".join(f"{n}={valComp[n]:.3g}" for n in LOSS_TERM_NAMES if abs(valComp[n]) > 0))
+            file_valCost.write(format_cost_line(epoch+1, valComp))
             file_valCost.flush()
             
             model.cpu()
@@ -1421,6 +1524,15 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
 
     fig_cost = plot_training_validation_cost(trainingCOST_x, training_COST, validation_cost_x=validationCOST_x, validation_cost=validation_COST, ylogBoolean=True, SHOWPLOTS=NNConfig['SHOWPLOTS']);
     fig_cost.savefig(resultsFolder + 'final_train_cost.pdf')
+
+    # Per-component loss breakdown (band structure vs penalty vs defpot vs ...),
+    # so it's clear which term dominates and how each trends over training.
+    fig_break = plot_loss_breakdown(trainingCOST_x, training_comp_history,
+                                    val_x=validationCOST_x, val_history=validation_comp_history,
+                                    SHOWPLOTS=NNConfig['SHOWPLOTS'])
+    fig_break.savefig(resultsFolder + 'final_train_cost_breakdown.pdf')
+    fig_break.savefig(resultsFolder + 'final_train_cost_breakdown.png')
+    plt.close('all')
     torch.cuda.empty_cache()
 
     # Final aggregated timing breakdown over the whole training run.
