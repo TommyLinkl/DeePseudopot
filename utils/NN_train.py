@@ -13,9 +13,6 @@ import shutil
 import os
 
 torch.set_default_dtype(torch.float64)
-torch.set_num_threads(1)
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
 
 from .constants import *
 from .pp_func import plotPP, plotPP_spin, plotLSD, plot_training_validation_cost, plotBandStruct, plot_mc_cost, plotBandStruct_reorder
@@ -485,9 +482,9 @@ def accumulate_loss_components(target, source):
             target[name] += float(val.detach()) if torch.is_tensor(val) else float(val)
 
 
-def loss_components_total(comp):
+def loss_components_total(loss_components):
     """Total loss = sum of all tracked components."""
-    return sum(comp.get(name, 0.0) for name in LOSS_TERM_NAMES)
+    return sum(loss_components.get(name, 0.0) for name in LOSS_TERM_NAMES)
 
 
 def bandStruct_loss(bandStruct_hat, bulkSystem):
@@ -630,9 +627,9 @@ def write_coupling_bands(filename, bulkSystem, calcCouplings_dict):
 COST_FILE_HEADER = "# epoch    total    " + "    ".join(LOSS_TERM_NAMES) + "\n"
 
 
-def format_cost_line(epoch, comp):
-    cols = "    ".join(f"{comp.get(name, 0.0):.6e}" for name in LOSS_TERM_NAMES)
-    return f"{epoch}    {loss_components_total(comp):.6e}    {cols}\n"
+def format_cost_line(epoch, loss_components):
+    cols = "    ".join(f"{loss_components.get(name, 0.0):.6e}" for name in LOSS_TERM_NAMES)
+    return f"{epoch}    {loss_components_total(loss_components):.6e}    {cols}\n"
 
 
 def plot_loss_breakdown(train_x, train_history, val_x=None, val_history=None, SHOWPLOTS=False):
@@ -643,16 +640,16 @@ def plot_loss_breakdown(train_x, train_history, val_x=None, val_history=None, SH
               "defpot": "tab:red", "coupling": "tab:purple", "effmass": "tab:brown"}
     fig, axs = plt.subplots(1, 1, figsize=(7, 5))
     for name in LOSS_TERM_NAMES:
-        series = [comp.get(name, 0.0) for comp in train_history]
+        series = [loss_components.get(name, 0.0) for loss_components in train_history]
         if any(abs(v) > 0 for v in series):
             axs.plot(train_x, series, "-", color=colors.get(name), label=f"train {name}")
             if (val_x is not None) and val_history:
-                vseries = [comp.get(name, 0.0) for comp in val_history]
+                vseries = [loss_components.get(name, 0.0) for loss_components in val_history]
                 axs.plot(val_x, vseries, ":", color=colors.get(name), alpha=0.7, label=f"val {name}")
-    total_series = [loss_components_total(comp) for comp in train_history]
+    total_series = [loss_components_total(loss_components) for loss_components in train_history]
     axs.plot(train_x, total_series, "k-", linewidth=2, label="train total")
     if (val_x is not None) and val_history:
-        vtotal = [loss_components_total(comp) for comp in val_history]
+        vtotal = [loss_components_total(loss_components) for loss_components in val_history]
         axs.plot(val_x, vtotal, "k:", linewidth=2, label="val total")
     axs.set_yscale('log')
     axs.set(xlabel="Epochs", ylabel="Cost", title="Loss component breakdown")
@@ -685,7 +682,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
         spinModel.eval()
 
     plot_bandStruct_list = []
-    comp = new_loss_components()
+    loss_components = new_loss_components()
     for iSys, sys in enumerate(systems):
         if (model is not None):
             hams[iSys].NN_locbool = True
@@ -720,7 +717,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
         plot_bandStruct_list.append(sys.expBandStruct)
         plot_bandStruct_list.append(evalBS)
         # Same per-k-point band-structure MSE term the training paths use.
-        comp["bandStruct"] += float(bandStruct_loss(evalBS, sys).detach())
+        loss_components["bandStruct"] += float(bandStruct_loss(evalBS, sys).detach())
 
         # Global (whole-system) losses through the SAME shared function used by
         # training. requires_grad=False -> no autograd graph is built. Pass the
@@ -729,7 +726,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
             global_loss_terms, extras = compute_global_system_losses(
                 model, spinModel, hams[iSys], sys, cachedMats_info=cachedMats_info,
                 requires_grad=False, coupling_debug=True, bandStruct=evalBS)
-        accumulate_loss_components(comp, global_loss_terms)
+        accumulate_loss_components(loss_components, global_loss_terms)
 
         # ----- file output side-effects (loss already tallied above) -----
         if sys.fit_eph:
@@ -749,20 +746,20 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
                        calcDefPots.detach().numpy(), fmt="%.5f")
 
         print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... "
-              f"total = {loss_components_total(comp):.4f}. BS_MSE = {comp['bandStruct']:.4f}. "
-              f"Penalty = {comp['penalty']:.4f}. defPot_MSE = {comp['defpot']:.4f}. effMass_MSE = {comp['effmass']:.4f}. "
-              f"coupling_MSE = {comp['coupling']:.4g}.")
+              f"total = {loss_components_total(loss_components):.4f}. BS_MSE = {loss_components['bandStruct']:.4f}. "
+              f"Penalty = {loss_components['penalty']:.4f}. defPot_MSE = {loss_components['defpot']:.4f}. effMass_MSE = {loss_components['effmass']:.4f}. "
+              f"coupling_MSE = {loss_components['coupling']:.4g}.")
 
     if loss_components_out is not None:
         loss_components_out.clear()
-        loss_components_out.update(comp)
+        loss_components_out.update(loss_components)
 
-    total = loss_components_total(comp)
+    total = loss_components_total(loss_components)
     fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
     print(f"\t{runName}: Finished evaluating all band structures with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. "
-          f"total = {total:.4f}. BS_MSE = {comp['bandStruct']:.4f}. Penalty = {comp['penalty']:.4f}. defPot_MSE = {comp['defpot']:.4f}.")
-    fig.suptitle(f"{runName}: total = {total:.4f}. BS_MSE = {comp['bandStruct']:.4f}. Penalty = {comp['penalty']:.4f}. "
-                 f"defPot_MSE = {comp['defpot']:.4f}. effMass_MSE = {comp['effmass']:.4f}. coupling_MSE = {comp['coupling']:.4g}.")
+          f"total = {total:.4f}. BS_MSE = {loss_components['bandStruct']:.4f}. Penalty = {loss_components['penalty']:.4f}. defPot_MSE = {loss_components['defpot']:.4f}.")
+    fig.suptitle(f"{runName}: total = {total:.4f}. BS_MSE = {loss_components['bandStruct']:.4f}. Penalty = {loss_components['penalty']:.4f}. "
+                 f"defPot_MSE = {loss_components['defpot']:.4f}. effMass_MSE = {loss_components['effmass']:.4f}. coupling_MSE = {loss_components['coupling']:.4g}.")
     fig.savefig(BSplotFilename)
     fig.savefig(BSplotFilename.replace('.pdf', '.png'))
     plt.close('all')
@@ -854,7 +851,7 @@ def calcEigValsAtK_wGrad_parallel(kidx, ham, bulkSystem, optimizer, model, cache
 
 def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, runtime_flag=False, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, LSDmodels=None, LSDoptimizers=None, spinModel=None, spinOptimizer=None, nl_ctx=None):
     trainLoss = torch.tensor(0.0)
-    comp = new_loss_components()   # per-component loss breakdown for reporting
+    loss_components = new_loss_components()   # per-component loss breakdown for reporting
 
     for iSys, sys in enumerate(systems):
         hams[iSys].NN_locbool = True
@@ -895,8 +892,8 @@ def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=N
         trainLoss = trainLoss + systemBSLoss + global_loss_sum(loss_terms)
 
         # track the breakdown for reporting / plotting
-        comp["bandStruct"] += float(systemBSLoss.detach())
-        accumulate_loss_components(comp, loss_terms)
+        loss_components["bandStruct"] += float(systemBSLoss.detach())
+        accumulate_loss_components(loss_components, loss_terms)
 
         # file output + progress printouts (loss already tallied above)
         if sys.fit_eph and extras["calcCouplings"] is not None:
@@ -936,7 +933,7 @@ def trainIter_naive(model, systems, hams, NNConfig, optimizer, cachedMats_info=N
             _step_nonlocal_grad(nl_ctx)
 
     torch.cuda.empty_cache()
-    return model, trainLoss, comp
+    return model, trainLoss, loss_components
 
 
 def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedMats_info=None, preAdjustBool=False, preAdjustStepSize=None, resultsFolder=None, pre_epoch=0, epoch=0, verbosity=1, prevBS=None, LSDmodels=None, LSDoptimizers=None, spinModel=None, spinOptimizer=None, nl_ctx=None):
@@ -957,7 +954,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
         return merged_dict
     
     trainLoss = 0.0
-    comp = new_loss_components()   # per-component loss breakdown for reporting
+    loss_components = new_loss_components()   # per-component loss breakdown for reporting
     total_gradients = {}
     total_gradients_LSD = {}
     total_gradients_spin = {}
@@ -1025,7 +1022,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                     # alive until that final global backward frees them.
                     systemKptLoss.backward(retain_graph=(kidx < nkpts_sys - 1) or sys.fit_eph)
 
-                comp["bandStruct"] += float(systemKptLoss.detach()) * float(sys.kptWeights[kidx])
+                loss_components["bandStruct"] += float(systemKptLoss.detach()) * float(sys.kptWeights[kidx])
 
                 for name, param in model.named_parameters():
                     if param.grad is not None:
@@ -1108,7 +1105,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                 gradients_system_spin = merge_dicts(gradients_systemKpt_spin)
 
             trainLoss_system = torch.sum(torch.tensor(trainLoss_systemKpt))
-            comp["bandStruct"] += float(trainLoss_system)
+            loss_components["bandStruct"] += float(trainLoss_system)
             if LSDmodels:
                 gradients_system_LSD = merge_dicts_LSD(gradients_systemKpt_LSD)
 
@@ -1156,7 +1153,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
                 for atom, p in nl_ctx['params'].items():
                     if p.grad is not None:
                         nl_grad_accum[atom] = nl_grad_accum[atom] + p.grad.detach().clone()
-        accumulate_loss_components(comp, global_terms)
+        accumulate_loss_components(loss_components, global_terms)
         if global_loss is not None:
             trainLoss_system = trainLoss_system + float(global_loss.detach())
 
@@ -1239,7 +1236,7 @@ def trainIter_separateKptGrad(model, systems, hams, NNConfig, optimizer, cachedM
     torch.cuda.empty_cache()
     # print_and_inspect_gradients(model, show=NNConfig['printGrad'])
 
-    return model, trainLoss, currBS, comp
+    return model, trainLoss, currBS, loss_components
 
 
 def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, optimizer, scheduler, val_dataset, resultsFolder, cachedMats_info=None, LSDmodels=None, LSDoptimizers=None, LSDscheduler=None, LSDval_dataset=None, spinModel=None, spinOptimizer=None, spinScheduler=None):
