@@ -390,16 +390,33 @@ def penalty_loss(f_x, x, penalize_start=4.5, lambda_penalty=1.0, penalize=True):
 
     return penalty
 
-# Change by Helen for penalty q^2*V(G)
 def mag_penalty_loss(f_x, x, f_x_max, lambda_penalty=1.0, penalize=True):
     if (not penalize) or (lambda_penalty <= 0):
         return torch.tensor(0.0)
 
-    k = 10.0   # Sharpness of ramp (higher = steeper transition)
-    abs_f_x = torch.abs(f_x)
-    S_x = 1 / (1 + torch.exp(-k * (abs_f_x - f_x_max)))
-    excess = torch.relu(x**2*(abs_f_x - f_x_max))
-    mag_penalty = lambda_penalty * torch.mean(S_x * excess)
+
+    dq = x[1] - x[0]
+   # 2. Pre-compute integration weights. Shape: [240, 1]
+
+    integration_weights = (x ** 2) * dq * (1.0 / (2.0 * (np.pi ** 2)))
+
+
+    # 3. Integrate across the Grid dimension (dim=0)
+    # Resulting V_r0 shape will be [3] (one value per atom species)
+    V_r0 = torch.sum(f_x * integration_weights, dim=0)
+
+    # 4. Get the magnitude of the potential at r=0 for each species
+    abs_V_r0 = torch.abs(V_r0)
+
+    # 5. Calculate excess over the threshold for each species. Shape: [3]
+    excess = torch.relu(abs_V_r0 - f_x_max)
+
+    # 6. Take the mean of the penalties across the 3 species
+    # This reduces it to a single scalar loss value for PyTorch optimizer
+    mag_penalty = lambda_penalty * torch.mean(excess)
+
+
+
     return mag_penalty
 
 def _penalty_term(model, NNConfig, nkpt, device):
