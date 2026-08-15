@@ -500,38 +500,11 @@ class BulkSystem:
         np.savetxt(basisStateFileName, sorted_basisSet, fmt=['%d']+['%f']*(sorted_basisSet.shape[1]-1), delimiter='\t')
         return
     
-    def compute_descriptors(self, backend='handcrafted'):
-        """
-        Compute per-atom structural descriptors for all atoms.
-        Keeps atomPos as a torch tensor with requires_grad=True throughout
-        so that gradients dNN/dR_mu can be computed via autograd.
-
-        backend='handcrafted' (default): the analytic ORTHO_REF descriptors with
-        a dN_dR autograd path (used by the band-structure stage).
-        backend='mace': frozen MACE-MP-0 per-atom invariant descriptors (D=256);
-        NO dN_dR (init_LSD pretraining only).
-
-        Returns
-        -------
-        descriptors  : dict with keys 'Br'/'I', 'Pb', 'Cs'
-                      Each value is an (N_species, n_descriptors) tensor with grad.
-        atom_indices : dict with keys 'Br'/'I', 'Pb', 'Cs'
-                      Each value is a (N_species,) integer tensor (no grad needed).
-        """
-        if str(backend).lower() == 'mace':
-            from .mace_descriptors import mace_env_descriptors
-            descriptors = mace_env_descriptors(self)
-            self.env_descriptors = descriptors
-            self.n_descr = {k: int(v.shape[1]) for k, v in descriptors.items()}
-            atom_indices = {}
-            for i, t in enumerate(self.atomTypes):
-                atom_indices.setdefault(str(t), []).append(i)
-            self.atom_indices = {k: torch.tensor(v, dtype=torch.long)
-                                 for k, v in atom_indices.items()}
-            self.dN_dR = None   # not provided for MACE; band-structure stage unsupported
-            return descriptors, self.atom_indices
-
-        atomPos   = self.atomPos   # already a torch tensor with requires_grad=True
+    def _handcrafted_descriptors(self, atomPos):
+        """Compute the analytic ORTHO_REF per-atom descriptors from the GIVEN
+        atomPos tensor (Bohr). Differentiable w.r.t. atomPos, NO side effects.
+        Returns (descriptors, atom_indices, n_descr). Shared by compute_descriptors
+        (self.atomPos) and descriptors_from_pos (the coupling-stage JVP)."""
         cell      = self.unitCellVectors
         nAtoms    = atomPos.shape[0]
         atomTypes = self.atomTypes
@@ -574,17 +547,75 @@ class BulkSystem:
                 d = compute_Cs_descriptors(i, atomTypes, dist, dR, self_mask, material, halide)
                 descriptors ['Cs'].append(d)
                 atom_indices['Cs'].append(i)
-            
+
         # Stack into tensors — torch.stack preserves the computation graph
         descriptors  = {k: torch.stack(v)          for k, v in descriptors.items()  if len(v) > 0}
         atom_indices = {k: torch.tensor(v, dtype=torch.long) for k, v in atom_indices.items() if len(v) > 0}
+        n_descr      = {halide: 4, 'Pb': 5, 'Cs': 3}
+        return descriptors, atom_indices, n_descr
 
-        # for k, v in descriptors.items():
-        #     print(f"{k}: {v.shape}  requires_grad={v.requires_grad}\n{v}")
+    def descriptors_from_pos(self, atomPos, backend='handcrafted'):
+        """Per-element descriptor dict {element: tensor[n_el, n_descr]} computed
+        from the GIVEN atomPos (Bohr), differentiable w.r.t. it and with NO side
+        effects on self (cell / atom types / ordering taken from self).
 
+        This is the function ham.buildCouplingMats differentiates (forward-mode
+        JVP) to obtain the dN/dR contribution to the e-ph coupling matrix
+        elements, for both backends."""
+        if str(backend).lower() == 'mace':
+            from .mace_descriptors import mace_env_descriptors_grad
+            return mace_env_descriptors_grad(self, atomPos=atomPos)
+        descriptors, _atom_indices, _n_descr = self._handcrafted_descriptors(atomPos)
+        return descriptors
+
+    def compute_descriptors(self, backend='handcrafted', differentiable=False):
+        """
+        Compute per-atom structural descriptors for all atoms.
+        Keeps atomPos as a torch tensor with requires_grad=True throughout
+        so that gradients dNN/dR_mu can be computed via autograd.
+
+        backend='handcrafted' (default): the analytic ORTHO_REF descriptors with
+        a dN_dR autograd path (used by the band-structure stage).
+        backend='mace': MACE-MP-0 per-atom invariant descriptors (D=256). With
+        differentiable=False these are the frozen, cached values (init_LSD
+        pretraining). With differentiable=True they carry an autograd graph back
+        to atomPos so that ham.buildCouplingMats picks up the dN/dR contribution
+        (band-structure / coupling stage).
+
+        Returns
+        -------
+        descriptors  : dict with keys 'Br'/'I', 'Pb', 'Cs'
+                      Each value is an (N_species, n_descriptors) tensor with grad.
+        atom_indices : dict with keys 'Br'/'I', 'Pb', 'Cs'
+                      Each value is a (N_species,) integer tensor (no grad needed).
+        """
+        if str(backend).lower() == 'mace':
+            if differentiable:
+                from .mace_descriptors import mace_env_descriptors_grad
+                descriptors = mace_env_descriptors_grad(self, atomPos=self.atomPos)
+            else:
+                from .mace_descriptors import mace_env_descriptors
+                descriptors = mace_env_descriptors(self)
+            self.env_descriptors = descriptors
+            self.n_descr = {k: int(v.shape[1]) for k, v in descriptors.items()}
+            atom_indices = {}
+            for i, t in enumerate(self.atomTypes):
+                atom_indices.setdefault(str(t), []).append(i)
+            self.atom_indices = {k: torch.tensor(v, dtype=torch.long)
+                                 for k, v in atom_indices.items()}
+            # buildCouplingMats obtains dN/dR via autograd through env_descriptors
+            # (when differentiable=True), so no precomputed dN_dR is needed.
+            self.dN_dR = None
+            return descriptors, self.atom_indices
+
+        # ---- hand-crafted backend ------------------------------------------
+        descriptors, atom_indices, n_descr = self._handcrafted_descriptors(self.atomPos)
         self.env_descriptors = descriptors
         self.atom_indices    = atom_indices
-        self.n_descr         = {halide: 4, 'Pb': 5, 'Cs': 3}
+        self.n_descr         = n_descr
+
+        atomPos = self.atomPos   # already a torch tensor with requires_grad=True
+        nAtoms  = atomPos.shape[0]
 
         # Compute derivatives via autodifferentiation
         # dN_dR[k] shape: (N_species, n_descr, N_atoms, 3)
@@ -875,7 +906,10 @@ def setAllBulkSystems(nSystem, inputsFolder, resultsFolder, LSD_flag=False, desc
         # Read in local structure dependent potential coefficients
         if LSD_flag is True:
             #sys.compute_G2_and_dG2_dR()
-            sys.compute_descriptors(backend=descriptor_backend)
+            # differentiable=True for MACE so env_descriptors carries a graph back
+            # to atomPos -> ham.buildCouplingMats gets the dN/dR coupling term.
+            sys.compute_descriptors(backend=descriptor_backend,
+                                    differentiable=(str(descriptor_backend).lower() == 'mace'))
             if str(descriptor_backend).lower() != 'mace':
                 # Temporarily add to atomPos tensor to detect in-place modification
                 sys.atomPos.register_hook(lambda grad: print(f"atomPos grad computed"))

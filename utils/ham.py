@@ -1503,20 +1503,45 @@ class Hamiltonian:
         q = torch.norm(gqDiff, dim=2).view(-1,1)
 
         if self.NNConfig["local_env_corr"]:
-            # Precompute the necessary chain rule elements for DeltaV derivative coupling
-            dv_lsd_dR_all = []
+            # ---- LSD (local-structure-dependent) coupling: precompute ----------
+            # The LSD part of the local potential matrix is
+            #   V^lsd_{ij} = sum_beta SF_beta[i,j] * Delta v(N_beta(R), Q_ij)
+            # with structure factor SF_beta[i,j] = (1/Omega) e^{+i Q_ij . R_beta}
+            # and Q_ij = G_i - (G_j + q).  Its derivative w.r.t. R_{mu,gamma} has
+            # two pieces:
+            #   (A) structure-factor derivative (beta == mu only):
+            #         i Q_gamma SF_mu Delta v(N_mu, Q)              [carries prefactor]
+            #   (B) descriptor (chain-rule) derivative:
+            #         sum_beta SF_beta * d Delta v(N_beta,Q)/dR_{mu,gamma}
+            #       = sum_beta SF_beta * sum_d (dDeltaV/dN_d)(dN_{beta,d}/dR_{mu,gamma})
+            # Piece (B) is what the differentiable descriptors enable. We obtain it
+            # by a forward-mode JVP of the Delta v stack along the unit displacement
+            # of atom mu in direction gamma (see the alpha/gamma loop below).
+            backend = self.NNConfig.get('descriptor_backend', 'handcrafted')
+            natom_lsd = self.system.getNAtoms()
             structFactBeta = []
-            for beta in range(self.system.getNAtoms()):
+            for beta in range(natom_lsd):
                 gqDiffDotBeta = torch.sum(gqDiff * self.system.atomPos[beta], axis=2)
-                tmpStructFact = (1.0 / self.system.getCellVolume()) * (torch.cos(gqDiffDotBeta) + 1j * torch.sin(gqDiffDotBeta))
-                structFactBeta.append(tmpStructFact)
+                structFactBeta.append(
+                    (1.0 / self.system.getCellVolume())
+                    * (torch.cos(gqDiffDotBeta) + 1j * torch.sin(gqDiffDotBeta)))
 
-                LSD_atomType = self.system.atomTypes[beta]
-                indx_beta    = torch.where(self.system.atom_indices[LSD_atomType] == beta)[0].squeeze(0).item()
-                N_beta       = self.system.env_descriptors[LSD_atomType][indx_beta].unsqueeze(0)  # (1, n_descr)
-
-                dv_lsd_dR = self.compute_dv_lsd_dR(LSD_atomType, N_beta, q, self.system.atomPos)
-                dv_lsd_dR_all.append(dv_lsd_dR)
+            def _lsd_dv_stack(atomPos_var):
+                """Per-atom LSD correction Delta v(N_beta(R), Q_ij) stacked over
+                beta -> [natom, nbv, nbv] (real). Descriptors are recomputed from
+                the argument so torch.autograd.functional.jvp can trace
+                dN_beta/dR. Parameter gradients (LSD nets) are retained so the
+                coupling can be fit; the frozen descriptor backbone (e.g. MACE)
+                contributes only dN/dR."""
+                desc = self.system.descriptors_from_pos(atomPos_var, backend=backend)
+                mats = []
+                for beta in range(natom_lsd):
+                    tb = self.system.atomTypes[beta]
+                    ib = torch.where(self.system.atom_indices[tb] == beta)[0].squeeze(0)
+                    Nb = desc[tb][ib].unsqueeze(0)                       # (1, n_descr)
+                    xin = torch.cat([Nb.expand(q.shape[0], -1), q], dim=1)
+                    mats.append(self.LSDmodels[tb](xin).view(nbv, nbv))
+                return torch.stack(mats, dim=0)                          # (natom, nbv, nbv)
 
         for alpha, gamma in atomgammaidxs:
             atomType = self.system.atomTypes[alpha]
@@ -1560,66 +1585,42 @@ class Hamiltonian:
             atomFF.to(torch.complex128)
             atomFF = structFact * atomFF
 
-            atomFF_LSD = torch.zeros_like(atomFF)
+            atomFF_LSD = torch.zeros_like(atomFF)     # (A) structure-factor-derivative LSD term
+            chain_term = torch.zeros_like(atomFF)     # (B) descriptor (dN/dR) coupling term
             if self.NNConfig["local_env_corr"]:
-                descriptors = self.system.env_descriptors[atomType]
-                indx_alpha = torch.where(self.system.atom_indices[atomType] == alpha)[0].squeeze(0)
-                N_alpha = descriptors[indx_alpha, :]
-                
-                N_alphas = N_alpha.repeat(q.shape[0], 1)
-                
-                x_input = torch.cat([N_alphas, q], dim=1)
-                
+                # (A) direct term: structFact * Delta v(N_alpha, Q). The i*Q_gamma
+                # prefactor (applied below) is the structure-factor derivative, so
+                # this term is nonzero only for the displaced atom (alpha == mu).
+                descriptors   = self.system.env_descriptors[atomType]
+                indx_alpha    = torch.where(self.system.atom_indices[atomType] == alpha)[0].squeeze(0)
+                N_alpha       = descriptors[indx_alpha, :]
+                x_input       = torch.cat([N_alpha.repeat(q.shape[0], 1), q], dim=1)
                 delta_v_alpha = self.LSDmodels[atomType](x_input).view(nbv, nbv)
+                atomFF_LSD    = structFact * delta_v_alpha
 
-                atomFF_LSD += structFact * delta_v_alpha
-
-                # --- Chain rule term ∂v/∂N * ∂N/∂R ---
+                # (B) chain-rule term: sum_beta SF_beta * dDeltaV(N_beta,Q)/dR_{alpha,gamma}.
+                # The LSD potential is environment-dependent, so displacing atom
+                # alpha changes Delta v of EVERY atom beta whose descriptor depends
+                # on R_alpha -- not just beta == alpha. We obtain the full
+                # [natom, nbv, nbv] derivative in a single forward-mode JVP of the
+                # Delta v stack along the unit displacement of atom alpha in
+                # direction gamma. This term already IS a full dR derivative, so it
+                # must NOT be multiplied by the prefactor. create_graph follows the
+                # ambient grad mode: True while fitting (keeps the LSD-parameter
+                # graph), False under torch.no_grad() for cheap evaluation.
+                tangent = torch.zeros_like(self.system.atomPos)
+                tangent[alpha, gamma] = 1.0
+                _, dDV = torch.autograd.functional.jvp(
+                    _lsd_dv_stack, (self.system.atomPos,), (tangent,),
+                    create_graph=torch.is_grad_enabled())
                 for beta in range(self.system.getNAtoms()):
-                    atomFF_LSD += structFactBeta[beta] * dv_lsd_dR_all[beta][gamma]
-                    # Now we loop over all atoms... beta? Sorry, this notation is SUPER confusing.
-                    # In the mathematical documentation, we represent the local potential
-                    # V_loc(r) = \sum_\alpha v_\alpha(r). Alpha is an arbitrary atom index.
-                    # When we take a derivative, we take the derivative with respect to 
-                    # # a specific atom, \mu.
-                    # dV^loc(r)/dR_\mu = \sum_\alpha dv_\alpha(r)/dR_\mu. 
-                    # This derivative is only nonzero if \alpha = \mu, so we got used to writing
-                    # dV^loc(r)/dR_\alpha = dv_\alpha(r)/dR_\alpha. 
-                    # This is kind of sloppy notation. We should have written 
-                    # dV_loc(r)/dR_\mu = dv_\mu(r)/dR_\mu. 
-                    # Now we're getting kicked for it. In truth, the index "alpha" in this loop 
-                    # should be called "mu" because it is indexing the derivative atom R_\mu!
-                    # It never mattered before because we only ever needed one index anyway.
-                    # However, for the LSD potential
-                    # dV^lsd/dR_\mu = \sum_\alpha dv^lsd_\alpha(r)/dR_\mu
-                    # is NOT, I repeat, NOT just dV^lsd/dR_\mu = dv^lsd_\mu(r)/dR_\mu !
-                    # The LSD potential is pairwise, not independent, so there are contributions from
-                    # atoms other than \mu to its derivative. This "mu" vs. "alpha" distinction becomes important.
-                    # For legacy reasons, I will not change the above loop variable to "mu", even though
-                    # it is indexing over the derivative variable. I will leave it as alpha.
-                    # I will call the true "alpha" term "beta" because alpha was already taken)
-                    # i.e. \mu -> \alpha and \alpha -> \beta
-                    # Basically, the code can be understood by thinking about the derivative as
-                    # dV^lsd/dR_\alpha = \sum_\beta dv^lsd_\beta(r)/dR_\alpha
-                    # Now, for the LSD derivative, we need the chain rule term. In our new notation 
-                    # dv^lsd_\beta/dN_\beta \cdot dN_\beta/dR_\alpha.
-                    
-                    # This line is implementing the lookup for element
-                    # dN_\alpha/dR_{\mu\gamma}
-                    # But in out weird legacy indexing where \mu -> \alpha and \alpha -> \beta
-                    # dN_\beta/dR_{\alpha\gamma}
-                    # dN_dR = self.system.dG2_dR[beta, alpha, gamma]
-                    # if abs(dN_dR) < 1e-14:
-                    #     continue # skip atoms with zero contribution
-                    
-                    # Compute form factor term
-                    atomFF_LSD += structFactBeta[beta] * dv_lsd_dR_all[beta][gamma]
+                    chain_term = chain_term + structFactBeta[beta] * dDV[beta]
 
-            dV[:nbv, :nbv] = prefactor * (atomFF + atomFF_LSD)
+            dV[:nbv, :nbv] = prefactor * (atomFF + atomFF_LSD) + chain_term
 
             if self.SObool:
                 # local potential has delta function on spin --> block diagonal
-                dV[nbv:, nbv:] = prefactor * (atomFF + atomFF_LSD)
+                dV[nbv:, nbv:] = prefactor * (atomFF + atomFF_LSD) + chain_term
 
                 # SOC part
                 if isinstance(self.SOmats_couple[qidx, alpha, gamma], torch.Tensor):
@@ -1988,6 +1989,14 @@ class Hamiltonian:
                 system_plus = copy.copy(self.system)
                 system_plus.atomPos = self.system.atomPos.clone()
                 system_plus.atomPos[atomidx, gamma] = system_plus.atomPos[atomidx, gamma] + delta
+                # Recompute environment descriptors at the displaced geometry so the
+                # finite-difference reference actually captures the LSD/descriptor
+                # dependence (the shallow copy otherwise shares the original, stale
+                # env_descriptors). Detached values are fine here -- this path only
+                # needs displaced eigenvalues, not gradients.
+                if self.NNConfig.get("local_env_corr", False):
+                    backend = self.NNConfig.get('descriptor_backend', 'handcrafted')
+                    system_plus.compute_descriptors(backend=backend, differentiable=False)
                 if debug:
                     print("Displaced atom position +delta (Bohr): " + f"{system_plus.atomPos[atomidx]}")
 
@@ -2025,31 +2034,12 @@ class Hamiltonian:
 
         return ret_dict
 
-    def compute_dv_lsd_dR(self, atomType, N_alpha, qvals, atomPos):
-        """
-        Computes ∂v_lsd(q, N_alpha) / ∂N_alpha
-        N_alpha: scalar (float)
-        qvals: (nbv*nbv, 1) tensor
-        Returns (nbv, nbv) tensor
-        """
-        
-        q = qvals.clone().detach().requires_grad_(True)
-        N = N_alpha.repeat(q.shape[0], 1)
-        print(f"q {q.shape}")
-        print(f"N {N.shape}")
-        x_input = torch.cat([N, q], dim=1)
-        v = self.LSDmodels[atomType](x_input)
-        
-        dv_dR = torch.autograd.grad(
-            outputs=v,
-            inputs=atomPos,
-            grad_outputs=torch.ones_like(v),
-            create_graph=True
-        )[0]
-        print(f"dv_dR {dv_dR.shape}\n{dv_dR}")
-        nbv = self.basis.shape[0]
-        return dv_dR.view(nbv, nbv)
-    
+    # NOTE: the old compute_dv_lsd_dR() helper was removed. It summed the descriptor
+    # derivative over the whole q-grid (grad_outputs=ones) and then .view(nbv,nbv)'d
+    # a [natom,3] gradient, which is dimensionally impossible at real sizes. The
+    # LSD descriptor coupling term is now built correctly inside buildCouplingMats
+    # via a forward-mode JVP of _lsd_dv_stack (see piece (B) there).
+
     def _bessel1(self, x, x1):
         # sin(x)/(x^2) - cos(x)/x = sin(x) * x1^2 - cos(x) * x1
         return np.sin(x) * x1**2 - np.cos(x) * x1
