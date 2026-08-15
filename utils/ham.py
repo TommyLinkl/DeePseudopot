@@ -1635,6 +1635,30 @@ class Hamiltonian:
 
 
     def calcDefPots(self, cachedMats_info=None, requires_grad=True, verbosity=2):
+        """Compute the deformation potential for every entry in the target file.
+
+        Consumes the table loaded by System.setExpDefPot (version='v2'), stored on
+        self.system as:
+            defPotInfo : (nEntries, 7) array, columns
+                         [kidx_VB, bidx_VB, kidx_CB, bidx_CB, latConst_ratio,
+                          defPot_gap, weight]   (band/k indices 0-based)
+            defPotSpin : (nEntries, 2) int array [spin_VB, spin_CB] (0=up, 1=down),
+                         or None when the input file had only 7 columns.
+
+        For each entry, the CB-VB gap is evaluated at the relaxed cell and at a cell
+        scaled by latConst_ratio, and the deformation potential is
+            (gap_org - gap_def)/2 * (1 + s^3)/(1 - s^3),  s = latConst_ratio.
+
+        Spin handling: in a spin-polarized run without SOC (magBool and not SObool)
+        the eigenvalues from calcEigValsAtK come back interleaved as
+        [up0, dn0, up1, dn1, ...], so band n of spin s lives at 2*n + s. The requested
+        band index is remapped to that layout using defPotSpin (defaulting to spin-up
+        when defPotSpin is None). In a spin-unpolarized run, or with SOC (where the
+        spinor spectrum already resolves spin), the band indices are used verbatim and
+        the spin columns have no effect.
+
+        Returns a 1-D tensor of deformation potentials, one per input row.
+        """
         defpot_tensors = []
         defPotSpin = getattr(self.system, 'defPotSpin', None)  # per-entry [spin_VB, spin_CB] or None
 

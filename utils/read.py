@@ -522,6 +522,52 @@ class BulkSystem:
                         
 
     def setExpDefPot(self, expDefPotFilename, version='v2'):
+        """Load the target (experimental) deformation-potential file for one system.
+
+        The file lists, one row per fitted deformation potential, the pair of band
+        extrema (a "VB" and a "CB" state) whose gap is tracked as the lattice is
+        hydrostatically strained. The deformation potential is derived from how that
+        gap changes between the relaxed cell and a uniformly scaled cell (see
+        Hamiltonian.calcDefPots).
+
+        version='v1' (legacy):
+            A 2-line text file holding a single scalar per line:
+                line 1 -> absolute VBM deformation potential
+                line 2 -> absolute CBM deformation potential
+            Parsed into self.expDefPots = [VBM, CBM]. No k-point/band/spin control.
+
+        version='v2' (current): a whitespace-delimited table (np.loadtxt) with either
+        7 or 9 columns. A single-row file is allowed. All k-point and band indices are
+        0-based.
+
+            7-column layout (spin-unpolarized):
+                kidx_VB  bidx_VB  kidx_CB  bidx_CB  latConst_ratio  defPot_gap  weight
+
+            9-column layout (spin-polarized): inserts a spin channel after each band
+            index to say which spin sector the extremum lives in:
+                kidx_VB  bidx_VB  spin_VB  kidx_CB  bidx_CB  spin_CB  latConst_ratio  defPot_gap  weight
+
+            Columns:
+                kidx_VB / kidx_CB  : index into the k-point list of the VB / CB state
+                bidx_VB / bidx_CB  : 0-based band index of the VB / CB state
+                spin_VB / spin_CB  : spin channel of that band, 0=up, 1=down
+                                     (9-col only; ignored physically unless the run is
+                                      spin-polarized without SOC, see below)
+                latConst_ratio     : linear lattice-constant scale of the strained cell
+                                     (a_def / a_org); the deformed Hamiltonian is built
+                                     with this ratio.
+                defPot_gap         : target deformation potential value for this pair
+                weight             : per-entry weight applied in the fit loss
+
+        The spin columns matter only for a spin-polarized (spin-unrestricted) run with
+        no spin-orbit coupling. There the spectrum is spin-doubled and returned
+        interleaved as [up0, dn0, up1, dn1, ...], so band n of spin s sits at index
+        2*n + s; Hamiltonian.calcDefPots uses spin_VB/spin_CB to pick the right sector.
+        In a spin-unpolarized run (or with SOC, where the spinor spectrum already
+        carries spin), the spin columns are not applied and a 9-column file collapses
+        to the same result as the equivalent 7-column file. self.defPotSpin stores the
+        per-entry [spin_VB, spin_CB] integers (or None for a 7-column file).
+        """
         if version == 'v1':
             with open(expDefPotFilename, 'r') as fread:
                 lines = fread.readlines()

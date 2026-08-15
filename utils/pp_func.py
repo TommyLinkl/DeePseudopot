@@ -8,6 +8,7 @@ mpl.rcParams['pdf.fonttype'] = 42
 mpl.rcParams['ps.fonttype'] = 42
 mpl.rcParams['lines.markersize'] = 3
 from .constants import * 
+import scipy.special as scp
 
 torch.set_default_dtype(torch.float64)
 
@@ -520,13 +521,13 @@ def FT_converge_and_write_pp(atomPPOrder, qmax_array, nQGrid_array, nRGrid_array
         qGrid = torch.linspace(0.0, qmax, nQGrid).view(-1, 1)
         NN = model(qGrid)
         for iAtom in range(len(atomPPOrder)):
-            # Add long range term 
-            # This is commented out because numerically FT this function is less accurate than using the analytic FT in post-processing
-            # lr_coeff = PPparams[atomPPOrder[iAtom]][4]
-            # lr_gamma = 0.2
-            # lr_pot = long_range_correction(qGrid, lr_gamma, lr_coeff)
+            # Add long range term
             qSpacePot = NN[:, iAtom].view(-1) # + lr_pot
             (vr, rSpacePot) = realSpacePot(qGrid.view(-1), qSpacePot, nRGrid, Rmax)
+            lr_coeff = PPparams[atomPPOrder[iAtom]][4]
+            lr_gamma = 0.2
+            rSpacePot[1:] += lr_coeff * scp.erf(lr_gamma * vr[1:])/vr[1:]
+            rSpacePot[0] += lr_coeff * scp.erf(lr_gamma * 1e-10) / 1e-10
             if (qmax==choiceQMax) and (nQGrid==choiceNQGrid) and (nRGrid==choiceNRGrid): 
                 axstot[iAtom].plot(vr.detach().numpy(), rSpacePot.detach().numpy(), "-", color=colors[i], label="My FT, 0<q<%d, nQGrid=%d, nRGrid=%d" % (qmax,nQGrid,nRGrid))
             else:
@@ -545,12 +546,14 @@ def FT_converge_and_write_pp(atomPPOrder, qmax_array, nQGrid_array, nRGrid_array
     fig = plotPP(atomPPOrder, val_dataset.q, choiceQGrid, val_dataset.vq_atoms, NN, "ZungerForm", "NN", ["-",":" ]*len(atomPPOrder), False, SHOWPLOTS);
     fig.savefig(ppPlotFilePrefix+".png") 
     for iAtom in range(len(atomPPOrder)):
-        # lr_coeff = PPparams[atomPPOrder[iAtom]][4]
-        # print(f"Atom = {atomPPOrder[iAtom]} lr_coeff = {lr_coeff}")
-        # lr_gamma = 0.2
-        # lr_pot = long_range_correction(qGrid, lr_gamma, lr_coeff)
         qSpacePot = NN[:, iAtom].view(-1) # + lr_pot
         (vr, rSpacePot) = realSpacePot(choiceQGrid.view(-1), qSpacePot, choiceNRGrid, Rmax)
+        # Add long range term
+        lr_coeff = PPparams[atomPPOrder[iAtom]][4]
+        lr_gamma = 0.2
+        rSpacePot[1:] += lr_coeff * scp.erf(lr_gamma * vr[1:])/vr[1:]
+        rSpacePot[0] += lr_coeff * scp.erf(lr_gamma * 1e-10) / 1e-10
+
         pot = torch.cat((vr, rSpacePot), dim=1).detach().numpy()
         potq = torch.cat((choiceQGrid.view(-1,1), NN[:, iAtom].view(-1,1)), dim=1).detach().numpy()
         np.savetxt(potRAtomFilePrefix+"_"+atomPPOrder[iAtom]+".dat", pot, delimiter='    ', fmt='%e')
