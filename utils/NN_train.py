@@ -649,6 +649,17 @@ def format_cost_line(epoch, loss_components):
     return f"{epoch}    {loss_components_total(loss_components):.6e}    {cols}\n"
 
 
+def format_loss_components_str(loss_components):
+    """Human-readable one-line breakdown: the total followed by EVERY entry of
+    LOSS_TERM_NAMES. Every printout / plot title goes through this one helper, so
+    the reported breakdown is identical everywhere and no term (e.g. mag_penalty)
+    can be silently dropped from one printout while present in another."""
+    parts = "  ".join(
+        f"{name} = {loss_components.get(name, 0.0):{'.4g' if name == 'coupling' else '.4f'}}"
+        for name in LOSS_TERM_NAMES)
+    return f"total = {loss_components_total(loss_components):.4f}.  {parts}."
+
+
 def plot_loss_breakdown(train_x, train_history, val_x=None, val_history=None, SHOWPLOTS=False):
     """Plot every non-zero loss component (and the total) vs epoch on a log scale,
     so a run shows which term dominates and how each is trending. train_history /
@@ -763,9 +774,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
                        calcDefPots.detach().numpy(), fmt="%.5f")
 
         print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... "
-              f"total = {loss_components_total(loss_components):.4f}. BS_MSE = {loss_components['bandStruct']:.4f}. "
-              f"Penalty = {loss_components['penalty']:.4f}. mag_penalty = {loss_components['mag_penalty']:.4f}. defPot_MSE = {loss_components['defpot']:.4f}. effMass_MSE = {loss_components['effmass']:.4f}. "
-              f"coupling_MSE = {loss_components['coupling']:.4g}.")
+              f"{format_loss_components_str(loss_components)}")
 
     if loss_components_out is not None:
         loss_components_out.clear()
@@ -774,9 +783,8 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
     total = loss_components_total(loss_components)
     fig = plotBandStruct(systems, plot_bandStruct_list, NNConfig['SHOWPLOTS'])
     print(f"\t{runName}: Finished evaluating all band structures with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. "
-          f"total = {total:.4f}. BS_MSE = {loss_components['bandStruct']:.4f}. Penalty = {loss_components['penalty']:.4f}. defPot_MSE = {loss_components['defpot']:.4f}.")
-    fig.suptitle(f"{runName}: total = {total:.4f}. BS_MSE = {loss_components['bandStruct']:.4f}. Penalty = {loss_components['penalty']:.4f}. "
-                 f"mag_penalty = {loss_components['mag_penalty']:.4f}. defPot_MSE = {loss_components['defpot']:.4f}. effMass_MSE = {loss_components['effmass']:.4f}. coupling_MSE = {loss_components['coupling']:.4g}.")
+          f"{format_loss_components_str(loss_components)}")
+    fig.suptitle(f"{runName}: {format_loss_components_str(loss_components)}")
     fig.savefig(BSplotFilename)
     fig.savefig(BSplotFilename.replace('.pdf', '.png'))
     plt.close('all')
