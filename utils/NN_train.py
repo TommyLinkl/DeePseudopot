@@ -764,7 +764,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
 
         print(f"\t{runName}: Finished evaluating {iSys}-th band structure with no gradient... "
               f"total = {loss_components_total(loss_components):.4f}. BS_MSE = {loss_components['bandStruct']:.4f}. "
-              f"Penalty = {loss_components['penalty']:.4f}. defPot_MSE = {loss_components['defpot']:.4f}. effMass_MSE = {loss_components['effmass']:.4f}. "
+              f"Penalty = {loss_components['penalty']:.4f}. mag_penalty = {loss_components['mag_penalty']:.4f}. defPot_MSE = {loss_components['defpot']:.4f}. effMass_MSE = {loss_components['effmass']:.4f}. "
               f"coupling_MSE = {loss_components['coupling']:.4g}.")
 
     if loss_components_out is not None:
@@ -776,7 +776,7 @@ def evalBS_noGrad(model, BSplotFilename, runName, NNConfig, hams, systems, cache
     print(f"\t{runName}: Finished evaluating all band structures with no gradient... Elapsed time: {(end_time - start_time):.2f} seconds. "
           f"total = {total:.4f}. BS_MSE = {loss_components['bandStruct']:.4f}. Penalty = {loss_components['penalty']:.4f}. defPot_MSE = {loss_components['defpot']:.4f}.")
     fig.suptitle(f"{runName}: total = {total:.4f}. BS_MSE = {loss_components['bandStruct']:.4f}. Penalty = {loss_components['penalty']:.4f}. "
-                 f"defPot_MSE = {loss_components['defpot']:.4f}. effMass_MSE = {loss_components['effmass']:.4f}. coupling_MSE = {loss_components['coupling']:.4g}.")
+                 f"mag_penalty = {loss_components['mag_penalty']:.4f}. defPot_MSE = {loss_components['defpot']:.4f}. effMass_MSE = {loss_components['effmass']:.4f}. coupling_MSE = {loss_components['coupling']:.4g}.")
     fig.savefig(BSplotFilename)
     fig.savefig(BSplotFilename.replace('.pdf', '.png'))
     plt.close('all')
