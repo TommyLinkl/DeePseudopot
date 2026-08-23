@@ -15,7 +15,7 @@ import os
 torch.set_default_dtype(torch.float64)
 
 from .constants import *
-from .pp_func import plotPP, plotPP_spin, plotLSD, plot_training_validation_cost, plotBandStruct, plot_mc_cost, plotBandStruct_reorder
+from .pp_func import plotPP, plotPP_spin, plotLSD, plot_training_validation_cost, plotBandStruct, plot_mc_cost, plotBandStruct_reorder, realSpacePot
 from .smooth_order import reorder_smoothness_deg2_tensors, reorder_kpt_smoothness_deg2_tensors
 from .profiling import PROF
 from .threads import pool_worker_init
@@ -390,32 +390,42 @@ def penalty_loss(f_x, x, penalize_start=4.5, lambda_penalty=1.0, penalize=True):
 
     return penalty
 
-def mag_penalty_loss(f_x, x, f_x_max, lambda_penalty=1.0, penalize=True):
+def mag_penalty_loss(f_x, x, f_x_max, lambda_penalty=1.0, penalize=True, rmax=5.0, nRGrid=500):
+    """Penalize the real-space potential magnitude over a *range* of r.
+
+    Instead of constraining only V(r=0), this Fourier-transforms V(q) -> V(r)
+    on a radial grid r in [0, rmax] (via the vectorized realSpacePot routine in
+    pp_func) and penalizes the excess of |V(r)| over f_x_max at every r. This is
+    a convolution-style penalty: the potential must stay bounded in magnitude
+    across all r, not just at the origin. In practice V(r) decays quickly, so
+    rmax=5 Bohr captures essentially the whole penalized region.
+
+    The per-species penalty is the integral of the pointwise excess over r,
+        integral_0^rmax  relu(|V(r)| - f_x_max)  dr,
+    which is independent of the grid resolution nRGrid. Note this integrated
+    form has a different scale than the old single-point (r=0) penalty, so
+    lambda_penalty may need retuning.
+
+    f_x : V(q) sampled on the q grid `x`. Shape [nQ] or [nQ, nSpecies].
+    x   : q grid, shape [nQ] or [nQ, 1].
+    """
     if (not penalize) or (lambda_penalty <= 0):
         return torch.tensor(0.0)
 
+    q = x.flatten()                        # (nQ,)
+    f_x = f_x.reshape(q.shape[0], -1)      # (nQ, nSpecies)
 
-    dq = x[1] - x[0]
-   # 2. Pre-compute integration weights. Shape: [240, 1]
+    # Fourier-transform each species' V(q) -> V(r) on the shared radial grid and
+    # accumulate the integrated excess over r for each species.
+    excess_terms = []
+    for s in range(f_x.shape[1]):
+        r, V_r = realSpacePot(q, f_x[:, s], nRGrid, rmax=rmax)   # each (nRGrid, 1)
+        dr = r[1, 0] - r[0, 0]
+        excess = torch.relu(torch.abs(V_r) - f_x_max)           # (nRGrid, 1)
+        excess_terms.append(torch.sum(excess) * dr)             # integral over r
 
-    integration_weights = (x ** 2) * dq * (1.0 / (2.0 * (np.pi ** 2)))
-
-
-    # 3. Integrate across the Grid dimension (dim=0)
-    # Resulting V_r0 shape will be [3] (one value per atom species)
-    V_r0 = torch.sum(f_x * integration_weights, dim=0)
-
-    # 4. Get the magnitude of the potential at r=0 for each species
-    abs_V_r0 = torch.abs(V_r0)
-
-    # 5. Calculate excess over the threshold for each species. Shape: [3]
-    excess = torch.relu(abs_V_r0 - f_x_max)
-
-    # 6. Take the mean of the penalties across the 3 species
-    # This reduces it to a single scalar loss value for PyTorch optimizer
-    mag_penalty = lambda_penalty * torch.mean(excess)
-
-
+    # Mean of the integrated penalties across the atom species -> scalar loss.
+    mag_penalty = lambda_penalty * torch.mean(torch.stack(excess_terms))
 
     return mag_penalty
 
@@ -437,11 +447,14 @@ def _mag_penalty_term(model, spinModel, NNConfig, nkpt, device):
     q = torch.linspace(0.0, 12.0, 240, dtype=torch.float64, device=device).view(-1, 1)
     thresh = NNConfig["penalize_mag_threshold"]
     lam = NNConfig["penalize_mag_lambda"] * nkpt
+    # Radial window over which |V(r)| is constrained (defaults: r in [0, 5] Bohr).
+    rmax = NNConfig.get("penalize_mag_rmax", 5.0)
+    nRGrid = NNConfig.get("penalize_mag_nr", 500)
     if spinModel is not None:
-        up = mag_penalty_loss(model(q) + spinModel(q), q, thresh, lam)
-        dn = mag_penalty_loss(model(q) - spinModel(q), q, thresh, lam)
+        up = mag_penalty_loss(model(q) + spinModel(q), q, thresh, lam, rmax=rmax, nRGrid=nRGrid)
+        dn = mag_penalty_loss(model(q) - spinModel(q), q, thresh, lam, rmax=rmax, nRGrid=nRGrid)
         return 0.5 * (up + dn)
-    return mag_penalty_loss(model(q), q, thresh, lam)
+    return mag_penalty_loss(model(q), q, thresh, lam, rmax=rmax, nRGrid=nRGrid)
 
 
 def _defpot_term(ham, bulkSystem, cachedMats_info, requires_grad, device):
@@ -1666,6 +1679,7 @@ def perturb_model(model, hams, percentage=0.0, mode=1, spinModel=None):
             param.data *= perturbation
             
         for atomType in atomPPOrder:
+            print(f"Perturbing the {atomType} SO/NL params by percentage: {percentage}")
             # perturb SOC constant & NL constants
             for p in range(5, 8): # SOC and NL
                 scale = (1 + np.random.random() * (2 * percentage/100) - percentage/100)
