@@ -1402,6 +1402,36 @@ class Hamiltonian:
         return os.path.join(self.mat_cache_dir,
                             f"{kind}_{self.shm_tag}_{self.iSystem}_{kidx}.npy")
 
+    def buildHtot_cached(self, kidx, cachedMats_info=None, requires_grad=True, precomp_Vloc=None):
+        """Return the full dense Htot at k-index `kidx`, loading the SO/NL matrices
+        from the shared-memory / disk cache exactly as calcEigValsAtK does. Provided
+        for the symmetry-block path (utils.symmetry), which needs the DENSE H (not
+        just eigenvalues) to form B^dag H B. Isolated from calcEigValsAtK so the
+        production eigenvalue path is untouched; the shm-load block below mirrors
+        calcEigValsAtK's loader and must be kept in sync with it."""
+        if cachedMats_info is None:
+            preComp_SOmats_kidx = None
+            preComp_NLmats_kidx = None
+        else:
+            if self.SObool:
+                if self.disk_cache:
+                    preComp_SOmats_kidx = np.load(self._mat_cache_path("SOmats", kidx))
+                else:
+                    shm_SOmats = shared_memory.SharedMemory(name=f"SOmats_{self.shm_tag}_{self.iSystem}_{kidx}")
+                    preComp_SOmats_kidx = np.ndarray(cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"SO_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_SOmats.buf)
+            else:
+                preComp_SOmats_kidx = None
+            if self.NLbool and self.checknl:
+                if self.disk_cache:
+                    preComp_NLmats_kidx = np.load(self._mat_cache_path("NLmats", kidx))
+                else:
+                    shm_NLmats = shared_memory.SharedMemory(name=f"NLmats_{self.shm_tag}_{self.iSystem}_{kidx}")
+                    preComp_NLmats_kidx = np.ndarray(cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['shape'], dtype=cachedMats_info[f"NL_{self.iSystem}_{kidx}"]['dtype'], buffer=shm_NLmats.buf)
+            else:
+                preComp_NLmats_kidx = None
+        H = self.buildHtot(kidx, preComp_SOmats_kidx, preComp_NLmats_kidx, requires_grad, precomp_Vloc=precomp_Vloc)
+        return H if requires_grad else H.detach()
+
     def calcEigValsAtK(self, kidx, cachedMats_info=None, requires_grad=True, verbosity=0, def_H=False, def_scale=0.01, precomp_Vloc=None):
         '''
         This function builds the Htot at a certain kpoint that is given as the input, 

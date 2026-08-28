@@ -190,6 +190,238 @@ class Profiler:
 PROF = Profiler()
 
 
+# ---------------------------------------------------------------------------
+# Heuristic (a-priori) memory estimator.
+#
+# Motivation: the RSS-based memory_flag checkpoints (mem_checkpoint above) read
+# the OS resident-set size, which is hard to interpret once the run fans out
+# into many k-point worker processes -- shared-memory SO/NL segments are counted
+# per-process, private per-worker graphs come and go, and the "peak" any single
+# process sees is not the node total. The dominant costs, however, are known a
+# priori: they are fixed by the plane-wave basis size, the numerical precision,
+# the number of matrix groups / k-points, and the NN depth+width. This function
+# totals them from those numbers alone -- no RAM sensing -- and prints a table.
+# It runs unconditionally (independent of memory_flag) so every run leaves a
+# record of its expected peak footprint.
+#
+# The matrices themselves (SO/NL/Vloc/Htot) are allocated as complex128 in
+# ham.py regardless of the torch default dtype; the NN forward/graph runs in the
+# torch default real dtype. Both are reported in the header.
+# ---------------------------------------------------------------------------
+
+_GB = 1024.0 ** 3
+
+
+def _fmt_bytes(nbytes):
+    """Human-readable GB with a MB fallback for small terms."""
+    gb = nbytes / _GB
+    if gb >= 0.01 or nbytes == 0:
+        return f"{gb:8.3f} GB"
+    return f"{nbytes / (1024.0 ** 2):8.2f} MB"
+
+
+def _linear_layer_widths(model):
+    """
+    (in_features, out_features) for every nn.Linear reachable from `model`,
+    in module-registration order. Works across all the Net_* wrappers because
+    it walks .modules() rather than assuming a particular attribute name.
+    Returns [] if torch/model is unavailable.
+    """
+    try:
+        import torch.nn as nn
+    except Exception:
+        return []
+    if model is None:
+        return []
+    widths = []
+    for m in model.modules():
+        if isinstance(m, nn.Linear):
+            widths.append((m.in_features, m.out_features))
+    return widths
+
+
+def estimate_peak_memory(hams, NNConfig, PPmodel=None, spinModel=None,
+                         LSDmodels=None, title="ESTIMATED PEAK MEMORY (heuristic)"):
+    """
+    Print a table of the estimated peak RAM footprint of a DeePseudopot run,
+    computed analytically from the basis size, numerical precision, k-point
+    count, matrix-group count, and NN depth/width -- WITHOUT calling any
+    RAM-sensing utility. Always safe to call (guards every optional field);
+    returns the estimated peak in bytes (or None if it cannot introspect hams).
+
+    Memory model (per BulkSystem, with nbv = basis size, spinor doubling the
+    Hamiltonian dimension to ndimH = 2*nbv):
+
+        SO cache   : nkp * nMatGroups * (2*nbv)^2       * cbytes   [SObool]
+        NL cache   : nkp * nMatGroups * 2 * ndimH^2     * cbytes   [NLbool]
+        Vloc mat   : ndimH^2 * cbytes  +  gdiff/q (nbv^2*(3+1)*fbytes)
+        Htot       : ndimH^2 * cbytes
+        eigensolve : ~2 * ndimH^2 * cbytes  (LAPACK copy + eigenvectors that
+                     torch.linalg.eigvalsh saves for the autograd backward)
+        NN graph   : nbv^2 * 2*sum(layer_widths) * fbytes  (retained activations;
+                     ~0 when checkpoint is on, since they are recomputed)
+        NN params  : 4 * n_params * fbytes  (weights + grad + 2 Adam moments)
+
+    The SO/NL caches are built once and held in shared memory for the whole run
+    (summed across systems, counted once); everything else is transient per
+    k-point worker and is multiplied by the number of concurrent workers
+    (max(1, num_cores)). With low_mem/disk_cache on, the SO/NL caches live on
+    disk and only one k-point per worker is resident, so they move into the
+    per-worker column instead.
+    """
+    if not hams:
+        print(f"[mem-est] no Hamiltonians available; skipping memory estimate.")
+        return None
+
+    # Numerical precision. The stored matrices are complex128 (ham.py hardcodes
+    # np.complex128 / torch.complex128); the NN runs in the torch default real
+    # dtype. Derive both so the header states exactly what was assumed.
+    cbytes = 16  # complex128
+    fbytes = 8   # float64 default
+    default_dtype = "float64"
+    try:
+        import torch
+        fbytes = torch.finfo(torch.get_default_dtype()).bits // 8
+        default_dtype = str(torch.get_default_dtype()).replace("torch.", "")
+    except Exception:
+        pass
+
+    checkpoint = bool(NNConfig.get('checkpoint', False))
+    low_mem = bool(NNConfig.get('low_mem', False))
+    num_cores = int(NNConfig.get('num_cores', 0) or 0)
+    n_workers = max(1, num_cores)
+
+    # NN graph + parameter cost is shared across systems (one PPmodel), but the
+    # retained-activation batch is nbv^2, which is system-dependent. Collect the
+    # per-model width sum and param count once here.
+    nn_widths = _linear_layer_widths(PPmodel)
+    width_sum = sum(a + b for a, b in nn_widths)   # sum over linear layers of (in+out)
+    n_models = 0
+    n_params = 0
+    try:
+        for mdl in [PPmodel, spinModel]:
+            if mdl is not None:
+                n_models += 1
+                n_params += sum(p.numel() for p in mdl.parameters())
+        if LSDmodels:
+            for mdl in LSDmodels.values():
+                if mdl is not None:
+                    n_models += 1
+                    n_params += sum(p.numel() for p in mdl.parameters())
+    except Exception:
+        pass
+    # A spin model doubles the retained-activation graph (a second forward of the
+    # same nbv^2 batch); LSD models add per-atom graphs but are architecture- and
+    # geometry-specific, so we fold only the spin factor into the graph estimate.
+    graph_forward_factor = 2 if (spinModel is not None) else 1
+
+    # Parameter/optimizer memory (weights + grad + 2 Adam moments). Small, but
+    # resident in the parent AND copied into each spawned worker.
+    params_bytes = 4 * n_params * fbytes
+
+    shared_bytes = 0          # allocated once for the whole run
+    per_worker_bytes = 0      # transient; multiplied by n_workers below
+    per_worker_sys = -1
+
+    W = 84
+    print(f"\n{'=' * W}")
+    print(f"{title}")
+    print(f"{'-' * W}")
+    print(f"matrices: complex128 ({cbytes} B/elem)   NN/graph: {default_dtype} "
+          f"({fbytes} B/elem)")
+    print(f"workers (max(1,num_cores)) = {n_workers}   checkpoint = "
+          f"{'ON' if checkpoint else 'OFF'}   low_mem = {'ON' if low_mem else 'OFF'}")
+    if nn_widths:
+        shp = " -> ".join([str(nn_widths[0][0])] + [str(b) for _, b in nn_widths])
+        print(f"PPmodel: {len(nn_widths)} linear layers [{shp}], "
+              f"{n_params:,} params across {n_models} model(s)")
+    print(f"{'-' * W}")
+
+    for iSys, ham in enumerate(hams):
+        try:
+            nbv = int(ham.basis.shape[0])
+            nkp = int(ham.system.getNKpts())
+            spinor = bool(ham.spinor)
+            nMG = int(getattr(ham, 'nMatGroups', 1))
+            SObool = bool(getattr(ham, 'SObool', False))
+            NLbool = bool(getattr(ham, 'NLbool', False)) and bool(getattr(ham, 'checknl', True))
+        except Exception as e:
+            print(f"  system {iSys}: cannot introspect ham ({e}); skipped.")
+            continue
+
+        ndimH = 2 * nbv if spinor else nbv
+
+        so_cache = nkp * nMG * (2 * nbv) ** 2 * cbytes if SObool else 0
+        nl_cache = nkp * nMG * 2 * ndimH ** 2 * cbytes if NLbool else 0
+        # per-k-point (single kpt) versions, used when disk_cache holds the full
+        # stack on disk and only one k-point is resident per worker.
+        so_1k = nMG * (2 * nbv) ** 2 * cbytes if SObool else 0
+        nl_1k = nMG * 2 * ndimH ** 2 * cbytes if NLbool else 0
+
+        vloc = ndimH ** 2 * cbytes + nbv ** 2 * (3 + 1) * fbytes
+        htot = ndimH ** 2 * cbytes
+        eigsolve = 2 * ndimH ** 2 * cbytes
+        nn_graph = 0 if checkpoint else nbv ** 2 * 2 * width_sum * fbytes * graph_forward_factor
+
+        # per-worker transient for THIS system
+        worker_sys = vloc + htot + eigsolve + nn_graph + params_bytes
+        if low_mem:
+            worker_sys += so_1k + nl_1k
+        else:
+            shared_bytes += so_cache + nl_cache
+
+        if worker_sys > per_worker_bytes:
+            per_worker_bytes = worker_sys
+            per_worker_sys = iSys
+
+        print(f"  system {iSys}: nbv={nbv}  nkpt={nkp}  ndimH={ndimH}  "
+              f"nMatGroups={nMG}  spinor={spinor}  SO={SObool}  NL={NLbool}")
+        if not low_mem:
+            if SObool:
+                print(f"      SO cache   (shared)        = {_fmt_bytes(so_cache)}"
+                      f"    [{nkp}*{nMG}*(2*{nbv})^2*{cbytes}]")
+            if NLbool:
+                print(f"      NL cache   (shared)        = {_fmt_bytes(nl_cache)}"
+                      f"    [{nkp}*{nMG}*2*{ndimH}^2*{cbytes}]")
+        else:
+            if SObool:
+                print(f"      SO 1-kpt   (per worker)    = {_fmt_bytes(so_1k)}   [disk_cache]")
+            if NLbool:
+                print(f"      NL 1-kpt   (per worker)    = {_fmt_bytes(nl_1k)}   [disk_cache]")
+        print(f"      Vloc + gdiff/q (per worker)= {_fmt_bytes(vloc)}")
+        print(f"      Htot           (per worker)= {_fmt_bytes(htot)}")
+        print(f"      eigensolve     (per worker)= {_fmt_bytes(eigsolve)}"
+              f"    [copy + saved eigenvectors]")
+        if checkpoint:
+            print(f"      NN graph       (per worker)= {_fmt_bytes(0)}   "
+                  f"[checkpoint ON -> activations recomputed]")
+        else:
+            print(f"      NN graph       (per worker)= {_fmt_bytes(nn_graph)}"
+                  f"    [{nbv}^2*2*{width_sum}*{fbytes}"
+                  f"{'*2(spin)' if graph_forward_factor == 2 else ''}]")
+
+    per_worker_total = n_workers * per_worker_bytes
+    peak = shared_bytes + per_worker_total
+
+    print(f"{'-' * W}")
+    print(f"  NN params + Adam state (per model set)   = {_fmt_bytes(params_bytes)}")
+    print(f"  Shared caches (SO+NL, all systems, once) = {_fmt_bytes(shared_bytes)}")
+    print(f"  Per-worker transient (worst system"
+          f"{'' if per_worker_sys < 0 else f' #{per_worker_sys}'})     "
+          f"= {_fmt_bytes(per_worker_bytes)}")
+    print(f"  Per-worker x {n_workers} worker(s)"
+          f"{' ' * max(1, 20 - len(str(n_workers)))}= {_fmt_bytes(per_worker_total)}")
+    print(f"{'-' * W}")
+    print(f"  ESTIMATED PEAK TOTAL                     = {_fmt_bytes(peak)}")
+    print(f"{'=' * W}")
+    print("  Heuristic upper-ish bound: sums the dominant matrices + NN graph; "
+          "excludes")
+    print("  interpreter/library baseline (~0.3-1 GB/process) and transient "
+          "scratch.")
+    print(f"{'=' * W}\n", flush=True)
+    return peak
+
+
 def benchmark_eigensolve(ndim, dtype=None, thread_counts=(1, 2, 4, 8, 16), repeats=3):
     """
     Time a Hermitian eigenvalue solve (torch.linalg.eigvalsh) on a representative

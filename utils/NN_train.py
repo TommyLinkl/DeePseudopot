@@ -495,7 +495,7 @@ def _defpot_term(ham, bulkSystem, cachedMats_info, requires_grad, device):
 # Canonical, ordered list of the loss components that are tracked, printed, and
 # plotted. "bandStruct" is the per-k-point term the caller adds; the rest are
 # the global terms returned by compute_global_system_losses().
-LOSS_TERM_NAMES = ["bandStruct", "penalty", "mag_penalty", "defpot", "coupling", "effmass"]
+LOSS_TERM_NAMES = ["bandStruct", "penalty", "mag_penalty", "defpot", "coupling", "effmass", "irrep"]
 
 
 def new_loss_components():
@@ -584,6 +584,40 @@ def _effmass_term(ham, bulkSystem, cachedMats_info, requires_grad, device, bandS
     return loss, eff_masses
 
 
+def _irrep_term(model, ham, bulkSystem, cachedMats_info, requires_grad, device):
+    """Symmetry sector-wise loss at the high-symmetry k-points (OPT-IN via
+    NNConfig['irrep_loss']). Zero tensor when disabled. Builds/caches the
+    IrrepContext (SAPW basis + frozen reference labels) on the ham on first call,
+    using whatever model is currently attached -- so the freeze uses the initial
+    potential and the loss is differentiable in the model thereafter. See
+    utils/symmetry/train_hooks.py."""
+    if not ham.NNConfig.get('irrep_loss', False):
+        return torch.tensor(0.0, dtype=torch.float64, device=device)
+    if getattr(ham, '_irrep_ctx', None) is None:
+        from utils.symmetry.train_hooks import build_irrep_context
+        ham._irrep_ctx = build_irrep_context(bulkSystem, ham, ham.NNConfig,
+                                             cachedMats_info, freeze=True, verbosity=1)
+    return ham._irrep_ctx.irrep_loss_term(cachedMats_info, requires_grad=requires_grad)
+
+
+def _log_irrep_diagnostic(systems, hams, NNConfig, cachedMats_info):
+    """Print the ascending irrep sequence at Gamma and R for each system. Builds a
+    diagnostic-only IrrepContext (no reference freeze needed) on first use."""
+    from utils.symmetry.train_hooks import build_irrep_context
+    for iSys, (sys_i, ham) in enumerate(zip(systems, hams)):
+        ctx = getattr(ham, '_irrep_ctx', None)
+        if ctx is None:
+            ctx = build_irrep_context(sys_i, ham, NNConfig, cachedMats_info,
+                                      freeze=False, verbosity=0)
+            ham._irrep_ctx = ctx
+        try:
+            lines = ctx.diagnostic_lines(cachedMats_info, which=('Gamma', 'R'))
+            if lines:
+                print(f"    [irrep diag sys {iSys}]\n{lines}")
+        except Exception as e:
+            print(f"    [irrep diag sys {iSys}] skipped ({e})")
+
+
 def compute_global_system_losses(model, spinModel, ham, bulkSystem, cachedMats_info=None,
                                   requires_grad=True, coupling_debug=False, bandStruct=None):
     """The single source of truth for the GLOBAL (whole-system, k-INDEPENDENT)
@@ -608,6 +642,7 @@ def compute_global_system_losses(model, spinModel, ham, bulkSystem, cachedMats_i
         "defpot": _defpot_term(ham, bulkSystem, cachedMats_info, requires_grad, device),
         "coupling": coupling_loss,
         "effmass": effmass_loss,
+        "irrep": _irrep_term(model, ham, bulkSystem, cachedMats_info, requires_grad, device),
     }
     extras = {"calcCouplings": calcCouplings_dict, "eff_masses": eff_masses}
     return loss_terms, extras
@@ -1425,6 +1460,11 @@ def bandStruct_train_GPU(model, device, NNConfig, systems, hams, atomPPOrder, op
         training_comp_history.append(trainComp)
         print(f"Epoch [{epoch+1}/{NNConfig['max_num_epochs']}], training cost (total incl. penalties): {loss_components_total(trainComp):.4f}  "
               + "  ".join(f"{n}={trainComp[n]:.3g}" for n in LOSS_TERM_NAMES if abs(trainComp[n]) > 0))
+        # Cheap per-epoch irrep-sequence diagnostic at Gamma/R (OPT-IN via
+        # NNConfig['irrep_diagnostic']): logs WHEN the fit enters a wrong basin,
+        # not just that the loss plateaued. Reuses the cached SAPW basis.
+        if NNConfig.get('irrep_diagnostic', False):
+            _log_irrep_diagnostic(systems, hams, NNConfig, cachedMats_info)
         PROF.mem_checkpoint(f"epoch {epoch+1}")
         # Periodic cumulative timing breakdown (build vs diagonalize) so a long
         # run shows where time is going without waiting for the final report.

@@ -1,4 +1,11 @@
 import os, time, sys, glob, re
+import warnings
+
+# Silence the torch.multiprocessing sparse-tensor reconstruction warning: worker
+# processes rebuild the (validly-constructed) sparse SAPW basis / cached matrices
+# without re-running the invariant checks. Benign here; only clutters the log.
+warnings.filterwarnings("ignore",
+                        message="Sparse invariant checks are implicitly disabled")
 
 from utils.config_threads import configure_threads
 
@@ -17,7 +24,7 @@ from utils.init_LSD_train import init_LSD_PP
 from utils.NN_train import weighted_mse_bandStruct, weighted_mse_energiesAtKpt, weighted_relative_mse_bandStruct, weighted_relative_mse_energiesAtKpt, bandStruct_train_GPU, evalBS_noGrad, runMC_NN, write_PP_qSpace, write_PP_qSpace_spin
 from utils.ham import initAndCacheHams, set_LSDModels
 from utils.genMovie import genMovie
-from utils.profiling import PROF, benchmark_eigensolve
+from utils.profiling import PROF, benchmark_eigensolve, estimate_peak_memory
 from utils.threads import available_cpus, plan_blas_threads, set_process_threads
 
 def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
@@ -101,6 +108,14 @@ def main(inputsFolder = 'inputs/', resultsFolder = 'results/'):
     # Initialize the ham class for each BulkSystem. Cache the SO and NL mats.
     hams, cachedMats_info, shm_dict_SO, shm_dict_NL = initAndCacheHams(systems, NNConfig, PPparams, atomPPOrder, device, spinModel=spinModel)
     PROF.mem_checkpoint("after initAndCacheHams")
+
+    # Heuristic a-priori memory estimate. Runs ALWAYS (independent of
+    # memory_flag): unlike the RSS checkpoints, which are hard to read once the
+    # run fans out across k-point worker processes, this totals the dominant
+    # matrices (SO/NL/Vloc/Htot), the eigensolve scratch, and the NN compute
+    # graph purely from basis size, precision, k-points, and NN depth/width.
+    estimate_peak_memory(hams, NNConfig, PPmodel=PPmodel, spinModel=spinModel,
+                         LSDmodels=LSDmodels)
 
     # Give THIS process its linear-algebra thread budget ONLY in the serial
     # (num_cores==0) path, where the eigensolve runs here and no worker pool is
